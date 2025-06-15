@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scan Status - Secrets Scanner</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f8f9fa;
+            color: #333;
+        }
+        
+        .header {
+            background: white;
+            padding: 1rem 2rem;
+            border-bottom: 1px solid #e1e5e9;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #333;
+            text-decoration: none;
+        }
+        
+        .nav-links {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+        
+        .nav-links a {
+            color: #666;
+            text-decoration: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            transition: background-color 0.2s;
+        }
+        
+        .nav-links a:hover {
+            background: #f1f3f4;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        .scan-status-card {
+            background: white;
+            border-radius: 12px;
+            padding: 3rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            border: 1px solid #e1e5e9;
+            text-align: center;
+        }
+        
+        .status-icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+        }
+        
+        .status-title {
+            font-size: 2rem;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 1rem;
+        }
+        
+        .status-description {
+            color: #666;
+            font-size: 1.1rem;
+            margin-bottom: 2rem;
+        }
+        
+        .scan-details {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            text-align: left;
+        }
+        
+        .scan-detail-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.75rem;
+        }
+        
+        .scan-detail-item:last-child {
+            margin-bottom: 0;
+        }
+        
+        .scan-detail-label {
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .scan-detail-value {
+            font-family: monospace;
+            color: #666;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e1e5e9;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 2rem 0;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #28a745, #20c997);
+            animation: progress-animation 2s ease-in-out infinite;
+        }
+        
+        @keyframes progress-animation {
+            0% { transform: translateX(-100%); }
+            50% { transform: translateX(0%); }
+            100% { transform: translateX(100%); }
+        }
+        
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: transform 0.2s;
+            margin: 0 0.5rem;
+        }
+        
+        .btn:hover {
+            transform: translateY(-1px);
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: white;
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+        
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #e1e5e9;
+            border-top: 4px solid #28a745;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .elapsed-time {
+            font-size: 1rem;
+            color: #666;
+            margin-bottom: 1rem;
+        }
+        
+        .commit-display {
+            background: #e3f2fd;
+            border: 1px solid #2196f3;
+            border-radius: 6px;
+            padding: 0.5rem;
+            font-family: monospace;
+            color: #1976d2;
+            display: inline-block;
+            margin: 0.5rem 0;
+            word-break: break-all;
+        }
+        
+        .files-scanned {
+            font-size: 1.1rem;
+            color: #28a745;
+            font-weight: 600;
+            margin-top: 0.5rem;
+            padding: 0.75rem;
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            border-radius: 6px;
+            display: inline-block;
+        }
+        
+        .progress-info {
+            margin: 1rem 0;
+            padding: 1rem;
+            background: #e7f3ff;
+            border: 1px solid #bee5eb;
+            border-radius: 6px;
+        }
+        
+        .progress-text {
+            font-size: 1rem;
+            color: #0c5460;
+            margin-bottom: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <a href="/dashboard" class="logo">
+            🔍 Secrets Scanner
+        </a>
+        <nav class="nav-links">
+            <a href="/dashboard">Dashboard</a>
+            <a href="/settings">⚙️ Settings</a>
+            <a href="/logout">Logout</a>
+        </nav>
+    </header>
+    
+    <div class="container">
+        <div class="scan-status-card">
+            {% if scan.status == 'running' %}
+            <div class="loading-spinner"></div>
+            <div class="status-icon">🔍</div>
+            <h1 class="status-title">Scan in Progress</h1>
+            <p class="status-description">
+                Scanning repository for secrets and sensitive information...
+            </p>
+            
+            {% if scan.files_scanned %}
+            <div class="progress-info">
+                <div class="progress-text">Progress Update</div>
+                <div class="files-scanned">
+                    📄 Files scanned: {{ scan.files_scanned }}
+                </div>
+            </div>
+            {% endif %}
+            
+            <div class="progress-bar">
+                <div class="progress-fill"></div>
+            </div>
+            <div class="elapsed-time" id="elapsedTime">
+                Started: {{ scan.started_at.strftime('%Y-%m-%d %H:%M:%S') }}
+            </div>
+            {% elif scan.status == 'completed' %}
+            <div class="status-icon">✅</div>
+            <h1 class="status-title">Scan Completed</h1>
+            <p class="status-description">
+                The repository scan has been completed successfully.
+            </p>
+            {% elif scan.status == 'timeout' %}
+            <div class="status-icon">⏰</div>
+            <h1 class="status-title">Scan Timed Out</h1>
+            <p class="status-description">
+                The scan took longer than 10 minutes and was automatically cancelled.
+            </p>
+            {% elif scan.status == 'failed' %}
+            <div class="status-icon">❌</div>
+            <h1 class="status-title">Scan Failed</h1>
+            <p class="status-description">
+                {{ scan.error_message }}
+            </p>
+            {% endif %}
+            
+            <div class="scan-details">
+                <div class="scan-detail-item">
+                    <span class="scan-detail-label">Project:</span>
+                    <span class="scan-detail-value">{{ scan.project_name }}</span>
+                </div>
+                <div class="scan-detail-item">
+                    <span class="scan-detail-label">Reference Type:</span>
+                    <span class="scan-detail-value">{{ scan.ref_type }}</span>
+                </div>
+                <div class="scan-detail-item">
+                    <span class="scan-detail-label">Reference:</span>
+                    <span class="scan-detail-value">{{ scan.ref }}</span>
+                </div>
+                {% if scan.repo_commit %}
+                <div class="scan-detail-item">
+                    <span class="scan-detail-label">Commit:</span>
+                    <span class="scan-detail-value commit-display">{{ scan.repo_commit }}</span>
+                </div>
+                {% endif %}
+                <div class="scan-detail-item">
+                    <span class="scan-detail-label">Scan ID:</span>
+                    <span class="scan-detail-value">{{ scan.id }}</span>
+                </div>
+                <div class="scan-detail-item">
+                    <span class="scan-detail-label">Started:</span>
+                    <span class="scan-detail-value">{{ scan.started_at.strftime('%Y-%m-%d %H:%M:%S') }}</span>
+                </div>
+                {% if scan.completed_at %}
+                <div class="scan-detail-item">
+                    <span class="scan-detail-label">Completed:</span>
+                    <span class="scan-detail-value">{{ scan.completed_at.strftime('%Y-%m-%d %H:%M:%S') }}</span>
+                </div>
+                {% endif %}
+            </div>
+            
+            <div style="margin-top: 2rem;">
+                <a href="/project/{{ scan.project_name }}" class="btn btn-secondary">
+                    ← Back to Project
+                </a>
+                
+                {% if scan.status == 'completed' %}
+                <a href="/scan/{{ scan.id }}/results" class="btn btn-primary">
+                    📊 View Results
+                </a>
+                {% elif scan.status == 'running' %}
+                <button class="btn btn-danger" onclick="refreshPage()">
+                    🔄 Refresh Status
+                </button>
+                <form method="post" action="/scan/{{ scan.id }}/delete" style="display: inline;" 
+                      onsubmit="return confirm('Are you sure you want to delete this scan?')">
+                    <button type="submit" class="btn btn-danger">🗑️ Delete Scan</button>
+                </form>
+                {% elif scan.status == 'failed' or scan.status == 'timeout' %}
+                <form method="post" action="/scan/{{ scan.id }}/delete" style="display: inline;" 
+                      onsubmit="return confirm('Are you sure you want to delete this scan?')">
+                    <button type="submit" class="btn btn-danger">🗑️ Delete Scan</button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        function refreshPage() {
+            window.location.reload();
+        }
+        
+        // Auto-refresh every 3 seconds if scan is running
+        {% if scan.status == 'running' %}
+        setInterval(() => {
+            window.location.reload();
+        }, 3000);
+        
+        // Update elapsed time
+        function updateElapsedTime() {
+            const startTime = new Date('{{ scan.started_at.strftime('%Y-%m-%dT%H:%M:%S') }}');
+            const now = new Date();
+            const elapsed = Math.floor((now - startTime) / 1000);
+            
+            const minutes = Math.floor(elapsed / 60);
+            const seconds = elapsed % 60;
+            
+            const elapsedElement = document.getElementById('elapsedTime');
+            if (elapsedElement) {
+                elapsedElement.innerHTML = `
+                    Started: {{ scan.started_at.strftime('%Y-%m-%d %H:%M:%S') }}<br>
+                    Elapsed: ${minutes}m ${seconds}s
+                `;
+            }
+        }
+        
+        // Update elapsed time every second
+        updateElapsedTime();
+        setInterval(updateElapsedTime, 1000);
+        {% endif %}
+        
+        {% if scan.status == 'completed' %}
+        // Auto-redirect to results after 2 seconds
+        setTimeout(() => {
+            window.location.href = '/scan/{{ scan.id }}/results';
+        }, 2000);
+        {% endif %}
+    </script>
+</body>
+</html>

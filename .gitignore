@@ -5,6 +5,10 @@ __pycache__/
 
 # C extensions
 *.so
+secrets_aggregator.db
+backups/
+Auth/
+database/
 
 # Distribution / packaging
 .Python

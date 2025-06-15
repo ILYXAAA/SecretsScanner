@@ -1,0 +1,1731 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scan Results - {{ project.name }}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #fafbfc;
+            color: #1f2937;
+            height: 100vh;
+            overflow: hidden;
+            line-height: 1.5;
+        }
+        
+        .header {
+            background: #ffffff;
+            padding: 1.25rem 2rem;
+            border-bottom: 1px solid #e5e7eb;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 72px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        }
+        
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 1.375rem;
+            font-weight: 700;
+            color: #1f2937;
+            text-decoration: none;
+            letter-spacing: -0.025em;
+        }
+        
+        .nav-links {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+        
+        .nav-links a {
+            color: #6b7280;
+            text-decoration: none;
+            padding: 0.625rem 1rem;
+            border-radius: 8px;
+            transition: all 0.2s ease;
+            font-weight: 500;
+            font-size: 0.9rem;
+        }
+        
+        .nav-links a:hover {
+            background: #f3f4f6;
+            color: #374151;
+        }
+        
+        .main-content {
+            display: flex;
+            height: calc(100vh - 72px);
+        }
+        
+        .left-panel {
+            width: 60%;
+            background: #ffffff;
+            border-right: 1px solid #e5e7eb;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .right-panel {
+            width: 40%;
+            background: #fafbfc;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .panel-header {
+            padding: 1rem 2rem;
+            border-bottom: 1px solid #e5e7eb;
+            background: #ffffff;
+        }
+        
+        .project-info {
+            margin-bottom: 0.75rem;
+        }
+        
+        .project-title {
+            font-size: 1.375rem;
+            font-weight: 700;
+            color: #1f2937;
+            margin-bottom: 0.25rem;
+            letter-spacing: -0.025em;
+        }
+        
+        .commit-info {
+            color: #6b7280;
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+            font-size: 0.75rem;
+            margin-bottom: 0.25rem;
+            font-weight: 500;
+        }
+
+        .files-scanned {
+            color: #6b7280;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+        
+        .stats-summary {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+        }
+        
+        .stat-item {
+            background: linear-gradient(135deg, #ffffff 0%, #f9fafb 100%);
+            padding: 0.75rem;
+            border-radius: 8px;
+            text-align: center;
+            border: 1px solid #e5e7eb;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .stat-item:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+        
+        .stat-number {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #1f2937;
+            margin-bottom: 0.125rem;
+            letter-spacing: -0.025em;
+        }
+        
+        .stat-number.high {
+            color: #dc2626;
+        }
+        
+        .stat-label {
+            font-size: 0.75rem;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-weight: 600;
+        }
+        
+        .actions-row {
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .left-actions {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        .right-actions {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+        
+        .btn {
+            padding: 0.375rem 0.75rem;
+            border: none;
+            border-radius: 6px;
+            font-weight: 500;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+            font-size: 0.8125rem;
+            transition: all 0.2s ease;
+            line-height: 1.4;
+        }
+        
+        .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+        
+        .btn-primary {
+            background: #3b82f6;
+            color: white;
+            box-shadow: 0 1px 3px rgba(59, 130, 246, 0.3);
+        }
+        
+        .btn-primary:hover {
+            background: #2563eb;
+        }
+        
+        .btn-secondary {
+            background: #6b7280;
+            color: white;
+            box-shadow: 0 1px 3px rgba(107, 114, 128, 0.3);
+        }
+        
+        .btn-secondary:hover {
+            background: #4b5563;
+        }
+        
+        .btn-success {
+            background: #10b981;
+            color: white;
+            box-shadow: 0 1px 3px rgba(16, 185, 129, 0.3);
+        }
+        
+        .btn-success:hover {
+            background: #059669;
+        }
+        
+        .btn-warning {
+            background: #f59e0b;
+            color: white;
+            box-shadow: 0 1px 3px rgba(245, 158, 11, 0.3);
+        }
+        
+        .btn-warning:hover {
+            background: #d97706;
+        }
+        
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+            box-shadow: 0 1px 3px rgba(239, 68, 68, 0.3);
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+
+        .btn-info {
+            background: #06b6d4;
+            color: white;
+            box-shadow: 0 1px 3px rgba(6, 182, 212, 0.3);
+        }
+
+        .btn-info:hover {
+            background: #0891b2;
+        }
+        
+        .bulk-actions {
+            background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+            border: 1px solid #f59e0b;
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            margin: 0.75rem 2rem;
+            display: none;
+            font-weight: 500;
+            box-shadow: 0 1px 3px rgba(245, 158, 11, 0.1);
+            font-size: 0.8125rem;
+        }
+        
+        .bulk-actions.show {
+            display: block;
+        }
+        
+        /* TABLE STYLES */
+        .secrets-table-container {
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding: 0;
+        }
+        
+        .secrets-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #ffffff;
+        }
+        
+        .table-header {
+            background: #f8fafc;
+            border-bottom: 2px solid #e5e7eb;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        
+        .table-header th {
+            padding: 0.75rem 1rem;
+            text-align: left;
+            font-weight: 600;
+            color: #374151;
+            font-size: 0.875rem;
+            border-right: 1px solid #e5e7eb;
+            cursor: pointer;
+            user-select: none;
+            transition: background-color 0.2s ease;
+            position: relative;
+        }
+        
+        .table-header th:hover {
+            background: #f1f5f9;
+        }
+        
+        .table-header th.sortable::after {
+            content: '↕️';
+            margin-left: 0.5rem;
+            opacity: 0.5;
+            font-size: 0.75rem;
+        }
+        
+        .table-header th.sort-asc::after {
+            content: '↑';
+            opacity: 1;
+            color: #3b82f6;
+        }
+        
+        .table-header th.sort-desc::after {
+            content: '↓';
+            opacity: 1;
+            color: #3b82f6;
+        }
+        
+        .table-header th:first-child {
+            width: 40px;
+            cursor: default;
+            display: none;
+        }
+        
+        .table-header th:first-child.show {
+            display: table-cell;
+        }
+        
+        .secret-row td:first-child {
+            display: none;
+        }
+        
+        .secret-row td:first-child.show {
+            display: table-cell;
+        }
+        
+        .table-header th:nth-child(2) { width: 25%; } /* Secret */
+        .table-header th:nth-child(3) { width: 8%; } /* Line */
+        .table-header th:nth-child(4) { width: 20%; } /* File */
+        .table-header th:nth-child(5) { width: 15%; } /* Type */
+        .table-header th:nth-child(6) { width: 15%; } /* Status */
+        .table-header th:nth-child(7) { width: 12%; } /* Level */
+        
+        .secret-row {
+            border-bottom: 1px solid #f3f4f6;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            background: #ffffff;
+        }
+        
+        .secret-row:hover {
+            background: #f8fafc;
+            transform: translateX(2px);
+            box-shadow: 2px 0 8px rgba(0, 0, 0, 0.05);
+        }
+        
+        .secret-row.selected {
+            background: #eff6ff;
+            border-left: 4px solid #3b82f6;
+            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.15);
+        }
+
+        .secret-row.multi-selected {
+            background: #f0fdf4;
+            border-left: 4px solid #10b981;
+            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.15);
+        }
+        
+        .secret-row.high {
+            border-left: 4px solid #ef4444;
+        }
+        
+        .secret-row.potential {
+            border-left: 4px solid #6b7280;
+        }
+        
+        .secret-row td {
+            padding: 0.75rem 1rem;
+            vertical-align: middle;
+            border-right: 1px solid #f3f4f6;
+            font-size: 0.875rem;
+        }
+        
+        .secret-checkbox {
+            margin: 0;
+            display: none;
+            width: 16px;
+            height: 16px;
+            accent-color: #10b981;
+        }
+        
+        .secret-checkbox.show {
+            display: block;
+        }
+        
+        .secret-value {
+            font-weight: 600;
+            color: #1f2937;
+            font-size: 0.75rem;
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+            word-break: break-all;
+            background: #f9fafb;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            border: 1px solid #e5e7eb;
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .secret-line {
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+            font-weight: 600;
+            color: #059669;
+        }
+        
+        .secret-file {
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+            color: #6b7280;
+            font-size: 0.8125rem;
+            font-weight: 500;
+            word-break: break-all;
+        }
+        
+        .secret-type {
+            background: #f3f4f6;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            color: #374151;
+            display: inline-block;
+        }
+        
+        .secret-status {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            font-size: 0.8125rem;
+            font-weight: 500;
+        }
+        
+        .status-confirmed {
+            color: #059669;
+        }
+        
+        .status-refuted {
+            color: #dc2626;
+        }
+        
+        .status-none {
+            color: #6b7280;
+        }
+        
+        .secret-severity {
+            padding: 0.25rem 0.5rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.025em;
+            display: inline-block;
+        }
+        
+        .secret-severity.high {
+            background: #fef2f2;
+            color: #dc2626;
+            border: 1px solid #fecaca;
+        }
+        
+        .secret-severity.potential {
+            background: #f9fafb;
+            color: #6b7280;
+            border: 1px solid #e5e7eb;
+        }
+        
+        .bulk-mode-active .secret-row {
+            user-select: none;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+        }
+        
+        .detail-panel {
+            flex: 1;
+            padding: 2rem;
+            overflow-y: auto;
+            background: #ffffff;
+        }
+        
+        .detail-empty {
+            text-align: center;
+            color: #6b7280;
+            padding: 4rem 2rem;
+        }
+        
+        .detail-content h3 {
+            margin-bottom: 1.5rem;
+            color: #1f2937;
+            font-size: 1.5rem;
+            font-weight: 700;
+            letter-spacing: -0.025em;
+        }
+        
+        .detail-section {
+            margin-bottom: 2rem;
+        }
+        
+        .detail-section h4 {
+            margin-bottom: 0.75rem;
+            color: #1f2937;
+            font-size: 1rem;
+            font-weight: 600;
+        }
+        
+        .detail-field {
+            background: #f9fafb;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 0.75rem;
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+            font-size: 0.875rem;
+            border: 1px solid #e5e7eb;
+            transition: all 0.2s ease;
+        }
+        
+        .detail-field.clickable {
+            cursor: pointer;
+            color: #059669;
+            font-weight: 500;
+        }
+        
+        .detail-field.clickable:hover {
+            background: #ecfdf5;
+            border-color: #10b981;
+            transform: translateY(-1px);
+        }
+        
+        .status-controls {
+            background: #ffffff;
+            padding: 1.5rem;
+            border-radius: 12px;
+            border: 1px solid #e5e7eb;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        }
+        
+        .status-buttons {
+            display: flex;
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+        
+        .status-btn {
+            padding: 0.625rem 1.25rem;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            background: #ffffff;
+            cursor: pointer;
+            font-size: 0.875rem;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            flex: 1;
+            min-width: 120px;
+        }
+        
+        .status-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+        
+        .status-btn.active {
+            background: #10b981;
+            color: white;
+            border-color: #10b981;
+            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+        }
+        
+        .comment-section {
+            margin-top: 1rem;
+        }
+        
+        .comment-section textarea {
+            width: 100%;
+            padding: 1rem;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            resize: vertical;
+            min-height: 100px;
+            font-family: inherit;
+            font-size: 0.875rem;
+            transition: border-color 0.2s ease;
+        }
+
+        .comment-section textarea:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+        
+        .empty-results {
+            text-align: center;
+            padding: 4rem;
+            color: #6b7280;
+        }
+
+        .filters-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            backdrop-filter: blur(4px);
+        }
+
+        .filters-modal.show {
+            display: flex;
+        }
+
+        .filters-content {
+            background: #ffffff;
+            padding: 2rem;
+            border-radius: 16px;
+            width: 420px;
+            max-width: 90vw;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        }
+
+        .filters-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+            color: #1f2937;
+            letter-spacing: -0.025em;
+        }
+
+        .filter-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .filter-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+            color: #374151;
+        }
+
+        .filter-group select {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 0.875rem;
+            transition: border-color 0.2s ease;
+        }
+
+        .filter-group select:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            accent-color: #3b82f6;
+        }
+
+        .filters-actions {
+            display: flex;
+            gap: 1rem;
+            justify-content: flex-end;
+            margin-top: 2rem;
+        }
+
+        .bulk-detail-panel {
+            background: #ffffff;
+            padding: 2rem;
+            border-radius: 12px;
+            border: 1px solid #e5e7eb;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        }
+
+        .bulk-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            color: #1f2937;
+            letter-spacing: -0.025em;
+        }
+
+        .bulk-section {
+            margin-bottom: 2rem;
+        }
+
+        .bulk-section h4 {
+            margin-bottom: 1rem;
+            color: #1f2937;
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        .bulk-count {
+            font-weight: 700;
+            color: #10b981;
+        }
+
+        .high-bg {
+            background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+            border-color: #fecaca;
+        }
+
+        .high-text {
+            color: #dc2626;
+            font-weight: 700;
+        }
+
+        .potential-bg {
+            background: linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%);
+            border-color: #e5e7eb;
+        }
+
+        .bulk-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.75rem 1.25rem;
+            font-size: 0.875rem;
+            font-weight: 600;
+            line-height: 1.4;
+            border: none;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: all 0.2s ease;
+        }
+
+        .bulk-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+            gap: 0.75rem;
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+        }
+
+        .status-buttons {
+            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+        }
+
+        .severity-buttons {
+            background: linear-gradient(135deg, #fafbfc 0%, #f3f4f6 100%);
+        }
+
+        .status-none-btn {
+            background: #f3f4f6;
+            color: #374151;
+        }
+        .status-none-btn:hover {
+            background: #e5e7eb;
+            transform: translateY(-1px);
+        }
+
+        .status-confirmed-btn {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        .status-confirmed-btn:hover {
+            background: #a7f3d0;
+            transform: translateY(-1px);
+        }
+
+        .status-refuted-btn {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        .status-refuted-btn:hover {
+            background: #fecaca;
+            transform: translateY(-1px);
+        }
+
+        .severity-high-btn {
+            background: #dc2626;
+            color: #ffffff;
+            box-shadow: 0 2px 4px rgba(220, 38, 38, 0.3);
+        }
+        .severity-high-btn:hover {
+            background: #b91c1c;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(220, 38, 38, 0.4);
+        }
+
+        .severity-potential-btn {
+            background: #e5e7eb;
+            color: #1f2937;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+        .severity-potential-btn:hover {
+            background: #d1d5db;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+        }
+
+        .refuted-date {
+            font-size: 0.75rem;
+            color: #9ca3af;
+            margin-top: 0.25rem;
+            font-weight: 400;
+        }
+
+        .previous-status {
+            font-size: 0.75rem;
+            color: #92400e;
+            margin-top: 0.5rem;
+            padding: 0.5rem 0.75rem;
+            background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+            border-radius: 8px;
+            border-left: 3px solid #f59e0b;
+        }
+
+        .previous-status .status-confirmed,
+        .previous-status .status-refuted {
+            font-size: 0.75rem;
+        }
+
+        /* Scrollbar styling */
+        .secrets-table-container::-webkit-scrollbar,
+        .detail-panel::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .secrets-table-container::-webkit-scrollbar-track,
+        .detail-panel::-webkit-scrollbar-track {
+            background: #f3f4f6;
+        }
+
+        .secrets-table-container::-webkit-scrollbar-thumb,
+        .detail-panel::-webkit-scrollbar-thumb {
+            background: #d1d5db;
+            border-radius: 3px;
+        }
+
+        .secrets-table-container::-webkit-scrollbar-thumb:hover,
+        .detail-panel::-webkit-scrollbar-thumb:hover {
+            background: #9ca3af;
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <a href="/dashboard" class="logo">
+            🔍 Secrets Scanner
+        </a>
+        <nav class="nav-links">
+            <a href="/dashboard">🌐 Главная</a>
+            <a href="/settings">⚙️ Настройки</a>
+            <a href="/logout">🔚 Выйти</a>
+        </nav>
+    </header>
+    
+    <div class="main-content">
+        <div class="left-panel">
+            <div class="panel-header">
+                <div class="project-info">
+                    <div class="project-title">{{ project.name }}</div>
+                    <div class="commit-info">
+                        ⚙️ Commit: <span style="font-weight: bold; color: #3b82f6;">{{ scan.repo_commit if scan.repo_commit else 'Unknown' }}</span>
+                    </div>
+                    <div class="commit-info">
+                        🕒 Scanned: <span style="font-weight: bold; color: #3b82f6;">{{ scan.completed_at.strftime('%Y-%m-%d %H:%M') if scan.completed_at else scan.started_at.strftime('%Y-%m-%d %H:%M') }}
+                    </div>
+                    {% if scan.files_scanned %}
+                    <div class="files-scanned">
+                        📂 Files scanned: <span style="font-weight: bold; color: #3b82f6;">{{ scan.files_scanned }}</span>
+                    </div>
+                    {% endif %}
+                </div>
+                                
+                <div class="stats-summary">
+                    <div class="stat-item">
+                        <div class="stat-number">
+                            {{ total_secrets if total_secrets is defined else (secrets|selectattr('is_exception', 'equalto', False)|list|length) }}
+                        </div>
+                        <div class="stat-label">Total</div>
+                    </div>
+                    <div class="stat-item high-bg">
+                        <div class="stat-number high-text">
+                            {{ high_secrets if high_secrets is defined else (secrets|selectattr('severity', 'equalto', 'High')|selectattr('is_exception', 'equalto', False)|list|length) }}
+                        </div>
+                        <div class="stat-label high-text">High</div>
+                    </div>
+                    <div class="stat-item potential-bg">
+                        <div class="stat-number">
+                            {{ potential_secrets if potential_secrets is defined else (secrets|selectattr('severity', 'equalto', 'Potential')|selectattr('is_exception', 'equalto', False)|list|length) }}
+                        </div>
+                        <div class="stat-label">Potential</div>
+                    </div>
+                </div>
+                
+                <div class="actions-row">
+                    <div class="left-actions">
+                        <a href="/project/{{ project.name }}" class="btn btn-secondary">← Back to Project</a>
+                        <button class="btn btn-primary" id="bulkModeBtn">📌 Multi-select</button>
+                    </div>
+                    <div class="right-actions">
+                        <button class="btn btn-info" onclick="showFiltersModal()">🔍 Фильтры</button>
+                        <form method="post" action="/scan/{{ scan.id }}/delete" style="display: inline;" 
+                              onsubmit="return confirm('Are you sure you want to delete this scan and all its data?')">
+                            <button type="submit" class="btn btn-danger">🗑️ Удалить скан</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="bulk-actions" id="bulkActions">
+                <strong>Multi-select:</strong> <span id="selectedCount">0</span> секретов выбрано
+            </div>
+
+            <div class="secrets-table-container">
+                {% if secrets %}
+                <table class="secrets-table">
+                    <thead class="table-header">
+                        <tr>
+                            <th></th>
+                            <th>🔑 Secret</th>
+                            <th>📍 Line</th>
+                            <th class="sortable" data-sort="file">📁 File</th>
+                            <th class="sortable" data-sort="type">🏷️ Type</th>
+                            <th class="sortable" data-sort="status">📊 Status</th>
+                            <th class="sortable" data-sort="severity">⚠️ Level</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for secret in secrets %}
+                        <tr class="secret-row {{ secret.severity.lower() }}" data-secret-id="{{ secret.id }}">
+                            <td>
+                                <input type="checkbox" class="secret-checkbox">
+                            </td>
+                            <td>
+                                <div class="secret-value">{{ secret.secret }}</div>
+                            </td>
+                            <td>
+                                <span class="secret-line">{{ secret.line }}</span>
+                            </td>
+                            <td>
+                                <span class="secret-file">{{ secret.path | basename }}</span>
+                            </td>
+                            <td>
+                                <span class="secret-type">{{ secret.type }}</span>
+                            </td>
+                            <td>
+                                <div class="secret-status">
+                                    {% if secret.status == 'Confirmed' %}
+                                    <span class="status-confirmed">✅ Подтвержденный</span>
+                                    {% elif secret.status == 'Refuted' %}
+                                    <span class="status-refuted">❌ Опровергнут</span>
+                                    {% if secret.refuted_at %}
+                                    <div class="refuted-date">{{ secret.refuted_at.strftime('%Y-%m-%d %H:%M') }}</div>
+                                    {% endif %}
+                                    {% else %}
+                                    <span class="status-none">⚪ Без статуса</span>
+                                    {% endif %}
+                                </div>
+                            </td>
+                            <td>
+                                <div class="secret-severity {{ secret.severity.lower() }}">{{ secret.severity }}</div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                    <div class="empty-results">
+                        <h3>No secrets found</h3>
+                        <p>{% if current_filters.severity or current_filters.type %}No secrets match the current filters.{% else %}This scan didn't find any secrets in the repository.{% endif %}</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="right-panel">
+            <div class="panel-header">
+                <h3>Secret Details</h3>
+                <a href="/scan/{{ scan.id }}/export" class="btn btn-success">📥 Export JSON</a>
+            </div>
+            <div class="detail-panel" id="detailPanel">
+                <div class="detail-empty">
+                    <div style="text-align: center; padding: 2rem;">
+                        <div style="font-size: 3rem; margin-bottom: 1rem;">👈</div>
+                        <h3>Выберите секрет, чтобы просмотреть подробную информацию</h3>
+                        <p>Нажмите на любой секрет из списка, чтобы просмотреть подробную информацию, управлять его статусом и получить доступ к расположению файла.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filters Modal -->
+    <div class="filters-modal" id="filtersModal">
+        <div class="filters-content">
+            <h3 class="filters-title">🔍 Фильтр</h3>
+            <form id="filtersForm">
+                <div class="filter-group">
+                    <label for="severityFilter">Уровень:</label>
+                    <select id="severityFilter">
+                        <option value="">All</option>
+                        {% for severity in unique_severities %}
+                        <option value="{{ severity }}" {% if current_filters.severity == severity %}selected{% endif %}>{{ severity }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="typeFilter">Тип:</label>
+                    <select id="typeFilter">
+                        <option value="">All</option>
+                        {% for type in unique_types %}
+                        <option value="{{ type }}" {% if current_filters.type == type %}selected{% endif %}>{{ type }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="showExceptions" {% if current_filters.show_exceptions %}checked{% endif %}>
+                        <label for="showExceptions">Показывать опровергнутые</label>
+                    </div>
+                </div>
+                <div class="filters-actions">
+                    <button type="button" class="btn btn-secondary" onclick="hideFiltersModal()">Назад</button>
+                    <button type="button" class="btn btn-primary" onclick="applyFilters()">Применить фильтры</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <script>
+        // Global variables
+        let bulkMode = false;
+        let selectedSecrets = new Set();
+        let currentSecret = null;
+        let lastClickedIndex = -1;
+        let sortColumns = []; // Array of {column, direction} objects
+        let originalOrder = [];
+        
+        // Server-side data
+        const secretsData = {{ secrets_data | tojson | safe }};
+        const projectRepoUrl = {{ project.repo_url | tojson | safe }};
+        const scanCommit = {{ scan.repo_commit | tojson | safe }};
+        const hubType = {{ hub_type | tojson | safe }};
+        
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('Page loaded with', secretsData.length, 'secrets');
+            initializeEventListeners();
+            initializeSorting();
+            storeOriginalOrder();
+        });
+        
+        function initializeEventListeners() {
+            // Bulk mode button
+            const bulkModeBtn = document.getElementById('bulkModeBtn');
+            if (bulkModeBtn) {
+                bulkModeBtn.addEventListener('click', toggleBulkMode);
+            }
+            
+            // Secret items (table rows)
+            const secretRows = document.querySelectorAll('.secret-row');
+            secretRows.forEach((row, index) => {
+                row.addEventListener('click', function(e) {
+                    handleSecretClick(e, parseInt(row.dataset.secretId), index);
+                });
+            });
+        }
+        
+        function initializeSorting() {
+            const sortableHeaders = document.querySelectorAll('.sortable');
+            sortableHeaders.forEach(header => {
+                header.addEventListener('click', function() {
+                    const column = this.dataset.sort;
+                    handleSort(column);
+                });
+            });
+        }
+        
+        function storeOriginalOrder() {
+            const rows = document.querySelectorAll('.secret-row');
+            originalOrder = Array.from(rows).map(row => ({
+                id: row.dataset.secretId,
+                element: row.cloneNode(true)
+            }));
+        }
+        
+        function handleSort(column) {
+            // Check if this column is already being sorted
+            const existingSortIndex = sortColumns.findIndex(sort => sort.column === column);
+            
+            if (existingSortIndex !== -1) {
+                // Column exists, cycle through directions
+                const currentSort = sortColumns[existingSortIndex];
+                if (currentSort.direction === 'asc') {
+                    currentSort.direction = 'desc';
+                } else {
+                    // Remove this column from sorting
+                    sortColumns.splice(existingSortIndex, 1);
+                }
+            } else {
+                // New column, add to sorting
+                sortColumns.push({ column: column, direction: 'asc' });
+            }
+            
+            // Update header indicators
+            updateSortIndicators();
+            
+            // Sort the table
+            sortTable();
+        }
+        
+        function updateSortIndicators() {
+            // Reset all headers
+            const headers = document.querySelectorAll('.sortable');
+            headers.forEach(header => {
+                header.classList.remove('sort-asc', 'sort-desc');
+                // Remove any existing sort numbers
+                const existingNumber = header.querySelector('.sort-number');
+                if (existingNumber) existingNumber.remove();
+            });
+            
+            // Set current sort indicators
+            sortColumns.forEach((sort, index) => {
+                const header = document.querySelector(`[data-sort="${sort.column}"]`);
+                if (header) {
+                    header.classList.add(`sort-${sort.direction}`);
+                    
+                    // Add sort order number if multiple columns
+                    if (sortColumns.length > 1) {
+                        const sortNumber = document.createElement('span');
+                        sortNumber.className = 'sort-number';
+                        sortNumber.textContent = index + 1;
+                        sortNumber.style.cssText = 'font-size: 0.7rem; background: #3b82f6; color: white; border-radius: 50%; width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; margin-left: 4px;';
+                        header.appendChild(sortNumber);
+                    }
+                }
+            });
+        }
+        
+        function sortTable() {
+            const tbody = document.querySelector('.secrets-table tbody');
+            if (!tbody) return;
+            
+            let rows = Array.from(tbody.querySelectorAll('.secret-row'));
+            
+            if (sortColumns.length === 0) {
+                // No sorting, restore original order
+                tbody.innerHTML = '';
+                originalOrder.forEach(item => {
+                    const newRow = item.element.cloneNode(true);
+                    tbody.appendChild(newRow);
+                });
+                reinitializeAfterSort();
+                return;
+            }
+            
+            // Multi-column sort
+            rows.sort((a, b) => {
+                for (let sort of sortColumns) {
+                    let valueA, valueB;
+                    
+                    switch (sort.column) {
+                        case 'file':
+                            valueA = a.querySelector('.secret-file').textContent.toLowerCase();
+                            valueB = b.querySelector('.secret-file').textContent.toLowerCase();
+                            break;
+                        case 'type':
+                            valueA = a.querySelector('.secret-type').textContent.toLowerCase();
+                            valueB = b.querySelector('.secret-type').textContent.toLowerCase();
+                            break;
+                        case 'status':
+                            const statusOrder = { 'confirmed': 3, 'none': 2, 'refuted': 1 };
+                            const statusA = a.querySelector('.secret-status span').className.split(' ')[0].replace('status-', '');
+                            const statusB = b.querySelector('.secret-status span').className.split(' ')[0].replace('status-', '');
+                            valueA = statusOrder[statusA] || 0;
+                            valueB = statusOrder[statusB] || 0;
+                            break;
+                        case 'severity':
+                            const severityOrder = { 'high': 2, 'potential': 1 };
+                            valueA = severityOrder[a.querySelector('.secret-severity').textContent.toLowerCase()] || 0;
+                            valueB = severityOrder[b.querySelector('.secret-severity').textContent.toLowerCase()] || 0;
+                            break;
+                        default:
+                            continue;
+                    }
+                    
+                    let comparison = 0;
+                    if (valueA < valueB) comparison = -1;
+                    else if (valueA > valueB) comparison = 1;
+                    
+                    if (comparison !== 0) {
+                        return sort.direction === 'asc' ? comparison : -comparison;
+                    }
+                }
+                return 0;
+            });
+            
+            // Re-append sorted rows
+            tbody.innerHTML = '';
+            rows.forEach(row => tbody.appendChild(row));
+            
+            reinitializeAfterSort();
+        }
+        
+        function reinitializeAfterSort() {
+            // Reset last clicked index
+            lastClickedIndex = -1;
+            
+            // Re-attach all event listeners with fresh indexes
+            const secretRows = document.querySelectorAll('.secret-row');
+            secretRows.forEach((row, index) => {
+                // Remove any existing listeners by cloning the element
+                const newRow = row.cloneNode(true);
+                row.parentNode.replaceChild(newRow, row);
+                
+                // Add fresh event listener
+                newRow.addEventListener('click', function(e) {
+                    handleSecretClick(e, parseInt(newRow.dataset.secretId), index);
+                });
+                
+                // Restore bulk mode state if needed
+                if (bulkMode) {
+                    const checkbox = newRow.querySelector('.secret-checkbox');
+                    const checkboxCell = newRow.querySelector('td:first-child');
+                    
+                    if (checkbox) checkbox.classList.add('show');
+                    if (checkboxCell) checkboxCell.classList.add('show');
+                    
+                    // Restore selection state
+                    const secretId = parseInt(newRow.dataset.secretId);
+                    if (selectedSecrets.has(secretId)) {
+                        if (checkbox) checkbox.checked = true;
+                        newRow.classList.add('multi-selected');
+                    }
+                }
+            });
+        }
+        
+        function attachRowListeners(row) {
+            // This function is no longer used - replaced by reinitializeAfterSort
+        }
+        
+        function handleSecretClick(e, secretId, index) {
+            // Handle checkbox clicks in bulk mode
+            if (e.target.type === 'checkbox') {
+                updateSelection();
+                return;
+            }
+            
+            // Handle shift+click for range selection
+            if (bulkMode && e.shiftKey && lastClickedIndex !== -1) {
+                const start = Math.min(lastClickedIndex, index);
+                const end = Math.max(lastClickedIndex, index);
+                
+                const allRows = document.querySelectorAll('.secret-row');
+                for (let i = start; i <= end; i++) {
+                    if (allRows[i]) {
+                        const checkbox = allRows[i].querySelector('.secret-checkbox');
+                        if (checkbox) checkbox.checked = true;
+                    }
+                }
+                updateSelection();
+                e.preventDefault();
+                return;
+            }
+            
+            lastClickedIndex = index;
+            
+            if (bulkMode) {
+                // Toggle checkbox in bulk mode
+                const checkbox = e.currentTarget.querySelector('.secret-checkbox');
+                if (checkbox) {
+                    checkbox.checked = !checkbox.checked;
+                    updateSelection();
+                }
+            } else {
+                // Normal selection
+                selectSecret(secretId);
+            }
+        }
+        
+        function toggleBulkMode() {
+            bulkMode = !bulkMode;
+            
+            const bulkModeBtn = document.getElementById('bulkModeBtn');
+            const bulkActions = document.getElementById('bulkActions');
+            const checkboxes = document.querySelectorAll('.secret-checkbox');
+            const secretsTable = document.querySelector('.secrets-table-container');
+            const checkboxHeader = document.querySelector('.table-header th:first-child');
+            const checkboxCells = document.querySelectorAll('.secret-row td:first-child');
+            
+            if (bulkMode) {
+                bulkModeBtn.textContent = '❌ Cancel Multi-select mode';
+                bulkModeBtn.className = 'btn btn-secondary';
+                bulkActions.classList.add('show');
+                checkboxes.forEach(cb => cb.classList.add('show'));
+                checkboxHeader.classList.add('show');
+                checkboxCells.forEach(cell => cell.classList.add('show'));
+                secretsTable.classList.add('bulk-mode-active');
+                showBulkDetail();
+            } else {
+                bulkModeBtn.textContent = '📌 Multi-select';
+                bulkModeBtn.className = 'btn btn-primary';
+                bulkActions.classList.remove('show');
+                checkboxes.forEach(cb => {
+                    cb.classList.remove('show');
+                    cb.checked = false;
+                });
+                checkboxHeader.classList.remove('show');
+                checkboxCells.forEach(cell => cell.classList.remove('show'));
+                secretsTable.classList.remove('bulk-mode-active');
+                selectedSecrets.clear();
+                updateSelection();
+                hideBulkDetail();
+            }
+        }
+
+        function showBulkDetail() {
+            const detailPanel = document.getElementById('detailPanel');
+            detailPanel.innerHTML = `
+                <div class="bulk-detail-panel">
+                    <h3 class="bulk-title">Multi-select</h3>
+                    <p>Выбрано: <span class="bulk-count" id="bulkSelectedCount">0</span> секретов</p>
+                    
+                    <div class="bulk-section status-panel">
+                        <h4>📊 Изменение статуса</h4>
+                        <div class="bulk-buttons status-buttons">
+                            <button class="bulk-btn status-confirmed-btn" onclick="performBulkAction('status', 'Confirmed')">
+                                ✅ Подтвердить
+                            </button>
+                            <button class="bulk-btn status-none-btn" onclick="performBulkAction('status', 'No status')">
+                                ⚪ Без статуса
+                            </button>
+                            <button class="bulk-btn status-refuted-btn" onclick="performBulkAction('status', 'Refuted')">
+                                ❌ Опровергнуть
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="bulk-section severity-panel">
+                        <h4>⚠️ Изменение Severity-уровня</h4>
+                        <div class="bulk-buttons severity-buttons">
+                            <button class="bulk-btn severity-high-btn" onclick="performBulkAction('severity', 'High')">
+                                🛑 High
+                            </button>
+                            <button class="bulk-btn severity-potential-btn" onclick="performBulkAction('severity', 'Potential')">
+                                🔘 Potential
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function hideBulkDetail() {
+            const detailPanel = document.getElementById('detailPanel');
+            detailPanel.innerHTML = `
+                <div class="detail-empty">
+                    <div style="text-align: center; padding: 2rem;">
+                        <div style="font-size: 3rem; margin-bottom: 1rem;">👈</div>
+                        <h3>Выберите секрет, чтобы просмотреть подробную информацию</h3>
+                        <p>Нажмите на любой секрет из списка, чтобы просмотреть подробную информацию, управлять его статусом и получить доступ к расположению файла.</p>
+                    </div>
+                </div>
+            `;
+        }
+        
+        function selectSecret(secretId) {
+            // Remove previous selection
+            document.querySelectorAll('.secret-row').forEach(row => {
+                row.classList.remove('selected');
+            });
+            
+            // Add selection to current item
+            const selectedRow = document.querySelector(`[data-secret-id="${secretId}"]`);
+            if (selectedRow) {
+                selectedRow.classList.add('selected');
+            }
+            
+            currentSecret = secretId;
+            loadSecretDetails(secretId);
+        }
+        
+        function updateSelection() {
+            selectedSecrets.clear();
+            
+            // Remove all multi-selected classes first
+            document.querySelectorAll('.secret-row').forEach(row => {
+                row.classList.remove('multi-selected');
+            });
+            
+            document.querySelectorAll('.secret-checkbox:checked').forEach(checkbox => {
+                const secretRow = checkbox.closest('.secret-row');
+                if (secretRow) {
+                    const secretId = parseInt(secretRow.dataset.secretId);
+                    selectedSecrets.add(secretId);
+                    secretRow.classList.add('multi-selected');
+                }
+            });
+            
+            document.getElementById('selectedCount').textContent = selectedSecrets.size;
+            
+            // Update bulk detail count if in bulk mode
+            const bulkCount = document.getElementById('bulkSelectedCount');
+            if (bulkCount) {
+                bulkCount.textContent = selectedSecrets.size;
+            }
+        }
+
+        function showFiltersModal() {
+            document.getElementById('filtersModal').classList.add('show');
+        }
+
+        function hideFiltersModal() {
+            document.getElementById('filtersModal').classList.remove('show');
+        }
+
+        async function restoreSingleSecret(secretId) {
+            if (confirm('Are you sure you want to restore this secret? It will be changed from "Refuted" to "No status".')) {
+                try {
+                    const response = await fetch(`/secrets/${secretId}/update-status`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: new URLSearchParams({ status: 'No status', comment: '' })
+                    });
+                    
+                    if (response.ok) {
+                        location.reload();
+                    } else {
+                        alert('Error restoring secret');
+                    }
+                } catch (error) {
+                    console.error('Error restoring secret:', error);
+                    alert('Error restoring secret');
+                }
+            }
+        }
+
+        function applyFilters() {
+            const severity = document.getElementById('severityFilter').value;
+            const type = document.getElementById('typeFilter').value;
+            const showExceptions = document.getElementById('showExceptions').checked;
+            
+            const params = new URLSearchParams();
+            if (severity) params.set('severity_filter', severity);
+            if (type) params.set('type_filter', type);
+            if (showExceptions) params.set('show_exceptions', 'true');
+            
+            window.location.search = params.toString();
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function loadSecretDetails(secretId) {
+            const secretData = secretsData.find(s => s.id === secretId);
+            if (!secretData) return;
+            
+            let previousStatusHtml = '';
+            if (secretData.previous_status || secretData.previous_severity) {
+                let statusPart = '';
+                let severityPart = '';
+                
+                if (secretData.previous_status) {
+                    const statusIcon = secretData.previous_status === 'Confirmed' ? '✅' : '❌';
+                    const statusClass = secretData.previous_status === 'Confirmed' ? 'status-confirmed' : 'status-refuted';
+                    statusPart = `Статус: <span class="${statusClass}">${statusIcon} ${secretData.previous_status}</span>`;
+                }
+                
+                if (secretData.previous_severity && secretData.previous_severity !== secretData.severity) {
+                    const severityIcon = secretData.previous_severity === 'High' ? '🔴' : '🟡';
+                    severityPart = `Уровень: <span style="color: ${secretData.previous_severity === 'High' ? '#dc2626' : '#6b7280'};">${severityIcon} ${secretData.previous_severity}</span> → <span style="color: ${secretData.severity === 'High' ? '#dc2626' : '#6b7280'};">${secretData.severity === 'High' ? '🔴' : '🟡'} ${secretData.severity}</span>`;
+                }
+                
+                let content = [statusPart, severityPart].filter(p => p).join('<br>');
+                
+                previousStatusHtml = `
+                    <div class="detail-section">
+                        <h4>📊 Предыдущие изменения</h4>
+                        <div class="detail-field" style="background: #fef3c7; border-left: 3px solid #f59e0b;">
+                            ${content}<br>
+                            <small style="color: #666;">Изменено ${secretData.previous_scan_date}</small>
+                        </div>
+                        <div style="font-size: 0.8rem; color: #666; margin-top: 0.25rem;">
+                            Настройки этого секрета были автоматически применены на основе ваших предыдущих решений. При необходимости вы можете изменить их.
+                        </div>
+                    </div>
+                `;
+            }
+
+            let restoreHtml = '';
+            if (secretData.status === 'Refuted') {
+                restoreHtml = `
+                    <div class="detail-section">
+                        <h4>🔄 Quick Restore</h4>
+                        <button class="btn btn-warning" onclick="restoreSingleSecret(${secretId})" style="width: 100%;">
+                            🔄 Restore This Secret
+                        </button>
+                        <div style="font-size: 0.8rem; color: #666; margin-top: 0.25rem;">
+                            Это изменит статус с "Опровергнуто" на "Нет статуса", чтобы он отображался в основном отчете.
+                        </div>
+                    </div>
+                `;
+            }
+            
+            const detailPanel = document.getElementById('detailPanel');
+            detailPanel.innerHTML = `
+                <div class="detail-content">
+                    <h3>Secret Details</h3>
+                    
+                    <div class="detail-section">
+                        <h4>🔑 Значение секрета</h4>
+                        <div class="detail-field" style="background: #fef3c7; border: 1px solid #f59e0b; color: #92400e; font-weight: 600;">
+                            ${escapeHtml(secretData.secret)}
+                        </div>
+                    </div>
+                    
+                    <div class="status-controls">
+                        <h4 style="margin-bottom: 8px;">Статус</h4>
+                        <div class="status-buttons">
+                            <button class="status-btn ${secretData.status === 'Confirmed' ? 'active' : ''}" 
+                                    onclick="updateSecretStatus(${secretId}, 'Confirmed')">
+                                ✅ Подтвердить
+                            </button>
+                            <button class="status-btn ${secretData.status === 'No status' ? 'active' : ''}" 
+                                    onclick="updateSecretStatus(${secretId}, 'No status')">
+                                ⚪ Без статуса
+                            </button>
+                            <button class="status-btn ${secretData.status === 'Refuted' ? 'active' : ''}" 
+                                    onclick="updateSecretStatus(${secretId}, 'Refuted')">
+                                ❌ Опровергнуть
+                            </button>
+                        </div>
+                        <div class="comment-section" style="display: ${secretData.status === 'Refuted' ? 'block' : 'none'};">
+                            <label for="comment-${secretId}">Комментарий:</label>
+                            <textarea id="comment-${secretId}" placeholder="Explain why this is not a real secret...">${escapeHtml(secretData.exception_comment || '')}</textarea>
+                            <button class="btn btn-primary" style="margin-top: 0.5rem; font-size: 0.8rem;" 
+                                    onclick="updateSecretStatus(${secretId}, 'Refuted')">
+                                💾 Update Comment
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="detail-section">
+                        <h4>⚠️ Severity Уровень</h4>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button class="status-btn ${secretData.severity === 'High' ? 'active' : ''}" 
+                                    onclick="updateSecretSeverity(${secretId}, 'High')"
+                                    style="background: ${secretData.severity === 'High' ? '#dc2626' : '#fff'}; 
+                                           color: ${secretData.severity === 'High' ? '#fff' : '#dc2626'};">
+                                🛑 High
+                            </button>
+                            <button class="status-btn ${secretData.severity === 'Potential' ? 'active' : ''}" 
+                                    onclick="updateSecretSeverity(${secretId}, 'Potential')"
+                                    style="background: ${secretData.severity === 'Potential' ? '#6b7280' : '#fff'}; 
+                                           color: ${secretData.severity === 'Potential' ? '#fff' : '#6b7280'};">
+                                🔘 Potential
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="detail-section">
+                        <h4>📁 Путь до файла</h4>
+                        <div class="detail-field clickable" onclick="openFile('${escapeHtml(secretData.path)}','${escapeHtml(secretData.line)}','${secretData.secret}')">
+                            ${escapeHtml(secretData.path)}
+                        </div>
+                        <div style="font-size: 0.8rem; color: #666; margin-top: 0.25rem;">
+                            Нажмите чтобы открыть в репозитории (строка выделяется при открытии)
+                        </div>
+                    </div>
+                    
+                    <div class="detail-section">
+                        <h4>📍 Номер строки</h4>
+                        <div class="detail-field">${escapeHtml(secretData.line.toString())}</div>
+                    </div>
+                    
+                    <div class="detail-section">
+                        <h4>📝 Контекст</h4>
+                        <div class="detail-field" style="white-space: pre-wrap; overflow-x: auto;">
+                            ${escapeHtml(secretData.context)}
+                        </div>
+                    </div>
+                    
+                    <div class="detail-section">
+                        <h4>🏷️ Тип</h4>
+                        <div class="detail-field">${escapeHtml(secretData.type)}</div>
+                    </div>
+
+                    ${previousStatusHtml}
+                    
+                    ${restoreHtml}
+                </div>
+            `;
+        }
+        
+        async function updateSecretStatus(secretId, status) {
+            const comment = document.getElementById(`comment-${secretId}`)?.value || '';
+            
+            try {
+                const response = await fetch(`/secrets/${secretId}/update-status`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({ status: status, comment: comment })
+                });
+                
+                if (response.ok) {
+                    location.reload();
+                }
+            } catch (error) {
+                console.error('Error updating status:', error);
+                alert('Error updating status');
+            }
+        }
+        
+        async function updateSecretSeverity(secretId, severity) {
+            try {
+                const response = await fetch('/secrets/bulk-action', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        secret_ids: [secretId],
+                        action: 'severity',
+                        value: severity
+                    })
+                });
+                
+                if (response.ok) {
+                    location.reload();
+                }
+            } catch (error) {
+                console.error('Error updating severity:', error);
+                alert('Ошибка обновления severity');
+            }
+        }
+        
+        async function performBulkAction(action, value) {
+            if (selectedSecrets.size === 0) {
+                alert('Пожалуйста выберите хотя бы один секрет');
+                return;
+            }
+            
+            let comment = '';
+            if (action === 'status' && value === 'Refuted') {
+                comment = prompt('Введите комментарий (опционально):') || '';
+            }
+            
+            try {
+                const response = await fetch('/secrets/bulk-action', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        secret_ids: Array.from(selectedSecrets),
+                        action: action,
+                        value: value,
+                        comment: comment
+                    })
+                });
+                
+                if (response.ok) {
+                    location.reload();
+                } else {
+                    alert('Error performing bulk action');
+                }
+            } catch (error) {
+                console.error('Error performing bulk action:', error);
+                alert('Error performing bulk action');
+            }
+        }
+        
+        function openFile(path, line, secret) {
+            let fileUrl;
+            
+            if (hubType === 'Azure') {
+                const startColumn = 1;
+                const endColumn = secret.length + 1;
+                fileUrl = `${projectRepoUrl}?path=${path}&version=GC${scanCommit}&line=${line}&lineEnd=${line}&lineStartColumn=${startColumn}&lineEndColumn=${endColumn}&_a=contents`;
+            } else {
+                fileUrl = `${projectRepoUrl}/blob/${scanCommit}${path}?plain=1#L${line}`;
+            }
+            
+            window.open(fileUrl, '_blank');
+        }
+
+        // Close filters modal when clicking outside
+        document.getElementById('filtersModal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                hideFiltersModal();
+            }
+        });
+    </script>
+</body>
+</html>
