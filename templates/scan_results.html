@@ -1495,6 +1495,16 @@
             const secretData = secretsData.find(s => s.id === secretId);
             if (!secretData) return;
             
+            // Build file URL
+            let fileUrl;
+            if (hubType === 'Azure') {
+                const startColumn = 1;
+                const endColumn = secretData.secret.length + 1;
+                fileUrl = `${projectRepoUrl}?path=${secretData.path}&version=GC${scanCommit}&line=${secretData.line}&lineEnd=${secretData.line}&lineStartColumn=${startColumn}&lineEndColumn=${endColumn}&_a=contents`;
+            } else {
+                fileUrl = `${projectRepoUrl}/blob/${scanCommit}${secretData.path}?plain=1#L${secretData.line}`;
+            }
+            
             let previousStatusHtml = '';
             if (secretData.previous_status || secretData.previous_severity) {
                 let statusPart = '';
@@ -1600,9 +1610,9 @@
                     
                     <div class="detail-section">
                         <h4>📁 Путь до файла</h4>
-                        <div class="detail-field clickable" onclick="openFile('${secretData.path.replace(/'/g, "\\'")}', '${secretData.line}', '${secretData.secret.replace(/'/g, "\\'")}')">
+                        <a href="${fileUrl}" target="_blank" class="detail-field clickable" style="display: block; text-decoration: none; color: inherit;">
                             ${escapeHtml(secretData.path)}
-                        </div>
+                        </a>
                         <div style="font-size: 0.8rem; color: #666; margin-top: 0.25rem;">
                             Нажмите чтобы открыть в репозитории (строка выделяется при открытии)
                         </div>
