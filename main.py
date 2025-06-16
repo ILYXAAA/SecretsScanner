@@ -24,6 +24,9 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
+os.environ["NO_PROXY"] = "127.0.0.1,localhost"
+os.environ["no_proxy"] = "127.0.0.1,localhost"
+
 app = FastAPI(title="Secrets Scanner")
 
 # Create directories if they don't exist
