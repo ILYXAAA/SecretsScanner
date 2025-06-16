@@ -3,7 +3,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy import create_engine, Column, String, DateTime, Integer, Text, Boolean
+from sqlalchemy import create_engine, Column, String, DateTime, Integer, Text, Boolean, func
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from datetime import datetime, timedelta
@@ -199,6 +199,22 @@ async def check_microservice_health():
     except:
         return False
 
+def get_scan_statistics(db: Session, scan_id: str):
+    """Get high and potential secret counts for a scan"""
+    high_count = db.query(Secret).filter(
+        Secret.scan_id == scan_id,
+        Secret.severity == "High",
+        Secret.is_exception == False
+    ).count()
+    
+    potential_count = db.query(Secret).filter(
+        Secret.scan_id == scan_id,
+        Secret.severity == "Potential",
+        Secret.is_exception == False
+    ).count()
+    
+    return high_count, potential_count
+
 # Routes
 @app.get("/", response_class=HTMLResponse)
 async def login_page(request: Request):
@@ -225,24 +241,60 @@ async def dashboard(request: Request, page: int = 1, search: str = "", _: bool =
     per_page = 10
     offset = (page - 1) * per_page
     
-    query = db.query(Project)
-    if search:
-        query = query.filter(Project.name.contains(search))
+    # Get recent scans (last 20 scans ordered by start time)
+    recent_scans_query = db.query(Scan).order_by(Scan.started_at.desc()).limit(20)
+    recent_scans = recent_scans_query.all()
     
-    total_projects = query.count()
-    projects = query.offset(offset).limit(per_page).all()
+    # Add statistics to recent scans
+    recent_scans_data = []
+    for scan in recent_scans:
+        high_count, potential_count = get_scan_statistics(db, scan.id)
+        recent_scans_data.append({
+            "scan": scan,
+            "high_count": high_count,
+            "potential_count": potential_count
+        })
+    
+    # Get projects with pagination and search
+    projects_query = db.query(Project)
+    if search:
+        projects_query = projects_query.filter(Project.name.contains(search))
+    
+    total_projects = projects_query.count()
+    projects_list = projects_query.offset(offset).limit(per_page).all()
+    
+    # Add latest scan info to each project
+    projects_data = []
+    for project in projects_list:
+        latest_scan = db.query(Scan).filter(
+            Scan.project_name == project.name
+        ).order_by(Scan.started_at.desc()).first()
+        
+        high_count = 0
+        potential_count = 0
+        
+        if latest_scan and latest_scan.status == 'completed':
+            high_count, potential_count = get_scan_statistics(db, latest_scan.id)
+        
+        projects_data.append({
+            "project": project,
+            "latest_scan": latest_scan,
+            "high_count": high_count,
+            "potential_count": potential_count
+        })
     
     total_pages = (total_projects + per_page - 1) // per_page
     
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
-        "projects": projects,
+        "recent_scans": recent_scans_data,
+        "projects": projects_data,
         "current_page": page,
         "total_pages": total_pages,
         "search": search,
         "has_prev": page > 1,
         "has_next": page < total_pages,
-        "HUB_TYPE": HUB_TYPE  # Add this line
+        "HUB_TYPE": HUB_TYPE
     })
 
 @app.get("/settings", response_class=HTMLResponse)
