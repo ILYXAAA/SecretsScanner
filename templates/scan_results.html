@@ -1600,7 +1600,7 @@
                     
                     <div class="detail-section">
                         <h4>📁 Путь до файла</h4>
-                        <div class="detail-field clickable" onclick="openFile('${escapeHtml(secretData.path)}','${escapeHtml(secretData.line)}','${secretData.secret}')">
+                        <div class="detail-field clickable" onclick="openFile('${secretData.path.replace(/'/g, "\\'")}', '${secretData.line}', '${secretData.secret.replace(/'/g, "\\'")}')">
                             ${escapeHtml(secretData.path)}
                         </div>
                         <div style="font-size: 0.8rem; color: #666; margin-top: 0.25rem;">
