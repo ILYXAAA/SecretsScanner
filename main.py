@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request, Form, Depends, HTTPException, status, File, UploadFile, BackgroundTasks
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -31,9 +31,11 @@ app = FastAPI(title="Secrets Scanner")
 
 # Create directories if they don't exist
 Path("templates").mkdir(exist_ok=True)
-# Path("static").mkdir(exist_ok=True)
+Path("ico").mkdir(exist_ok=True)
 
-# app.mount("/static", StaticFiles(directory="static"), name="static")
+# Mount static files for favicon
+app.mount("/ico", StaticFiles(directory="ico"), name="ico")
+
 templates = Jinja2Templates(directory="templates")
 
 # Environment variables
@@ -215,6 +217,16 @@ def get_scan_statistics(db: Session, scan_id: str):
     
     return high_count, potential_count
 
+# Favicon route
+@app.get("/favicon.ico")
+async def favicon():
+    favicon_path = Path("ico/favicon.ico")
+    if favicon_path.exists():
+        return FileResponse("ico/favicon.ico")
+    else:
+        # Return a simple 204 No Content if favicon doesn't exist
+        raise HTTPException(status_code=404, detail="Favicon not found")
+
 # Routes
 @app.get("/", response_class=HTMLResponse)
 async def login_page(request: Request):
@@ -263,7 +275,7 @@ async def dashboard(request: Request, page: int = 1, search: str = "", _: bool =
     total_projects = projects_query.count()
     projects_list = projects_query.offset(offset).limit(per_page).all()
     
-    # Add latest scan info to each project
+    # Add latest scan info to each project and sort by latest scan date
     projects_data = []
     for project in projects_list:
         latest_scan = db.query(Scan).filter(
@@ -280,8 +292,12 @@ async def dashboard(request: Request, page: int = 1, search: str = "", _: bool =
             "project": project,
             "latest_scan": latest_scan,
             "high_count": high_count,
-            "potential_count": potential_count
+            "potential_count": potential_count,
+            "latest_scan_date": latest_scan.started_at if latest_scan else datetime.min
         })
+    
+    # Sort projects by latest scan date (newest first)
+    projects_data.sort(key=lambda x: x["latest_scan_date"], reverse=True)
     
     total_pages = (total_projects + per_page - 1) // per_page
     
@@ -585,7 +601,8 @@ async def add_project(request: Request, project_name: str = Form(...), repo_url:
         db.add(project)
         db.commit()
         
-        return RedirectResponse(url="/dashboard?success=project_added", status_code=302)
+        # Redirect to the project page instead of dashboard
+        return RedirectResponse(url=f"/project/{project_name}", status_code=302)
     
     except ValueError as e:
         encoded_error = urllib.parse.quote(str(e))
@@ -603,11 +620,11 @@ async def update_project(request: Request, project_id: int = Form(...), project_
         
         project = db.query(Project).filter(Project.id == project_id).first()
         if not project:
-            return RedirectResponse(url="/dashboard?error=project_not_found", status_code=302)
+            return RedirectResponse(url=f"/project/{project_name}?error=project_not_found", status_code=302)
         
         existing = db.query(Project).filter(Project.name == project_name, Project.id != project_id).first()
         if existing:
-            return RedirectResponse(url="/dashboard?error=project_exists", status_code=302)
+            return RedirectResponse(url=f"/project/{project.name}?error=project_exists", status_code=302)
         
         # Store old project name for updating related scans
         old_project_name = project.name
@@ -624,14 +641,14 @@ async def update_project(request: Request, project_id: int = Form(...), project_
         
         db.commit()
         
-        return RedirectResponse(url="/dashboard?success=project_updated", status_code=302)
+        return RedirectResponse(url=f"/project/{project_name}?success=project_updated", status_code=302)
     
     except ValueError as e:
         encoded_error = urllib.parse.quote(str(e))
-        return RedirectResponse(url=f"/dashboard?error={encoded_error}", status_code=302)
+        return RedirectResponse(url=f"/project/{project_name}?error={encoded_error}", status_code=302)
     except Exception as e:
         print(f"Error updating project: {e}")
-        return RedirectResponse(url="/dashboard?error=project_update_failed", status_code=302)
+        return RedirectResponse(url=f"/project/{project_name}?error=project_update_failed", status_code=302)
 
 @app.post("/projects/{project_id}/delete")
 async def delete_project(project_id: int, _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -678,7 +695,8 @@ async def project_page(request: Request, project_name: str, _: bool = Depends(ge
         "request": request,
         "project": project,
         "latest_scan": latest_scan,
-        "scan_stats": scan_stats
+        "scan_stats": scan_stats,
+        "HUB_TYPE": HUB_TYPE
     })
 
 @app.post("/project/{project_name}/scan")

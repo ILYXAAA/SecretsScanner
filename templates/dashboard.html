@@ -327,6 +327,13 @@
             font-weight: 600;
             color: #333;
             margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .project-icon {
+            font-size: 1rem;
         }
         
         .project-url {
@@ -383,11 +390,6 @@
         .btn-danger {
             background: #dc3545;
             color: white;
-        }
-        
-        .btn-warning {
-            background: #ffc107;
-            color: #212529;
         }
         
         .pagination {
@@ -487,20 +489,6 @@
         .empty-state h3 {
             margin-bottom: 1rem;
             font-size: 1.5rem;
-        }
-
-        .edit-project-form {
-            background: white;
-            padding: 1.5rem;
-            border-radius: 12px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-            border: 1px solid #e1e5e9;
-            margin-bottom: 2rem;
-            display: none;
-        }
-        
-        .edit-project-form.show {
-            display: block;
         }
     </style>
 </head>
@@ -655,44 +643,16 @@
                     </div>
                 </form>
             </div>
-
-            <div class="edit-project-form" id="editProjectForm">
-                <h3>Редактировать проект</h3>
-                <form method="post" action="/projects/update" id="editForm">
-                    <input type="hidden" id="edit_project_id" name="project_id">
-                    <div class="form-group">
-                        <label for="edit_project_name">Имя проекта</label>
-                        <input type="text" id="edit_project_name" name="project_name" required
-                               pattern="[a-zA-Z0-9._\-\s]+" 
-                               title="Допустимы буквы, цифры, точки, дефисы, подчеркивания и пробелы">
-                    </div>
-                    <div class="form-group">
-                        <label for="edit_repo_url">Ссылка на репозиторий</label>
-                        <input type="url" id="edit_repo_url" name="repo_url" required>
-                        {% if HUB_TYPE == "Azure" %}
-                        <small style="color: #666; font-size: 0.85rem;">
-                            Формат для Azure DevOps: http://server/collection/project/_git/repository<br>
-                            или http://server/collection/_git/repository
-                        </small>
-                        {% else %}
-                        <small style="color: #666; font-size: 0.85rem;">
-                            Поддерживаются GitHub, GitLab, Bitbucket и другие Git-хостинги
-                        </small>
-                        {% endif %}
-                    </div>
-                    <div class="form-actions">
-                        <button type="submit" class="btn btn-primary">Обновить</button>
-                        <button type="button" class="btn btn-secondary" onclick="toggleEditForm()">Назад</button>
-                    </div>
-                </form>
-            </div>
             
             {% if projects %}
             <div class="projects-list">
                 {% for project_data in projects %}
                 <a href="/project/{{ project_data.project.name }}" class="project-card">
                     <div class="project-main">
-                        <div class="project-name">{{ project_data.project.name }}</div>
+                        <div class="project-name">
+                            <span class="project-icon">📁</span>
+                            {{ project_data.project.name }}
+                        </div>
                         <div class="project-url">{{ project_data.project.repo_url }}</div>
                         <div class="project-meta">
                             Создан: {{ project_data.project.created_at.strftime('%Y-%m-%d %H:%M') }}
@@ -726,9 +686,6 @@
                     </div>
                     {% endif %}
                     <div class="project-actions" onclick="event.preventDefault(); event.stopPropagation();">
-                        <button class="btn btn-warning btn-sm btn-icon" onclick="editProject({{ project_data.project.id }}, '{{ project_data.project.name }}', '{{ project_data.project.repo_url }}')" title="Edit">
-                            ✏️
-                        </button>
                         <button class="btn btn-danger btn-sm btn-icon" title="Delete"
                                 onclick="deleteProject({{ project_data.project.id }})">
                             🗑️
@@ -791,26 +748,7 @@
         
         function toggleAddForm() {
             const form = document.getElementById('addProjectForm');
-            const editForm = document.getElementById('editProjectForm');
-            editForm.classList.remove('show');
             form.classList.toggle('show');
-        }
-
-        function toggleEditForm() {
-            const form = document.getElementById('editProjectForm');
-            form.classList.toggle('show');
-        }
-
-        function editProject(id, name, repoUrl) {
-            document.getElementById('edit_project_id').value = id;
-            document.getElementById('edit_project_name').value = name;
-            document.getElementById('edit_repo_url').value = repoUrl;
-            
-            const addForm = document.getElementById('addProjectForm');
-            addForm.classList.remove('show');
-            
-            const editForm = document.getElementById('editProjectForm');
-            editForm.classList.add('show');
         }
 
         function deleteProject(id) {
