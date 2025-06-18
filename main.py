@@ -1261,9 +1261,14 @@ async def multi_scan(request: Request, _: bool = Depends(get_current_user), db: 
         # Send request to microservice with proper format
         try:
             async with httpx.AsyncClient(timeout=300.0) as client:  # 5 minutes timeout
+                # Send request to microservice with correct format
+                microservice_payload = {
+                    "repositories": scan_requests
+                }
+                
                 response = await client.post(
                     f"{MICROSERVICE_URL}/multi_scan",
-                    json={"requests": scan_requests}  # Wrap in object if needed
+                    json=microservice_payload
                 )
                 
                 if response.status_code == 200:
