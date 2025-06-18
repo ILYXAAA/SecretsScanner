@@ -909,26 +909,43 @@
             let hasUpdates = false;
             
             // Check each running scan
-            for (const scan of runningScans) {
+            for (const scan of scans) {
+                if (scan.status !== 'running' && scan.status !== 'pending') continue;
+                
                 try {
+                    console.log(`Checking status for scan ${scan.scan_id}`); // Debug
                     const response = await fetch(`/api/scan/${scan.scan_id}/status`);
                     if (response.ok) {
                         const scanData = await response.json();
+                        console.log(`Scan ${scan.scan_id} status:`, scanData); // Debug
                         
-                        // Update scan data if status changed
+                        // Update scan data
                         const scanIndex = scans.findIndex(s => s.scan_id === scan.scan_id);
-                        if (scanIndex !== -1 && scans[scanIndex].status !== scanData.status) {
-                            scans[scanIndex] = { ...scans[scanIndex], ...scanData };
+                        if (scanIndex !== -1) {
+                            scans[scanIndex] = {
+                                scan_id: scanData.scan_id,
+                                project_name: scanData.project_name,
+                                status: scanData.status,
+                                ref_type: scanData.ref_type,
+                                ref: scanData.ref,
+                                commit: scanData.commit,
+                                started_at: scanData.started_at,
+                                high_count: scanData.high_count,
+                                potential_count: scanData.potential_count
+                            };
                             hasUpdates = true;
                         }
+                    } else {
+                        console.log(`Failed to get status for scan ${scan.scan_id}:`, response.status);
                     }
                 } catch (error) {
                     console.error(`Error checking scan ${scan.scan_id}:`, error);
                 }
             }
             
-            // Update display if there were changes
+            // Update display and storage if there were changes
             if (hasUpdates) {
+                localStorage.setItem('multiScanResults', JSON.stringify(scans));
                 displayScanResults(scans);
             }
         }
@@ -939,8 +956,9 @@
                 const scans = JSON.parse(storedScans);
                 const runningScans = scans.filter(scan => scan.status === 'running' || scan.status === 'pending');
                 if (runningScans.length > 0) {
-                    refreshScanStatuses();
-                    setTimeout(autoRefreshScans, 10000); // Refresh every 10 seconds
+                    refreshScanStatuses().then(() => {
+                        setTimeout(autoRefreshScans, 10000); // Continue refreshing
+                    });
                 }
             }
         }
