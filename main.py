@@ -4,6 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import create_engine, Column, String, DateTime, Integer, Text, Boolean, func
+from typing import List, Dict, Any
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from datetime import datetime, timedelta
@@ -1202,6 +1203,155 @@ async def list_backups(_: bool = Depends(get_current_user)):
         return {"status": "success", "backups": backups}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+@app.get("/multi-scan", response_class=HTMLResponse)
+async def multi_scan_page(request: Request, _: bool = Depends(get_current_user)):
+    return templates.TemplateResponse("multi_scan.html", {
+        "request": request
+    })
+
+@app.get("/api/project/check")
+async def check_project_exists(repo_url: str, _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Check if project exists by repo URL"""
+    project = db.query(Project).filter(Project.repo_url == repo_url).first()
+    if project:
+        return {"exists": True, "project_name": project.name}
+    else:
+        return {"exists": False}
+
+@app.post("/multi_scan")
+async def multi_scan(request: Request, _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Handle multi-scan requests"""
+    try:
+        scan_requests = await request.json()
+        
+        if not isinstance(scan_requests, list) or len(scan_requests) == 0:
+            return JSONResponse(
+                status_code=400,
+                content={"status": "error", "message": "Invalid request format"}
+            )
+        
+        # Check microservice health
+        if not await check_microservice_health():
+            return JSONResponse(
+                status_code=503,
+                content={"status": "error", "message": "Микросервис недоступен"}
+            )
+        
+        # Create scan records in database
+        scan_records = []
+        for scan_request in scan_requests:
+            # Extract scan ID from callback URL
+            callback_url = scan_request.get("CallbackUrl", "")
+            scan_id = callback_url.split("/")[-1] if callback_url else str(uuid.uuid4())
+            
+            # Create scan record
+            scan = Scan(
+                id=scan_id,
+                project_name=scan_request["ProjectName"],
+                ref_type=scan_request["RefType"],
+                ref=scan_request["Ref"],
+                status="pending"
+            )
+            db.add(scan)
+            scan_records.append(scan)
+        
+        db.commit()
+        
+        # Send request to microservice
+        try:
+            async with httpx.AsyncClient(timeout=300.0) as client:  # 5 minutes timeout
+                response = await client.post(
+                    f"{MICROSERVICE_URL}/multi_scan",
+                    json=scan_requests
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    
+                    if result.get("status") == "accepted":
+                        # Update scan records with resolved refs and commits
+                        for i, scan_data in enumerate(result.get("data", [])):
+                            if i < len(scan_records):
+                                scan_record = scan_records[i]
+                                scan_record.status = "running"
+                                scan_record.ref = scan_data.get("Ref", scan_record.ref)
+                                scan_record.repo_commit = scan_data.get("commit")
+                        
+                        db.commit()
+                        return JSONResponse(content=result)
+                    
+                    elif result.get("status") == "validation_failed":
+                        # Mark scans as failed for unresolved commits
+                        for i, scan_data in enumerate(result.get("data", [])):
+                            if i < len(scan_records) and scan_data.get("commit") == "not_found":
+                                scan_records[i].status = "failed"
+                                scan_records[i].error_message = "Failed to resolve commit"
+                        
+                        db.commit()
+                        return JSONResponse(content=result)
+                    
+                    else:
+                        # Mark all scans as failed
+                        for scan_record in scan_records:
+                            scan_record.status = "failed"
+                            scan_record.error_message = result.get("message", "Unknown error")
+                        
+                        db.commit()
+                        return JSONResponse(content=result)
+                
+                else:
+                    # Mark all scans as failed
+                    for scan_record in scan_records:
+                        scan_record.status = "failed"
+                        scan_record.error_message = f"Microservice error: HTTP {response.status_code}"
+                    
+                    db.commit()
+                    
+                    return JSONResponse(
+                        status_code=response.status_code,
+                        content={
+                            "status": "error", 
+                            "message": f"Ошибка микросервиса: HTTP {response.status_code}"
+                        }
+                    )
+        
+        except httpx.TimeoutException:
+            # Mark all scans as failed
+            for scan_record in scan_records:
+                scan_record.status = "failed"
+                scan_record.error_message = "Microservice timeout"
+            
+            db.commit()
+            
+            return JSONResponse(
+                status_code=408,
+                content={"status": "error", "message": "Таймаут микросервиса"}
+            )
+        
+        except Exception as e:
+            # Mark all scans as failed
+            for scan_record in scan_records:
+                scan_record.status = "failed"
+                scan_record.error_message = f"Connection error: {str(e)}"
+            
+            db.commit()
+            
+            return JSONResponse(
+                status_code=500,
+                content={"status": "error", "message": "Ошибка соединения с микросервисом"}
+            )
+    
+    except Exception as e:
+        print(f"Multi-scan error: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": "Внутренняя ошибка сервера"}
+        )
+
 
 # Start background task
 @app.on_event("startup")

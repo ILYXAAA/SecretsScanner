@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Мультисканирование - Secrets Scanner</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #e2e7ec;
+            color: #333;
+        }
+        
+        .header {
+            background: white;
+            padding: 1rem 2rem;
+            border-bottom: 1px solid #e1e5e9;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #333;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        
+        .nav-links {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+        
+        .nav-links a {
+            color: #666;
+            text-decoration: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            transition: background-color 0.2s;
+        }
+        
+        .nav-links a:hover {
+            background: #f1f3f4;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+        
+        .page-title {
+            font-size: 2rem;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .multi-scan-form {
+            background: white;
+            border-radius: 12px;
+            padding: 2rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            border: 1px solid #e1e5e9;
+            margin-bottom: 2rem;
+        }
+        
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+            color: #333;
+            font-size: 1.1rem;
+        }
+        
+        .form-description {
+            color: #666;
+            font-size: 0.9rem;
+            margin-bottom: 1rem;
+            line-height: 1.5;
+        }
+        
+        .form-group textarea {
+            width: 100%;
+            min-height: 200px;
+            padding: 1rem;
+            border: 2px solid #e1e5e9;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-family: monospace;
+            resize: vertical;
+        }
+        
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #28a745;
+        }
+        
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: transform 0.2s;
+        }
+        
+        .btn:hover {
+            transform: translateY(-1px);
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #3ccf4e, #29b948);
+            color: white;
+            font-weight: 600;
+            border: none;
+            border-radius: 8px;
+            padding: 12px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #2ebc3f, #219837);
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+        
+        .alert {
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1.5rem;
+            border-left: 4px solid;
+        }
+        
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border-left-color: #28a745;
+        }
+        
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border-left-color: #dc3545;
+        }
+        
+        .alert-warning {
+            background: #fff3cd;
+            color: #856404;
+            border-left-color: #ffc107;
+        }
+        
+        .alert-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border-left-color: #17a2b8;
+        }
+        
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        
+        .loading-content {
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            text-align: center;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+        }
+        
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #28a745;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .confirmation-dialog {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1001;
+        }
+        
+        .dialog-content {
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            max-width: 600px;
+            width: 90%;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+        }
+        
+        .dialog-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: #333;
+        }
+        
+        .dialog-message {
+            margin-bottom: 1.5rem;
+            line-height: 1.5;
+            color: #666;
+        }
+        
+        .missing-projects-list {
+            background: #f8f9fa;
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 1rem 0;
+            font-family: monospace;
+            font-size: 0.9rem;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .dialog-actions {
+            display: flex;
+            gap: 1rem;
+            justify-content: flex-end;
+        }
+        
+        .scan-list {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+        
+        .scan-item {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            border: 1px solid #e1e5e9;
+            transition: transform 0.2s, box-shadow 0.2s;
+            cursor: pointer;
+            text-decoration: none;
+            color: inherit;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .scan-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 15px rgba(0,0,0,0.1);
+        }
+        
+        .scan-main {
+            flex: 1;
+        }
+        
+        .scan-project {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 0.5rem;
+        }
+        
+        .scan-meta {
+            color: #666;
+            font-size: 0.9rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .scan-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        
+        .scan-status.running {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .scan-status.completed {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .scan-status.failed {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .scan-status.timeout {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .scan-stats {
+            text-align: right;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 0.25rem;
+        }
+        
+        .secrets-summary {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+        
+        .secret-count {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+        }
+        
+        .secret-count .number {
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+        
+        .secret-count .label {
+            font-size: 0.8rem;
+            color: #666;
+        }
+        
+        .secret-count.high .number {
+            color: #dc3545;
+        }
+        
+        .secret-count.potential .number {
+            color: #aba9a3;
+        }
+        
+        .validation-error-list {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            border-radius: 8px;
+            padding: 1rem;
+            margin: 1rem 0;
+        }
+        
+        .validation-error-item {
+            color: #721c24;
+            margin-bottom: 0.5rem;
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+        
+        .validation-error-item:last-child {
+            margin-bottom: 0;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: #666;
+        }
+        
+        .empty-state h3 {
+            margin-bottom: 1rem;
+            font-size: 1.5rem;
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <a href="/dashboard" class="logo">
+            🔍 Secrets Scanner
+        </a>
+        <nav class="nav-links">
+            <a href="/dashboard">🌐 Главная</a>
+            <a href="/multi-scan">🔄 Мультискан</a>
+            <a href="/settings">⚙️ Настройки</a>
+            <a href="/logout">🔚 Выйти</a>
+        </nav>
+    </header>
+    
+    <div class="container">
+        <div class="page-header">
+            <h1 class="page-title">🔄 Мультисканирование</h1>
+        </div>
+        
+        <div id="alertContainer"></div>
+        
+        <div class="multi-scan-form" id="scanForm">
+            <form id="multiScanForm">
+                <div class="form-group">
+                    <label for="repoUrls">Ссылки на репозитории</label>
+                    <div class="form-description">
+                        Введите ссылки на репозитории Azure DevOps, по одной на строку.<br>
+                        Поддерживаемые форматы:<br>
+                        • <strong>Ветка:</strong> http://server/collection/project/_git/repo?version=GBmain<br>
+                        • <strong>Тег:</strong> http://server/collection/project/_git/repo?version=GTv1.0.0<br>
+                        • <strong>Коммит:</strong> http://server/collection/project/_git/repo?version=GCabc123def456<br>
+                        • <strong>Коммит (альтернативный формат):</strong> http://server/collection/project/_git/repo/commit/abc123def456
+                    </div>
+                    <textarea 
+                        id="repoUrls" 
+                        name="repoUrls" 
+                        placeholder="http://server/collection/project/_git/repo1?version=GBmain&#10;http://server/collection/project/_git/repo2?version=GTv1.0.0&#10;http://server/collection/project/_git/repo3?version=GCabc123def456"
+                        required></textarea>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">
+                        🚀 Отправить на сканирование
+                    </button>
+                </div>
+            </form>
+        </div>
+        
+        <div id="scanResults" style="display: none;">
+            <h2 style="margin-bottom: 1.5rem; color: #333;">📊 Запущенные сканирования</h2>
+            <div id="scanList" class="scan-list"></div>
+        </div>
+    </div>
+    
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-content">
+            <div class="spinner"></div>
+            <h3>Отправка сканирований...</h3>
+            <p>Пожалуйста, подождите. Это может занять до 5 минут.</p>
+        </div>
+    </div>
+    
+    <!-- Confirmation Dialog -->
+    <div class="confirmation-dialog" id="confirmationDialog">
+        <div class="dialog-content">
+            <h3 class="dialog-title">Создание проектов</h3>
+            <div class="dialog-message" id="dialogMessage"></div>
+            <div class="missing-projects-list" id="missingProjectsList"></div>
+            <div class="dialog-actions">
+                <button class="btn btn-secondary" id="cancelBtn">Отмена</button>
+                <button class="btn btn-primary" id="confirmBtn">Создать проекты</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        function parseAzureDevOpsUrl(repoUrl) {
+            const urlObj = new URL(repoUrl);
+            const server = urlObj.hostname;
+            const pathParts = urlObj.pathname.split('/').filter(part => part !== '');
+            
+            if (!pathParts.includes('_git')) {
+                throw new Error('URL не содержит "_git"');
+            }
+            
+            const gitIndex = pathParts.indexOf('_git');
+            if (gitIndex + 1 >= pathParts.length) {
+                throw new Error('URL некорректен: отсутствует имя репозитория после "_git"');
+            }
+            
+            const repository = pathParts[gitIndex + 1];
+            
+            if (gitIndex < 1) {
+                throw new Error('Недостаточно информации до "_git"');
+            }
+            
+            const project = pathParts[gitIndex - 1];
+            const collectionParts = pathParts.slice(0, gitIndex - 1);
+            const collection = collectionParts.join('/');
+            
+            // Parse ref information
+            let refType = 'branch';
+            let ref = 'main';
+            
+            // Check for commit in path (format: /commit/hash)
+            if (pathParts.includes('commit') && pathParts.indexOf('commit') === gitIndex + 2) {
+                refType = 'commit';
+                ref = pathParts[gitIndex + 3];
+            }
+            // Check for version parameter
+            else if (urlObj.searchParams.has('version')) {
+                const version = urlObj.searchParams.get('version');
+                if (version.startsWith('GB')) {
+                    refType = 'branch';
+                    ref = version.substring(2);
+                } else if (version.startsWith('GT')) {
+                    refType = 'tag';
+                    ref = version.substring(2);
+                } else if (version.startsWith('GC')) {
+                    refType = 'commit';
+                    ref = version.substring(2);
+                }
+            }
+            
+            const baseRepoUrl = `${urlObj.protocol}//${urlObj.host}${urlObj.pathname.split('/commit/')[0]}`;
+            
+            return {
+                server,
+                collection,
+                project,
+                repository,
+                refType,
+                ref,
+                baseRepoUrl
+            };
+        }
+        
+        function validateUrls(urls) {
+            const results = [];
+            const errors = [];
+            
+            for (let i = 0; i < urls.length; i++) {
+                const url = urls[i].trim();
+                if (!url) continue;
+                
+                try {
+                    const parsed = parseAzureDevOpsUrl(url);
+                    results.push({
+                        originalUrl: url,
+                        parsed: parsed,
+                        projectName: `${parsed.project}_${parsed.repository}`
+                    });
+                } catch (error) {
+                    errors.push({
+                        url: url,
+                        error: error.message,
+                        line: i + 1
+                    });
+                }
+            }
+            
+            return { results, errors };
+        }
+        
+        function showAlert(type, message) {
+            const alertContainer = document.getElementById('alertContainer');
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${type}`;
+            alert.innerHTML = message;
+            alertContainer.innerHTML = '';
+            alertContainer.appendChild(alert);
+            
+            // Auto-hide success alerts after 5 seconds
+            if (type === 'success') {
+                setTimeout(() => {
+                    alert.remove();
+                }, 5000);
+            }
+        }
+        
+        function showLoading() {
+            document.getElementById('loadingOverlay').style.display = 'flex';
+        }
+        
+        function hideLoading() {
+            document.getElementById('loadingOverlay').style.display = 'none';
+        }
+        
+        function showConfirmationDialog(missingProjects) {
+            const dialog = document.getElementById('confirmationDialog');
+            const messageEl = document.getElementById('dialogMessage');
+            const listEl = document.getElementById('missingProjectsList');
+            
+            messageEl.textContent = `Для ${missingProjects.length} ссылок не найдено соответствующих проектов. Хотите автоматически создать для них проекты?`;
+            
+            listEl.innerHTML = missingProjects.map(item => 
+                `<div>${item.parsed.baseRepoUrl} → ${item.projectName}</div>`
+            ).join('');
+            
+            dialog.style.display = 'flex';
+            
+            return new Promise((resolve) => {
+                document.getElementById('confirmBtn').onclick = () => {
+                    dialog.style.display = 'none';
+                    resolve(true);
+                };
+                
+                document.getElementById('cancelBtn').onclick = () => {
+                    dialog.style.display = 'none';
+                    resolve(false);
+                };
+            });
+        }
+        
+        async function createProjects(missingProjects) {
+            for (const item of missingProjects) {
+                try {
+                    const response = await fetch('/projects/add', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        },
+                        body: new URLSearchParams({
+                            project_name: item.projectName,
+                            repo_url: item.parsed.baseRepoUrl
+                        })
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`Не удалось создать проект ${item.projectName}`);
+                    }
+                } catch (error) {
+                    console.error('Error creating project:', error);
+                    throw error;
+                }
+            }
+        }
+        
+        async function checkProjectsExist(validatedUrls) {
+            const existing = [];
+            const missing = [];
+            
+            for (const item of validatedUrls) {
+                try {
+                    const response = await fetch(`/api/project/check?repo_url=${encodeURIComponent(item.parsed.baseRepoUrl)}`);
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.exists) {
+                            existing.push({ ...item, projectName: data.project_name });
+                        } else {
+                            missing.push(item);
+                        }
+                    } else {
+                        missing.push(item);
+                    }
+                } catch (error) {
+                    missing.push(item);
+                }
+            }
+            
+            return { existing, missing };
+        }
+        
+        function displayScanResults(scans) {
+            const scanResultsDiv = document.getElementById('scanResults');
+            const scanListDiv = document.getElementById('scanList');
+            
+            scanListDiv.innerHTML = '';
+            
+            scans.forEach(scan => {
+                const scanItem = document.createElement('a');
+                scanItem.className = 'scan-item';
+                scanItem.href = `/scan/${scan.scan_id}`;
+                
+                scanItem.innerHTML = `
+                    <div class="scan-main">
+                        <div class="scan-project">${scan.project_name}</div>
+                        <div class="scan-meta">
+                            <span class="scan-status running">⏳ Выполняется</span>
+                        </div>
+                        <div class="scan-meta">
+                            🕒 ${new Date().toLocaleString('ru-RU')}
+                            • ⚙️ ${scan.commit ? scan.commit.substring(0, 7) : 'Ожидание...'}
+                            • 📂 ${scan.ref_type}: ${scan.ref}
+                        </div>
+                    </div>
+                `;
+                
+                scanListDiv.appendChild(scanItem);
+            });
+            
+            scanResultsDiv.style.display = 'block';
+            document.getElementById('scanForm').style.display = 'none';
+        }
+        
+        function displayValidationErrors(errors) {
+            const errorHtml = `
+                <div class="validation-error-list">
+                    <h4 style="margin-bottom: 1rem; color: #721c24;">Ошибки валидации:</h4>
+                    ${errors.map(error => 
+                        `<div class="validation-error-item">Строка ${error.line}: ${error.url}<br>Ошибка: ${error.error}</div>`
+                    ).join('')}
+                </div>
+            `;
+            showAlert('error', errorHtml);
+        }
+        
+        function displayResolutionErrors(data) {
+            const errorItems = data.filter(item => item.commit === 'not_found');
+            const errorHtml = `
+                <div class="validation-error-list">
+                    <h4 style="margin-bottom: 1rem; color: #721c24;">Не удалось отрезолвить коммиты для следующих репозиториев:</h4>
+                    ${errorItems.map(item => 
+                        `<div class="validation-error-item">Проект: ${item.ProjectName}<br>Тип: ${item.RefType}, Ссылка: ${item.Ref}</div>`
+                    ).join('')}
+                </div>
+            `;
+            showAlert('error', errorHtml);
+        }
+        
+        document.getElementById('multiScanForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const repoUrlsText = document.getElementById('repoUrls').value;
+            const urls = repoUrlsText.split('\n').filter(url => url.trim());
+            
+            if (urls.length === 0) {
+                showAlert('error', 'Введите хотя бы одну ссылку на репозиторий');
+                return;
+            }
+            
+            // Validate URLs
+            const { results: validatedUrls, errors } = validateUrls(urls);
+            
+            if (errors.length > 0) {
+                displayValidationErrors(errors);
+                return;
+            }
+            
+            if (validatedUrls.length === 0) {
+                showAlert('error', 'Не найдено валидных ссылок на репозитории');
+                return;
+            }
+            
+            showLoading();
+            
+            try {
+                // Check which projects exist
+                const { existing, missing } = await checkProjectsExist(validatedUrls);
+                
+                // If some projects are missing, ask user for confirmation
+                if (missing.length > 0) {
+                    hideLoading();
+                    const confirmed = await showConfirmationDialog(missing);
+                    
+                    if (!confirmed) {
+                        return;
+                    }
+                    
+                    showLoading();
+                    await createProjects(missing);
+                }
+                
+                // Prepare scan requests
+                const allProjects = [...existing, ...missing];
+                const scanRequests = allProjects.map(item => ({
+                    ProjectName: item.projectName,
+                    RepoUrl: item.parsed.baseRepoUrl,
+                    RefType: item.parsed.refType,
+                    Ref: item.parsed.ref,
+                    CallbackUrl: `${window.location.origin}/get_results/${item.projectName}/${generateUUID()}`
+                }));
+                
+                // Send multi-scan request
+                const response = await fetch('/multi_scan', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(scanRequests),
+                    signal: AbortSignal.timeout(300000) // 5 minutes timeout
+                });
+                
+                const result = await response.json();
+                
+                if (result.status === 'accepted') {
+                    hideLoading();
+                    showAlert('success', 'Сканирования успешно запущены!');
+                    
+                    // Display scan results
+                    const scans = result.data.map((item, index) => ({
+                        project_name: item.ProjectName,
+                        ref_type: item.RefType,
+                        ref: item.Ref,
+                        commit: item.commit,
+                        scan_id: scanRequests[index].CallbackUrl.split('/').pop()
+                    }));
+                    
+                    displayScanResults(scans);
+                } else if (result.status === 'validation_failed') {
+                    hideLoading();
+                    showAlert('error', result.message);
+                    displayResolutionErrors(result.data);
+                } else {
+                    hideLoading();
+                    showAlert('error', result.message || 'Произошла ошибка при запуске сканирований');
+                }
+                
+            } catch (error) {
+                hideLoading();
+                if (error.name === 'AbortError') {
+                    showAlert('error', 'Таймаут запроса. Попробуйте еще раз.');
+                } else {
+                    console.error('Error:', error);
+                    showAlert('error', 'Произошла ошибка при отправке запроса');
+                }
+            }
+        });
+        
+        function generateUUID() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                const r = Math.random() * 16 | 0;
+                const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+        
+        // Auto-refresh scan statuses if there are running scans
+        function autoRefreshScans() {
+            const runningScans = document.querySelectorAll('.scan-status.running');
+            if (runningScans.length > 0) {
+                setTimeout(() => {
+                    window.location.reload();
+                }, 10000); // Refresh every 10 seconds
+            }
+        }
+        
+        // Start auto-refresh when page loads
+        window.addEventListener('load', autoRefreshScans);
+    </script>
+</body>
+</html>
