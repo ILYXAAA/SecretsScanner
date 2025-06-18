@@ -256,22 +256,6 @@
             background: #0891b2;
         }
         
-        .bulk-actions {
-            background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-            border: 1px solid #f59e0b;
-            border-radius: 8px;
-            padding: 0.75rem 1rem;
-            margin: 0.75rem 2rem;
-            display: none;
-            font-weight: 500;
-            box-shadow: 0 1px 3px rgba(245, 158, 11, 0.1);
-            font-size: 0.8125rem;
-        }
-        
-        .bulk-actions.show {
-            display: block;
-        }
-        
         /* TABLE STYLES */
         .secrets-table-container {
             flex: 1;
@@ -330,36 +314,19 @@
             color: #3b82f6;
         }
         
-        .table-header th:first-child {
-            width: 40px;
-            cursor: default;
-            display: none;
-        }
-        
-        .table-header th:first-child.show {
-            display: table-cell;
-        }
-        
-        .secret-row td:first-child {
-            display: none;
-        }
-        
-        .secret-row td:first-child.show {
-            display: table-cell;
-        }
-        
-        .table-header th:nth-child(2) { width: 25%; } /* Secret */
-        .table-header th:nth-child(3) { width: 8%; } /* Line */
-        .table-header th:nth-child(4) { width: 20%; } /* File */
-        .table-header th:nth-child(5) { width: 15%; } /* Type */
-        .table-header th:nth-child(6) { width: 15%; } /* Status */
-        .table-header th:nth-child(7) { width: 12%; } /* Level */
+        .table-header th:nth-child(1) { width: 25%; } /* Secret */
+        .table-header th:nth-child(2) { width: 8%; } /* Line */
+        .table-header th:nth-child(3) { width: 20%; } /* File */
+        .table-header th:nth-child(4) { width: 15%; } /* Type */
+        .table-header th:nth-child(5) { width: 15%; } /* Status */
+        .table-header th:nth-child(6) { width: 12%; } /* Level */
         
         .secret-row {
             border-bottom: 1px solid #f3f4f6;
             cursor: pointer;
             transition: all 0.2s ease;
             background: #ffffff;
+            user-select: none;
         }
         
         .secret-row:hover {
@@ -375,7 +342,7 @@
         }
 
         .secret-row.multi-selected {
-            background: #f0fdf4;
+            background: linear-gradient(135deg, #e6fffa 0%, #d1fae5 100%);
             border-left: 4px solid #10b981;
             box-shadow: 0 2px 8px rgba(16, 185, 129, 0.15);
         }
@@ -393,18 +360,6 @@
             vertical-align: middle;
             border-right: 1px solid #f3f4f6;
             font-size: 0.875rem;
-        }
-        
-        .secret-checkbox {
-            margin: 0;
-            display: none;
-            width: 16px;
-            height: 16px;
-            accent-color: #10b981;
-        }
-        
-        .secret-checkbox.show {
-            display: block;
         }
         
         .secret-value {
@@ -487,13 +442,6 @@
             background: #f9fafb;
             color: #6b7280;
             border: 1px solid #e5e7eb;
-        }
-        
-        .bulk-mode-active .secret-row {
-            user-select: none;
-            -webkit-user-select: none;
-            -moz-user-select: none;
-            -ms-user-select: none;
         }
         
         .detail-panel {
@@ -854,6 +802,17 @@
             font-size: 0.75rem;
         }
 
+        .select-all-btn {
+            width: 100%;
+            background: #3b82f6;
+            color: white;
+            margin-bottom: 1rem;
+        }
+
+        .select-all-btn:hover {
+            background: #2563eb;
+        }
+
         /* Scrollbar styling */
         .secrets-table-container::-webkit-scrollbar,
         .detail-panel::-webkit-scrollbar {
@@ -931,7 +890,6 @@
                 <div class="actions-row">
                     <div class="left-actions">
                         <a href="/project/{{ project.name }}" class="btn btn-secondary">← Back to Project</a>
-                        <button class="btn btn-primary" id="bulkModeBtn">📌 Multi-select</button>
                     </div>
                     <div class="right-actions">
                         <button class="btn btn-info" onclick="showFiltersModal()">🔍 Фильтры</button>
@@ -942,17 +900,12 @@
                     </div>
                 </div>
             </div>
-            
-            <div class="bulk-actions" id="bulkActions">
-                <strong>Multi-select:</strong> <span id="selectedCount">0</span> секретов выбрано
-            </div>
 
             <div class="secrets-table-container">
                 {% if secrets %}
                 <table class="secrets-table">
                     <thead class="table-header">
                         <tr>
-                            <th></th>
                             <th>🔑 Secret</th>
                             <th>📍 Line</th>
                             <th class="sortable" data-sort="file">📁 File</th>
@@ -964,9 +917,6 @@
                     <tbody>
                         {% for secret in secrets %}
                         <tr class="secret-row {{ secret.severity.lower() }}" data-secret-id="{{ secret.id }}">
-                            <td>
-                                <input type="checkbox" class="secret-checkbox">
-                            </td>
                             <td>
                                 <div class="secret-value">{{ secret.secret }}</div>
                             </td>
@@ -1020,6 +970,9 @@
                         <div style="font-size: 3rem; margin-bottom: 1rem;">👈</div>
                         <h3>Выберите секрет, чтобы просмотреть подробную информацию</h3>
                         <p>Нажмите на любой секрет из списка, чтобы просмотреть подробную информацию, управлять его статусом и получить доступ к расположению файла.</p>
+                        <div style="margin-top: 2rem; padding: 1rem; background: #f0f9ff; border-radius: 8px; border-left: 4px solid #3b82f6;">
+                            <strong>💡 Совет:</strong> Используйте <kbd>Ctrl</kbd> для выделения нескольких секретов или <kbd>Shift</kbd> для выделения диапазона.
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1065,7 +1018,6 @@
     
     <script>
         // Global variables
-        let bulkMode = false;
         let selectedSecrets = new Set();
         let currentSecret = null;
         let lastClickedIndex = -1;
@@ -1087,15 +1039,10 @@
         });
         
         function initializeEventListeners() {
-            // Bulk mode button
-            const bulkModeBtn = document.getElementById('bulkModeBtn');
-            if (bulkModeBtn) {
-                bulkModeBtn.addEventListener('click', toggleBulkMode);
-            }
-            
             // Secret items (table rows)
             const secretRows = document.querySelectorAll('.secret-row');
             secretRows.forEach((row, index) => {
+                row.dataset.secretIndex = index; // <-- Добавь это
                 row.addEventListener('click', function(e) {
                     handleSecretClick(e, parseInt(row.dataset.secretId), index);
                 });
@@ -1254,100 +1201,131 @@
                     handleSecretClick(e, parseInt(newRow.dataset.secretId), index);
                 });
                 
-                // Restore bulk mode state if needed
-                if (bulkMode) {
-                    const checkbox = newRow.querySelector('.secret-checkbox');
-                    const checkboxCell = newRow.querySelector('td:first-child');
-                    
-                    if (checkbox) checkbox.classList.add('show');
-                    if (checkboxCell) checkboxCell.classList.add('show');
-                    
-                    // Restore selection state
-                    const secretId = parseInt(newRow.dataset.secretId);
-                    if (selectedSecrets.has(secretId)) {
-                        if (checkbox) checkbox.checked = true;
-                        newRow.classList.add('multi-selected');
-                    }
+                // Restore selection state
+                const secretId = parseInt(newRow.dataset.secretId);
+                if (selectedSecrets.has(secretId)) {
+                    newRow.classList.add('multi-selected');
                 }
             });
         }
         
-        function attachRowListeners(row) {
-            // This function is no longer used - replaced by reinitializeAfterSort
-        }
-        
         function handleSecretClick(e, secretId, index) {
-            // Handle checkbox clicks in bulk mode
-            if (e.target.type === 'checkbox') {
-                updateSelection();
+            e.preventDefault();
+
+            const isCtrlPressed = e.ctrlKey || e.metaKey;
+
+            if (isCtrlPressed) {
+                toggleMultiSelection(secretId, index);
                 return;
             }
-            
-            // Handle shift+click for range selection
-            if (bulkMode && e.shiftKey && lastClickedIndex !== -1) {
-                const start = Math.min(lastClickedIndex, index);
-                const end = Math.max(lastClickedIndex, index);
-                
-                const allRows = document.querySelectorAll('.secret-row');
-                for (let i = start; i <= end; i++) {
-                    if (allRows[i]) {
-                        const checkbox = allRows[i].querySelector('.secret-checkbox');
-                        if (checkbox) checkbox.checked = true;
-                    }
-                }
-                updateSelection();
-                e.preventDefault();
+
+            if (e.shiftKey && lastClickedIndex !== -1 && selectedSecrets.size > 0) {
+                selectRange(lastClickedIndex, index);
                 return;
             }
-            
-            lastClickedIndex = index;
-            
-            if (bulkMode) {
-                // Toggle checkbox in bulk mode
-                const checkbox = e.currentTarget.querySelector('.secret-checkbox');
-                if (checkbox) {
-                    checkbox.checked = !checkbox.checked;
-                    updateSelection();
-                }
+
+            clearMultiSelection();
+            selectSingleSecret(secretId, index);
+        }
+
+        
+        function toggleMultiSelection(secretId, index) {
+            const row = document.querySelector(`[data-secret-id="${secretId}"]`);
+            if (!row) return;
+
+            if (selectedSecrets.has(secretId)) {
+                // Remove from selection
+                selectedSecrets.delete(secretId);
+                row.classList.remove('multi-selected', 'selected');
             } else {
-                // Normal selection
-                selectSecret(secretId);
+                // Add to selection
+                selectedSecrets.add(secretId);
+                row.classList.remove('selected'); // убираем одиночное выделение, если вдруг
+                row.classList.add('multi-selected');
+            }
+
+            lastClickedIndex = index;
+            updateSelectionView();
+        }
+
+        function getSecretIdByIndex(index) {
+            const row = document.querySelector(`[data-secret-index="${index}"]`);
+            return row ? row.getAttribute('data-secret-id') : null;
+        }
+
+        function addToMultiSelection(secretId, index) {
+            const secretIdStr = String(secretId);
+            const row = document.querySelector(`[data-secret-id="${secretIdStr}"]`);
+            if (!row) {
+                console.warn('Row not found for secretId', secretIdStr);
+                return;
+            }
+
+            console.log('Adding to multi-selection:', secretIdStr);
+
+            selectedSecrets.add(secretId);
+
+            if (row.classList.contains('selected')) {
+                row.classList.remove('selected');
+                console.log('Removed selected class');
+            }
+
+            if (!row.classList.contains('multi-selected')) {
+                row.classList.add('multi-selected');
+                console.log('Added multi-selected class');
+            }
+
+            updateSelectionView();
+        }
+        
+        function selectRange(startIndex, endIndex) {
+            const start = Math.min(startIndex, endIndex);
+            const end = Math.max(startIndex, endIndex);
+            const allRows = document.querySelectorAll('.secret-row');
+            
+            for (let i = start; i <= end; i++) {
+                if (allRows[i]) {
+                    const secretId = parseInt(allRows[i].dataset.secretId);
+                    selectedSecrets.add(secretId);
+                    allRows[i].classList.add('multi-selected');
+                    allRows[i].classList.remove('selected');
+                }
+            }
+            
+            lastClickedIndex = endIndex;
+            updateSelectionView();
+        }
+        
+        function selectSingleSecret(secretId, index) {
+            // Clear all selections
+            clearMultiSelection();
+            
+            // Set single selection
+            const row = document.querySelector(`[data-secret-id="${secretId}"]`);
+            if (row) {
+                row.classList.add('selected');
+                selectedSecrets.add(secretId);
+                currentSecret = secretId;
+                lastClickedIndex = index;
+                loadSecretDetails(secretId);
             }
         }
         
-        function toggleBulkMode() {
-            bulkMode = !bulkMode;
-            
-            const bulkModeBtn = document.getElementById('bulkModeBtn');
-            const bulkActions = document.getElementById('bulkActions');
-            const checkboxes = document.querySelectorAll('.secret-checkbox');
-            const secretsTable = document.querySelector('.secrets-table-container');
-            const checkboxHeader = document.querySelector('.table-header th:first-child');
-            const checkboxCells = document.querySelectorAll('.secret-row td:first-child');
-            
-            if (bulkMode) {
-                bulkModeBtn.textContent = '❌ Cancel Multi-select mode';
-                bulkModeBtn.className = 'btn btn-secondary';
-                bulkActions.classList.add('show');
-                checkboxes.forEach(cb => cb.classList.add('show'));
-                checkboxHeader.classList.add('show');
-                checkboxCells.forEach(cell => cell.classList.add('show'));
-                secretsTable.classList.add('bulk-mode-active');
+        function clearMultiSelection() {
+            selectedSecrets.clear();
+            document.querySelectorAll('.secret-row').forEach(row => {
+                row.classList.remove('selected', 'multi-selected');
+            });
+        }
+        
+        function updateSelectionView() {
+            if (selectedSecrets.size > 1) {
                 showBulkDetail();
+            } else if (selectedSecrets.size === 1) {
+                const singleSecretId = Array.from(selectedSecrets)[0];
+                loadSecretDetails(singleSecretId);
             } else {
-                bulkModeBtn.textContent = '📌 Multi-select';
-                bulkModeBtn.className = 'btn btn-primary';
-                bulkActions.classList.remove('show');
-                checkboxes.forEach(cb => {
-                    cb.classList.remove('show');
-                    cb.checked = false;
-                });
-                checkboxHeader.classList.remove('show');
-                checkboxCells.forEach(cell => cell.classList.remove('show'));
-                secretsTable.classList.remove('bulk-mode-active');
-                selectedSecrets.clear();
-                updateSelection();
-                hideBulkDetail();
+                showEmptyDetail();
             }
         }
 
@@ -1355,8 +1333,13 @@
             const detailPanel = document.getElementById('detailPanel');
             detailPanel.innerHTML = `
                 <div class="bulk-detail-panel">
-                    <h3 class="bulk-title">Multi-select</h3>
-                    <p>Выбрано: <span class="bulk-count" id="bulkSelectedCount">0</span> секретов</p>
+                    <h3 class="bulk-title">📌 Выбрано секретов: <span class="bulk-count">${selectedSecrets.size}</span></h3>
+                    
+                    <div class="bulk-section">
+                        <button class="bulk-btn select-all-btn" onclick="selectAllSecrets()">
+                            ✅ Выделить все секреты
+                        </button>
+                    </div>
                     
                     <div class="bulk-section status-panel">
                         <h4>📊 Изменение статуса</h4>
@@ -1384,11 +1367,17 @@
                             </button>
                         </div>
                     </div>
+                    
+                    <div class="bulk-section">
+                        <button class="bulk-btn btn-secondary" onclick="clearMultiSelection(); showEmptyDetail();" style="width: 100%;">
+                            ❌ Отменить выделение
+                        </button>
+                    </div>
                 </div>
             `;
         }
 
-        function hideBulkDetail() {
+        function showEmptyDetail() {
             const detailPanel = document.getElementById('detailPanel');
             detailPanel.innerHTML = `
                 <div class="detail-empty">
@@ -1396,51 +1385,26 @@
                         <div style="font-size: 3rem; margin-bottom: 1rem;">👈</div>
                         <h3>Выберите секрет, чтобы просмотреть подробную информацию</h3>
                         <p>Нажмите на любой секрет из списка, чтобы просмотреть подробную информацию, управлять его статусом и получить доступ к расположению файла.</p>
+                        <div style="margin-top: 2rem; padding: 1rem; background: #f0f9ff; border-radius: 8px; border-left: 4px solid #3b82f6;">
+                            <strong>💡 Совет:</strong> Используйте <kbd>Ctrl</kbd> для выделения нескольких секретов или <kbd>Shift</kbd> для выделения диапазона.
+                        </div>
                     </div>
                 </div>
             `;
         }
         
-        function selectSecret(secretId) {
-            // Remove previous selection
-            document.querySelectorAll('.secret-row').forEach(row => {
+        function selectAllSecrets() {
+            const allRows = document.querySelectorAll('.secret-row');
+            selectedSecrets.clear();
+            
+            allRows.forEach(row => {
+                const secretId = parseInt(row.dataset.secretId);
+                selectedSecrets.add(secretId);
+                row.classList.add('multi-selected');
                 row.classList.remove('selected');
             });
             
-            // Add selection to current item
-            const selectedRow = document.querySelector(`[data-secret-id="${secretId}"]`);
-            if (selectedRow) {
-                selectedRow.classList.add('selected');
-            }
-            
-            currentSecret = secretId;
-            loadSecretDetails(secretId);
-        }
-        
-        function updateSelection() {
-            selectedSecrets.clear();
-            
-            // Remove all multi-selected classes first
-            document.querySelectorAll('.secret-row').forEach(row => {
-                row.classList.remove('multi-selected');
-            });
-            
-            document.querySelectorAll('.secret-checkbox:checked').forEach(checkbox => {
-                const secretRow = checkbox.closest('.secret-row');
-                if (secretRow) {
-                    const secretId = parseInt(secretRow.dataset.secretId);
-                    selectedSecrets.add(secretId);
-                    secretRow.classList.add('multi-selected');
-                }
-            });
-            
-            document.getElementById('selectedCount').textContent = selectedSecrets.size;
-            
-            // Update bulk detail count if in bulk mode
-            const bulkCount = document.getElementById('bulkSelectedCount');
-            if (bulkCount) {
-                bulkCount.textContent = selectedSecrets.size;
-            }
+            showBulkDetail();
         }
 
         function showFiltersModal() {
