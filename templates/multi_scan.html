@@ -549,7 +549,12 @@
                 }
             }
             
-            const baseRepoUrl = `${urlObj.protocol}//${urlObj.host}${urlObj.pathname.split('/commit/')[0]}`;
+            // Clean base repo URL - remove commit path and all query parameters
+            let cleanPath = urlObj.pathname;
+            if (cleanPath.includes('/commit/')) {
+                cleanPath = cleanPath.split('/commit/')[0];
+            }
+            const baseRepoUrl = `${urlObj.protocol}//${urlObj.host}${cleanPath}`;
             
             return {
                 server,
@@ -799,6 +804,7 @@
                 }));
                 
                 // Send multi-scan request
+                console.log('Sending scan requests:', scanRequests); // Debug log
                 const response = await fetch('/multi_scan', {
                     method: 'POST',
                     headers: {

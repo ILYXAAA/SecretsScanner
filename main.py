@@ -1258,12 +1258,12 @@ async def multi_scan(request: Request, _: bool = Depends(get_current_user), db: 
         
         db.commit()
         
-        # Send request to microservice
+        # Send request to microservice with proper format
         try:
             async with httpx.AsyncClient(timeout=300.0) as client:  # 5 minutes timeout
                 response = await client.post(
                     f"{MICROSERVICE_URL}/multi_scan",
-                    json=scan_requests
+                    json={"requests": scan_requests}  # Wrap in object if needed
                 )
                 
                 if response.status_code == 200:
@@ -1301,18 +1301,25 @@ async def multi_scan(request: Request, _: bool = Depends(get_current_user), db: 
                         return JSONResponse(content=result)
                 
                 else:
+                    # Try to get error details from response
+                    try:
+                        error_data = response.json()
+                        error_message = error_data.get("detail", f"HTTP {response.status_code}")
+                    except:
+                        error_message = f"HTTP {response.status_code}"
+                    
                     # Mark all scans as failed
                     for scan_record in scan_records:
                         scan_record.status = "failed"
-                        scan_record.error_message = f"Microservice error: HTTP {response.status_code}"
+                        scan_record.error_message = f"Microservice error: {error_message}"
                     
                     db.commit()
                     
                     return JSONResponse(
-                        status_code=response.status_code,
+                        status_code=400,
                         content={
                             "status": "error", 
-                            "message": f"Ошибка микросервиса: HTTP {response.status_code}"
+                            "message": f"Ошибка микросервиса: {error_message}"
                         }
                     )
         
