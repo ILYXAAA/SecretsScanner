@@ -804,7 +804,10 @@
                 }));
                 
                 // Send multi-scan request
-                console.log('Sending scan requests:', scanRequests); // Debug log
+                const requestPayload = {
+                    repositories: scanRequests
+                };
+                console.log('Sending to microservice:', requestPayload); // Debug log
                 const response = await fetch('/multi_scan', {
                     method: 'POST',
                     headers: {
