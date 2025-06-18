@@ -351,9 +351,39 @@
             color: #721c24;
         }
         
-        .scan-status.timeout {
+        .scan-loading {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .scan-spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #28a745;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        .scan-progress {
             background: #fff3cd;
             color: #856404;
+            border: 1px solid #ffeaa7;
+            border-radius: 4px;
+            padding: 0.25rem 0.75rem;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+        
+        .scan-queue {
+            background: #e2e3e5;
+            color: #6c757d;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            padding: 0.25rem 0.75rem;
+            font-size: 0.8rem;
+            font-weight: 600;
         }
         
         .scan-stats {
@@ -704,7 +734,16 @@
             
             scanListDiv.innerHTML = '';
             
-            scans.forEach(scan => {
+            // Determine current scan position for sequential animation
+            let currentScanIndex = -1;
+            const completedScans = scans.filter(scan => scan.status === 'completed' || scan.status === 'failed' || scan.status === 'timeout').length;
+            const runningScans = scans.filter(scan => scan.status === 'running').length;
+            
+            if (runningScans > 0 && completedScans < scans.length) {
+                currentScanIndex = completedScans;
+            }
+            
+            scans.forEach((scan, index) => {
                 const scanItem = document.createElement('a');
                 scanItem.className = 'scan-item';
                 scanItem.href = scan.status === 'completed' ? `/scan/${scan.scan_id}/results` : `/scan/${scan.scan_id}`;
@@ -731,8 +770,35 @@
                     statusHtml = '<span class="scan-status failed">❌ Ошибка</span>';
                 } else if (scan.status === 'timeout') {
                     statusHtml = '<span class="scan-status timeout">⏸️ Таймаут</span>';
+                } else if (scan.status === 'running') {
+                    if (index === currentScanIndex) {
+                        statusHtml = `
+                            <span class="scan-progress">
+                                <div class="scan-loading">
+                                    <div class="scan-spinner"></div>
+                                    Выполняется
+                                </div>
+                            </span>
+                        `;
+                    } else {
+                        statusHtml = '<span class="scan-status running">⏳ Выполняется</span>';
+                    }
                 } else {
-                    statusHtml = '<span class="scan-status running">⏳ Выполняется</span>';
+                    // pending or other status
+                    if (index === currentScanIndex) {
+                        statusHtml = `
+                            <span class="scan-progress">
+                                <div class="scan-loading">
+                                    <div class="scan-spinner"></div>
+                                    Запускается
+                                </div>
+                            </span>
+                        `;
+                    } else if (index > currentScanIndex) {
+                        statusHtml = '<span class="scan-queue">📋 В очереди</span>';
+                    } else {
+                        statusHtml = '<span class="scan-status running">⏳ Выполняется</span>';
+                    }
                 }
                 
                 scanItem.innerHTML = `
@@ -899,30 +965,24 @@
         // Auto-refresh scan statuses if there are running scans
         async function refreshScanStatuses() {
             const storedScans = localStorage.getItem('multiScanResults');
-            if (!storedScans) return;
+            if (!storedScans) return false;
             
             let scans = JSON.parse(storedScans);
-            const runningScans = scans.filter(scan => scan.status === 'running' || scan.status === 'pending');
-            
-            if (runningScans.length === 0) return;
-            
             let hasUpdates = false;
             
-            // Check each running scan
-            for (const scan of scans) {
-                if (scan.status !== 'running' && scan.status !== 'pending') continue;
-                
+            // Check all scans for updates
+            for (let i = 0; i < scans.length; i++) {
                 try {
-                    console.log(`Checking status for scan ${scan.scan_id}`); // Debug
-                    const response = await fetch(`/api/scan/${scan.scan_id}/status`);
+                    const response = await fetch(`/api/scan/${scans[i].scan_id}/status`);
                     if (response.ok) {
                         const scanData = await response.json();
-                        console.log(`Scan ${scan.scan_id} status:`, scanData); // Debug
                         
-                        // Update scan data
-                        const scanIndex = scans.findIndex(s => s.scan_id === scan.scan_id);
-                        if (scanIndex !== -1) {
-                            scans[scanIndex] = {
+                        // Check if status changed
+                        if (scans[i].status !== scanData.status || 
+                            scans[i].high_count !== scanData.high_count || 
+                            scans[i].potential_count !== scanData.potential_count) {
+                            
+                            scans[i] = {
                                 scan_id: scanData.scan_id,
                                 project_name: scanData.project_name,
                                 status: scanData.status,
@@ -935,32 +995,27 @@
                             };
                             hasUpdates = true;
                         }
-                    } else {
-                        console.log(`Failed to get status for scan ${scan.scan_id}:`, response.status);
                     }
                 } catch (error) {
-                    console.error(`Error checking scan ${scan.scan_id}:`, error);
+                    console.error(`Error checking scan ${scans[i].scan_id}:`, error);
                 }
             }
             
-            // Update display and storage if there were changes
+            // Update storage and display if there were changes
             if (hasUpdates) {
                 localStorage.setItem('multiScanResults', JSON.stringify(scans));
                 displayScanResults(scans);
             }
+            
+            return scans.some(scan => scan.status === 'running' || scan.status === 'pending');
         }
         
         function autoRefreshScans() {
-            const storedScans = localStorage.getItem('multiScanResults');
-            if (storedScans) {
-                const scans = JSON.parse(storedScans);
-                const runningScans = scans.filter(scan => scan.status === 'running' || scan.status === 'pending');
-                if (runningScans.length > 0) {
-                    refreshScanStatuses().then(() => {
-                        setTimeout(autoRefreshScans, 10000); // Continue refreshing
-                    });
+            refreshScanStatuses().then(hasRunningScans => {
+                if (hasRunningScans) {
+                    setTimeout(autoRefreshScans, 5000); // Check every 5 seconds
                 }
-            }
+            });
         }
         
         // Restore scan results on page load
@@ -972,6 +1027,19 @@
                     if (scans.length > 0) {
                         displayScanResults(scans);
                         autoRefreshScans(); // Start auto-refresh
+                        
+                        // Force refresh every 30 seconds if there are running scans
+                        const refreshInterval = setInterval(() => {
+                            const currentScans = JSON.parse(localStorage.getItem('multiScanResults') || '[]');
+                            const hasRunning = currentScans.some(scan => 
+                                scan.status === 'running' || scan.status === 'pending'
+                            );
+                            if (!hasRunning) {
+                                clearInterval(refreshInterval);
+                            } else {
+                                refreshScanStatuses();
+                            }
+                        }, 30000);
                     }
                 } catch (error) {
                     console.error('Error loading stored scans:', error);
