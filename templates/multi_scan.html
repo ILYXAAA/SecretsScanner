@@ -505,9 +505,15 @@
         <div id="scanResults" style="display: none;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                 <h2 style="color: #333; margin: 0;">📊 Запущенные сканирования</h2>
-                <button class="btn btn-secondary" onclick="clearScanResults()">
-                    🗑️ Очистить результаты
-                </button>
+                <div style="display: flex; gap: 1rem; align-items: center;">
+                    <div id="refreshStatus" style="font-size: 0.9rem; color: #666;"></div>
+                    <button class="btn btn-primary" onclick="manualRefresh()">
+                        🔄 Обновить
+                    </button>
+                    <button class="btn btn-secondary" onclick="clearScanResults()">
+                        🗑️ Очистить результаты
+                    </button>
+                </div>
             </div>
             <div id="scanList" class="scan-list"></div>
         </div>
@@ -824,6 +830,12 @@
             
             // Store scan data in localStorage for persistence
             localStorage.setItem('multiScanResults', JSON.stringify(scans));
+            
+            // Start auto-refresh if there are running scans
+            const hasRunning = scans.some(scan => scan.status === 'running' || scan.status === 'pending');
+            if (hasRunning) {
+                startAutoRefresh();
+            }
         }
         
         function displayValidationErrors(errors) {
@@ -962,6 +974,8 @@
             });
         }
         
+        let refreshTimer = null;
+        
         // Auto-refresh scan statuses if there are running scans
         async function refreshScanStatuses() {
             const storedScans = localStorage.getItem('multiScanResults');
@@ -1010,12 +1024,21 @@
             return scans.some(scan => scan.status === 'running' || scan.status === 'pending');
         }
         
-        function autoRefreshScans() {
-            refreshScanStatuses().then(hasRunningScans => {
-                if (hasRunningScans) {
-                    setTimeout(autoRefreshScans, 5000); // Check every 5 seconds
+        function startAutoRefresh() {
+            if (refreshTimer) {
+                clearInterval(refreshTimer);
+            }
+            
+            updateRefreshStatus('Автообновление активно');
+            
+            refreshTimer = setInterval(async () => {
+                const hasRunningScans = await refreshScanStatuses();
+                if (!hasRunningScans) {
+                    clearInterval(refreshTimer);
+                    refreshTimer = null;
+                    updateRefreshStatus('Все сканирования завершены');
                 }
-            });
+            }, 3000); // Check every 3 seconds
         }
         
         // Restore scan results on page load
@@ -1026,20 +1049,12 @@
                     const scans = JSON.parse(storedScans);
                     if (scans.length > 0) {
                         displayScanResults(scans);
-                        autoRefreshScans(); // Start auto-refresh
                         
-                        // Force refresh every 30 seconds if there are running scans
-                        const refreshInterval = setInterval(() => {
-                            const currentScans = JSON.parse(localStorage.getItem('multiScanResults') || '[]');
-                            const hasRunning = currentScans.some(scan => 
-                                scan.status === 'running' || scan.status === 'pending'
-                            );
-                            if (!hasRunning) {
-                                clearInterval(refreshInterval);
-                            } else {
-                                refreshScanStatuses();
-                            }
-                        }, 30000);
+                        // Always start auto-refresh on page load if scans exist
+                        const hasRunning = scans.some(scan => scan.status === 'running' || scan.status === 'pending');
+                        if (hasRunning) {
+                            startAutoRefresh();
+                        }
                     }
                 } catch (error) {
                     console.error('Error loading stored scans:', error);
@@ -1053,11 +1068,34 @@
             localStorage.removeItem('multiScanResults');
         });
         
+        function updateRefreshStatus(text) {
+            const statusEl = document.getElementById('refreshStatus');
+            if (statusEl) {
+                statusEl.textContent = text;
+                statusEl.style.color = text.includes('Обновляется') ? '#28a745' : '#666';
+            }
+        }
+        
+        async function manualRefresh() {
+            updateRefreshStatus('Обновляется...');
+            const hasRunning = await refreshScanStatuses();
+            updateRefreshStatus(hasRunning ? 'Автообновление активно' : 'Все сканирования завершены');
+            
+            if (hasRunning && !refreshTimer) {
+                startAutoRefresh();
+            }
+        }
+        
         function clearScanResults() {
             localStorage.removeItem('multiScanResults');
             document.getElementById('scanResults').style.display = 'none';
             document.getElementById('scanForm').style.display = 'block';
             showAlert('success', 'Результаты мультисканирования очищены');
+            
+            if (refreshTimer) {
+                clearInterval(refreshTimer);
+                refreshTimer = null;
+            }
         }
     </script>
 </body>
