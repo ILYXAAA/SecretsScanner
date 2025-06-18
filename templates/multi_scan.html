@@ -473,7 +473,12 @@
         </div>
         
         <div id="scanResults" style="display: none;">
-            <h2 style="margin-bottom: 1.5rem; color: #333;">📊 Запущенные сканирования</h2>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                <h2 style="color: #333; margin: 0;">📊 Запущенные сканирования</h2>
+                <button class="btn btn-secondary" onclick="clearScanResults()">
+                    🗑️ Очистить результаты
+                </button>
+            </div>
             <div id="scanList" class="scan-list"></div>
         </div>
     </div>
@@ -702,20 +707,47 @@
             scans.forEach(scan => {
                 const scanItem = document.createElement('a');
                 scanItem.className = 'scan-item';
-                scanItem.href = `/scan/${scan.scan_id}`;
+                scanItem.href = scan.status === 'completed' ? `/scan/${scan.scan_id}/results` : `/scan/${scan.scan_id}`;
+                scanItem.dataset.scanId = scan.scan_id;
+                
+                let statusHtml = '';
+                let statsHtml = '';
+                
+                if (scan.status === 'completed') {
+                    statusHtml = '<span class="scan-status completed">✅ Завершено</span>';
+                    statsHtml = `
+                        <div class="secrets-summary">
+                            <div class="secret-count high">
+                                <div class="number">${scan.high_count || 0}</div>
+                                <div class="label">High</div>
+                            </div>
+                            <div class="secret-count potential">
+                                <div class="number">${scan.potential_count || 0}</div>
+                                <div class="label">Potential</div>
+                            </div>
+                        </div>
+                    `;
+                } else if (scan.status === 'failed') {
+                    statusHtml = '<span class="scan-status failed">❌ Ошибка</span>';
+                } else if (scan.status === 'timeout') {
+                    statusHtml = '<span class="scan-status timeout">⏸️ Таймаут</span>';
+                } else {
+                    statusHtml = '<span class="scan-status running">⏳ Выполняется</span>';
+                }
                 
                 scanItem.innerHTML = `
                     <div class="scan-main">
                         <div class="scan-project">${scan.project_name}</div>
                         <div class="scan-meta">
-                            <span class="scan-status running">⏳ Выполняется</span>
+                            ${statusHtml}
                         </div>
                         <div class="scan-meta">
-                            🕒 ${new Date().toLocaleString('ru-RU')}
+                            🕒 ${scan.started_at || new Date().toLocaleString('ru-RU')}
                             • ⚙️ ${scan.commit ? scan.commit.substring(0, 7) : 'Ожидание...'}
                             • 📂 ${scan.ref_type}: ${scan.ref}
                         </div>
                     </div>
+                    ${statsHtml ? `<div class="scan-stats">${statsHtml}</div>` : ''}
                 `;
                 
                 scanListDiv.appendChild(scanItem);
@@ -723,6 +755,9 @@
             
             scanResultsDiv.style.display = 'block';
             document.getElementById('scanForm').style.display = 'none';
+            
+            // Store scan data in localStorage for persistence
+            localStorage.setItem('multiScanResults', JSON.stringify(scans));
         }
         
         function displayValidationErrors(errors) {
@@ -862,17 +897,82 @@
         }
         
         // Auto-refresh scan statuses if there are running scans
-        function autoRefreshScans() {
-            const runningScans = document.querySelectorAll('.scan-status.running');
-            if (runningScans.length > 0) {
-                setTimeout(() => {
-                    window.location.reload();
-                }, 10000); // Refresh every 10 seconds
+        async function refreshScanStatuses() {
+            const storedScans = localStorage.getItem('multiScanResults');
+            if (!storedScans) return;
+            
+            let scans = JSON.parse(storedScans);
+            const runningScans = scans.filter(scan => scan.status === 'running' || scan.status === 'pending');
+            
+            if (runningScans.length === 0) return;
+            
+            let hasUpdates = false;
+            
+            // Check each running scan
+            for (const scan of runningScans) {
+                try {
+                    const response = await fetch(`/api/scan/${scan.scan_id}/status`);
+                    if (response.ok) {
+                        const scanData = await response.json();
+                        
+                        // Update scan data if status changed
+                        const scanIndex = scans.findIndex(s => s.scan_id === scan.scan_id);
+                        if (scanIndex !== -1 && scans[scanIndex].status !== scanData.status) {
+                            scans[scanIndex] = { ...scans[scanIndex], ...scanData };
+                            hasUpdates = true;
+                        }
+                    }
+                } catch (error) {
+                    console.error(`Error checking scan ${scan.scan_id}:`, error);
+                }
+            }
+            
+            // Update display if there were changes
+            if (hasUpdates) {
+                displayScanResults(scans);
             }
         }
         
-        // Start auto-refresh when page loads
-        window.addEventListener('load', autoRefreshScans);
+        function autoRefreshScans() {
+            const storedScans = localStorage.getItem('multiScanResults');
+            if (storedScans) {
+                const scans = JSON.parse(storedScans);
+                const runningScans = scans.filter(scan => scan.status === 'running' || scan.status === 'pending');
+                if (runningScans.length > 0) {
+                    refreshScanStatuses();
+                    setTimeout(autoRefreshScans, 10000); // Refresh every 10 seconds
+                }
+            }
+        }
+        
+        // Restore scan results on page load
+        window.addEventListener('DOMContentLoaded', function() {
+            const storedScans = localStorage.getItem('multiScanResults');
+            if (storedScans) {
+                try {
+                    const scans = JSON.parse(storedScans);
+                    if (scans.length > 0) {
+                        displayScanResults(scans);
+                        autoRefreshScans(); // Start auto-refresh
+                    }
+                } catch (error) {
+                    console.error('Error loading stored scans:', error);
+                    localStorage.removeItem('multiScanResults');
+                }
+            }
+        });
+        
+        // Clear stored results when starting new scan
+        document.getElementById('multiScanForm').addEventListener('submit', function() {
+            localStorage.removeItem('multiScanResults');
+        });
+        
+        function clearScanResults() {
+            localStorage.removeItem('multiScanResults');
+            document.getElementById('scanResults').style.display = 'none';
+            document.getElementById('scanForm').style.display = 'block';
+            showAlert('success', 'Результаты мультисканирования очищены');
+        }
     </script>
 </body>
 </html>

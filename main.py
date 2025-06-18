@@ -1219,6 +1219,178 @@ async def check_project_exists(repo_url: str, _: bool = Depends(get_current_user
     else:
         return {"exists": False}
 
+@app.get("/api/scan/{scan_id}/status")
+async def get_scan_status(scan_id: str, _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Get current scan status with statistics"""
+    scan = db.query(Scan).filter(Scan.id == scan_id).first()
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan not found")
+    
+    # Get statistics if scan is completed
+    high_count = 0
+    potential_count = 0
+    
+    if scan.status == 'completed':
+        high_count, potential_count = get_scan_statistics(db, scan_id)
+    
+    return {
+        "scan_id": scan.id,
+        "project_name": scan.project_name,
+        "status": scan.status,
+        "ref_type": scan.ref_type,
+        "ref": scan.ref,
+        "commit": scan.repo_commit,
+        "started_at": scan.started_at.strftime('%Y-%m-%d %H:%M') if scan.started_at else None,
+        "completed_at": scan.completed_at.strftime('%Y-%m-%d %H:%M') if scan.completed_at else None,
+        "high_count": high_count,
+        "potential_count": potential_count,
+        "files_scanned": scan.files_scanned
+    }
+
+async def multi_scan(request: Request, _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Handle multi-scan requests"""
+    try:
+        scan_requests = await request.json()
+        
+        if not isinstance(scan_requests, list) or len(scan_requests) == 0:
+            return JSONResponse(
+                status_code=400,
+                content={"status": "error", "message": "Invalid request format"}
+            )
+        
+        # Check microservice health
+        if not await check_microservice_health():
+            return JSONResponse(
+                status_code=503,
+                content={"status": "error", "message": "Микросервис недоступен"}
+            )
+        
+        # Create scan records in database
+        scan_records = []
+        for scan_request in scan_requests:
+            # Extract scan ID from callback URL
+            callback_url = scan_request.get("CallbackUrl", "")
+            scan_id = callback_url.split("/")[-1] if callback_url else str(uuid.uuid4())
+            
+            # Create scan record
+            scan = Scan(
+                id=scan_id,
+                project_name=scan_request["ProjectName"],
+                ref_type=scan_request["RefType"],
+                ref=scan_request["Ref"],
+                status="pending"
+            )
+            db.add(scan)
+            scan_records.append(scan)
+        
+        db.commit()
+        
+        # Send request to microservice with proper format
+        try:
+            async with httpx.AsyncClient(timeout=300.0) as client:  # 5 minutes timeout
+                # Send request to microservice with correct format
+                microservice_payload = {
+                    "repositories": scan_requests
+                }
+                
+                response = await client.post(
+                    f"{MICROSERVICE_URL}/multi_scan",
+                    json=microservice_payload
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    
+                    if result.get("status") == "accepted":
+                        # Update scan records with resolved refs and commits
+                        for i, scan_data in enumerate(result.get("data", [])):
+                            if i < len(scan_records):
+                                scan_record = scan_records[i]
+                                scan_record.status = "running"
+                                scan_record.ref = scan_data.get("Ref", scan_record.ref)
+                                scan_record.repo_commit = scan_data.get("commit")
+                        
+                        db.commit()
+                        return JSONResponse(content=result)
+                    
+                    elif result.get("status") == "validation_failed":
+                        # Mark scans as failed for unresolved commits
+                        for i, scan_data in enumerate(result.get("data", [])):
+                            if i < len(scan_records) and scan_data.get("commit") == "not_found":
+                                scan_records[i].status = "failed"
+                                scan_records[i].error_message = "Failed to resolve commit"
+                        
+                        db.commit()
+                        return JSONResponse(content=result)
+                    
+                    else:
+                        # Mark all scans as failed
+                        for scan_record in scan_records:
+                            scan_record.status = "failed"
+                            scan_record.error_message = result.get("message", "Unknown error")
+                        
+                        db.commit()
+                        return JSONResponse(content=result)
+                
+                else:
+                    # Try to get error details from response
+                    try:
+                        error_data = response.json()
+                        error_message = error_data.get("detail", f"HTTP {response.status_code}")
+                    except:
+                        error_message = f"HTTP {response.status_code}"
+                    
+                    # Mark all scans as failed
+                    for scan_record in scan_records:
+                        scan_record.status = "failed"
+                        scan_record.error_message = f"Microservice error: {error_message}"
+                    
+                    db.commit()
+                    
+                    return JSONResponse(
+                        status_code=400,
+                        content={
+                            "status": "error", 
+                            "message": f"Ошибка микросервиса: {error_message}"
+                        }
+                    )
+        
+        except httpx.TimeoutException:
+            # Mark all scans as failed
+            for scan_record in scan_records:
+                scan_record.status = "failed"
+                scan_record.error_message = "Microservice timeout"
+            
+            db.commit()
+            
+            return JSONResponse(
+                status_code=408,
+                content={"status": "error", "message": "Таймаут микросервиса"}
+            )
+        
+        except Exception as e:
+            # Mark all scans as failed
+            for scan_record in scan_records:
+                scan_record.status = "failed"
+                scan_record.error_message = f"Connection error: {str(e)}"
+            
+            db.commit()
+            
+            return JSONResponse(
+                status_code=500,
+                content={"status": "error", "message": "Ошибка соединения с микросервисом"}
+            )
+    
+    except Exception as e:
+        print(f"Multi-scan error: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": "Внутренняя ошибка сервера"}
+        )
+
 @app.post("/multi_scan")
 async def multi_scan(request: Request, _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
     """Handle multi-scan requests"""
