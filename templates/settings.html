@@ -305,6 +305,8 @@
             <div class="alert alert-success">PAT token updated successfully!</div>
             {% elif 'success=rules_updated' in request.url.query %}
             <div class="alert alert-success">Rules updated successfully!</div>
+            {% elif 'success=fp_rules_updated' in request.url.query %}
+            <div class="alert alert-success">False-Positive rules updated successfully!</div>
             {% elif 'success=excluded_extensions_updated' in request.url.query %}
             <div class="alert alert-success">Excluded extensions updated successfully!</div>
             {% elif 'success=excluded_files_updated' in request.url.query %}
@@ -334,29 +336,29 @@
             <div class="backup-grid">
                 <div class="backup-stat">
                     <h3 id="backup-count">-</h3>
-                    <p>Available Backups</p>
+                    <p>Доступных бэкапов</p>
                 </div>
                 <div class="backup-stat">
                     <h3 id="retention-days">{{ BACKUP_RETENTION_DAYS if BACKUP_RETENTION_DAYS is defined else 7 }}</h3>
-                    <p>Retention Days</p>
+                    <p>Хранение в днях</p>
                 </div>
             </div>
             
             <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
                 <button type="button" class="btn btn-primary" onclick="createBackup()" id="createBackupBtn">
-                    💾 Create Backup Now
+                    💾 Создать бэкап БД
                 </button>
                 <button type="button" class="btn btn-info" onclick="refreshBackups()" id="refreshBtn">
-                    🔄 Refresh List
+                    🔄 Обновить список
                 </button>
             </div>
             
             <div id="backup-list-container">
-                <h3 style="margin-bottom: 0.5rem;">Recent Backups:</h3>
+                <h3 style="margin-bottom: 0.5rem;">Последние бэкапы:</h3>
                 <div class="backup-list" id="backup-list">
                     <div style="padding: 2rem; text-align: center; color: #666;">
                         <div class="spinner"></div>
-                        Loading backups...
+                        Загрузка бэкапов...
                     </div>
                 </div>
             </div>
@@ -369,17 +371,17 @@
             </p>
             
             <div class="form-group">
-                <label>Current Token:</label>
+                <label>Текущий токен:</label>
                 <div class="current-token">{{ current_token }}</div>
             </div>
             
             <form method="post" action="/settings/update-token">
                 <div class="form-group">
-                    <label for="token">New PAT Token:</label>
+                    <label for="token">Новый PAT Токен:</label>
                     <input type="password" id="token" name="token" placeholder="aboba_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" required>
                 </div>
                 <button type="submit" class="btn btn-primary">
-                    💾 Update Token
+                    💾 Обновить токен
                 </button>
             </form>
         </div>
@@ -392,11 +394,11 @@
             
             {% if rules_info %}
             <div class="config-info">
-                <p><strong>Current Rules File Status:</strong></p>
+                <p><strong>Текущий Rules File Статус:</strong></p>
                 {% if rules_info.exists %}
-                <p>📁 Size: {{ "%.1f"|format(rules_info.size / 1024) }} KB</p>
-                <p>📅 Modified: {{ rules_info.modified | strftime if rules_info.modified else 'Unknown' }}</p>
-                <p>📂 Path: {{ rules_info.path }}</p>
+                <p>📁 Размер: {{ "%.1f"|format(rules_info.size / 1024) }} KB</p>
+                <p>📅 Изменено: {{ rules_info.modified | strftime if rules_info.modified else 'Unknown' }}</p>
+                <!-- <p>📂 Путь: {{ rules_info.path }}</p> -->
                 {% else %}
                 <p style="color: #ff6b6b;">❌ No rules file exists yet</p>
                 {% endif %}
@@ -405,30 +407,71 @@
             
             <form method="post" action="/settings/update-rules" id="rulesForm">
                 <div class="form-group">
-                    <label for="rules_content">Rules Content (YAML):</label>
+                    <label for="rules_content">Содержимое текущего файла (YAML):</label>
                     <textarea 
                         id="rules_content" 
                         name="rules_content" 
                         required
                         class="config-textarea"
-                        placeholder="# Enter your YAML rules configuration here
+                        placeholder='# Введите свою конфигурацию правил YAML здесь
 # Example:
-rules:
-  - id: high-entropy-strings
-    description: 'High entropy strings'
-    regex: '[A-Za-z0-9+/]{40,}'
-    keywords:
-      - password
-      - secret
-      - key
-    severity: high">{{ current_rules_content or "" }}</textarea>
+- id: privateKey.key
+  message: Private key
+  pattern: "\\s*-----\\s*BEGIN*PRIVATE KEY*\\s*-----"
+  severity: HIG'>{{ current_rules_content or "" }}</textarea>
                 </div>
                 <div style="display: flex; gap: 1rem; align-items: center;">
                     <button type="submit" class="btn btn-success" id="updateRulesBtn">
-                        💾 Update Rules
+                        💾 Обновить правила
                     </button>
                     <button type="button" class="btn btn-secondary" onclick="resetContent('rules')">
-                        🔄 Reset to Current
+                        🔄 Сбросить до текущих
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <div class="settings-section">
+            <h2 class="section-title">🚫 False-Positive Rules Configuration</h2>
+            <p style="color: #666; margin-bottom: 1rem;">
+                Настройте правила для игнорирования ложных срабатываний при сканировании. Если строка из .yml файла находится в `context` найденного секрета - данный секрет не учитывается при сканировании, попадая в ложные срабатывания.
+            </p>
+            
+            {% if fp_rules_info %}
+            <div class="config-info">
+                <p><strong>Текущий Статус False-Positive Rules Файла:</strong></p>
+                {% if fp_rules_info.exists %}
+                <p>📁 Размер: {{ "%.1f"|format(fp_rules_info.size / 1024) }} KB</p>
+                <p>📅 Изменено: {{ fp_rules_info.modified | strftime if fp_rules_info.modified else 'Unknown' }}</p>
+                <!-- <p>📂 Путь: {{ fp_rules_info.path }}</p> -->
+                {% else %}
+                <p style="color: #ff6b6b;">❌ No false-positive rules file exists yet</p>
+                {% endif %}
+            </div>
+            {% endif %}
+            
+            <form method="post" action="/settings/update-fp-rules" id="fpRulesForm">
+                <div class="form-group">
+                    <label for="fp_rules_content">False-Positive Rules Content (YAML):</label>
+                    <textarea 
+                        id="fp_rules_content" 
+                        name="fp_rules_content" 
+                        required
+                        class="config-textarea"
+                        placeholder='# Введите здесь свою конфигурацию правил определения ложных срабатываний
+# Example:
+false_positive:
+  - "token cancellationtoken"
+  - "sha512"
+  - "sha256"
+  - "password = null"'>{{ current_fp_rules_content or "" }}</textarea>
+                </div>
+                <div style="display: flex; gap: 1rem; align-items: center;">
+                    <button type="submit" class="btn btn-success" id="updateFpRulesBtn">
+                        💾 Обновить правила
+                    </button>
+                    <button type="button" class="btn btn-secondary" onclick="resetContent('fp_rules')">
+                        🔄 Сбросить до текущих
                     </button>
                 </div>
             </form>
@@ -444,9 +487,9 @@ rules:
             <div class="config-info">
                 <p><strong>Current Excluded Extensions File Status:</strong></p>
                 {% if excluded_extensions_info.exists %}
-                <p>📁 Size: {{ "%.1f"|format(excluded_extensions_info.size / 1024) }} KB</p>
-                <p>📅 Modified: {{ excluded_extensions_info.modified | strftime if excluded_extensions_info.modified else 'Unknown' }}</p>
-                <p>📂 Path: {{ excluded_extensions_info.path }}</p>
+                <p>📁 Размер: {{ "%.1f"|format(excluded_extensions_info.size / 1024) }} KB</p>
+                <p>📅 Изменено: {{ excluded_extensions_info.modified | strftime if excluded_extensions_info.modified else 'Unknown' }}</p>
+                <!-- <p>📂 Путь: {{ excluded_extensions_info.path }}</p> -->
                 {% else %}
                 <p style="color: #ff6b6b;">❌ No excluded extensions file exists yet</p>
                 {% endif %}
@@ -461,22 +504,19 @@ rules:
                         name="excluded_extensions_content" 
                         required
                         class="config-textarea"
-                        placeholder="# Enter your YAML excluded extensions configuration here
+                        placeholder="# Введите свою конфигурацию исключенных расширений здесь
 # Example:
-extensions:
-  - .jpg
-  - .png
-  - .gif
-  - .pdf
-  - .zip
-  - .tar.gz">{{ current_excluded_extensions_content or "" }}</textarea>
+excluded_extensions:
+- png
+- jpg
+- jpeg">{{ current_excluded_extensions_content or "" }}</textarea>
                 </div>
                 <div style="display: flex; gap: 1rem; align-items: center;">
                     <button type="submit" class="btn btn-success" id="updateExtensionsBtn">
-                        💾 Update Excluded Extensions
+                        💾 Обновить правила
                     </button>
                     <button type="button" class="btn btn-secondary" onclick="resetContent('extensions')">
-                        🔄 Reset to Current
+                        🔄 Сбросить до текущих
                     </button>
                 </div>
             </form>
@@ -490,11 +530,11 @@ extensions:
             
             {% if excluded_files_info %}
             <div class="config-info">
-                <p><strong>Current Excluded Files File Status:</strong></p>
+                <p><strong>Текущий статус Excluded Files файла:</strong></p>
                 {% if excluded_files_info.exists %}
-                <p>📁 Size: {{ "%.1f"|format(excluded_files_info.size / 1024) }} KB</p>
-                <p>📅 Modified: {{ excluded_files_info.modified | strftime if excluded_files_info.modified else 'Unknown' }}</p>
-                <p>📂 Path: {{ excluded_files_info.path }}</p>
+                <p>📁 Размер: {{ "%.1f"|format(excluded_files_info.size / 1024) }} KB</p>
+                <p>📅 Изменено: {{ excluded_files_info.modified | strftime if excluded_files_info.modified else 'Unknown' }}</p>
+                <!-- <p>📂 Путь: {{ excluded_files_info.path }}</p> -->
                 {% else %}
                 <p style="color: #ff6b6b;">❌ No excluded files file exists yet</p>
                 {% endif %}
@@ -509,22 +549,19 @@ extensions:
                         name="excluded_files_content" 
                         required
                         class="config-textarea"
-                        placeholder="# Enter your YAML excluded files configuration here
+                        placeholder="# Введите здесь свою конфигурацию файлов-исключений
 # Example:
-files:
-  - package-lock.json
-  - yarn.lock
-  - '*.log'
-  - 'node_modules/*'
-  - '.git/*'
-  - 'vendor/*'">{{ current_excluded_files_content or "" }}</textarea>
+excluded_files:
+- yarn.lock
+- requirements.txt
+- CMakeLists.txt">{{ current_excluded_files_content or "" }}</textarea>
                 </div>
                 <div style="display: flex; gap: 1rem; align-items: center;">
                     <button type="submit" class="btn btn-success" id="updateFilesBtn">
-                        💾 Update Excluded Files
+                        💾 Обновить правила
                     </button>
                     <button type="button" class="btn btn-secondary" onclick="resetContent('files')">
-                        🔄 Reset to Current
+                        🔄 Сбросить до текущих
                     </button>
                 </div>
             </form>
@@ -534,6 +571,7 @@ files:
     <script>
         const originalContent = {
             rules: {{ (current_rules_content or "") | tojson | safe }},
+            fp_rules: {{ (current_fp_rules_content or "") | tojson | safe }},
             extensions: {{ (current_excluded_extensions_content or "") | tojson | safe }},
             files: {{ (current_excluded_files_content or "") | tojson | safe }}
         };
@@ -662,6 +700,7 @@ files:
         // Form submission handling for all forms
         const forms = [
             { form: 'rulesForm', btn: 'updateRulesBtn', content: 'rules_content' },
+            { form: 'fpRulesForm', btn: 'updateFpRulesBtn', content: 'fp_rules_content' },
             { form: 'excludedExtensionsForm', btn: 'updateExtensionsBtn', content: 'excluded_extensions_content' },
             { form: 'excludedFilesForm', btn: 'updateFilesBtn', content: 'excluded_files_content' }
         ];
@@ -696,6 +735,7 @@ files:
         function resetContent(type) {
             const contentMap = {
                 'rules': 'rules_content',
+                'fp_rules': 'fp_rules_content',
                 'extensions': 'excluded_extensions_content',
                 'files': 'excluded_files_content'
             };
@@ -729,7 +769,7 @@ files:
         // Auto-save warning
         let hasUnsavedChanges = false;
         document.querySelectorAll('.config-textarea').forEach((textarea, index) => {
-            const type = ['rules', 'extensions', 'files'][index];
+            const type = ['rules', 'fp_rules', 'extensions', 'files'][index];
             textarea.addEventListener('input', function() {
                 const hasChanges = (this.value !== originalContent[type]);
                 if (hasChanges && !hasUnsavedChanges) {
@@ -737,7 +777,7 @@ files:
                 } else if (!hasChanges) {
                     // Check if any other textarea has changes
                     hasUnsavedChanges = document.querySelectorAll('.config-textarea').some((ta, i) => {
-                        const t = ['rules', 'extensions', 'files'][i];
+                        const t = ['rules', 'fp_rules', 'extensions', 'files'][i];
                         return ta.value !== originalContent[t];
                     });
                 }

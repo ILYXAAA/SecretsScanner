@@ -355,6 +355,30 @@ async def settings(request: Request, _: bool = Depends(get_current_user)):
         print(f"Error fetching rules: {e}")
         pass
     
+    # Get False-Positive rules info and content
+    fp_rules_info = None
+    current_fp_rules_content = ""
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            # Get FP rules info
+            info_response = await client.get(f"{MICROSERVICE_URL}/rules-fp-info", timeout=5.0)
+            
+            if info_response.status_code == 200:
+                fp_rules_info = info_response.json()
+                
+                # If FP rules exist, get their content
+                if fp_rules_info and fp_rules_info.get("exists", False):
+                    fp_rules_response = await client.get(f"{MICROSERVICE_URL}/get-fp-rules", timeout=5.0)
+                    
+                    if fp_rules_response.status_code == 200:
+                        fp_rules_data = fp_rules_response.json()
+                        if fp_rules_data.get("status") == "success":
+                            current_fp_rules_content = fp_rules_data.get("fp_rules", "")
+    except Exception as e:
+        print(f"Error fetching FP rules: {e}")
+        pass
+    
     # Get excluded extensions info and content
     excluded_extensions_info = None
     current_excluded_extensions_content = ""
@@ -406,6 +430,8 @@ async def settings(request: Request, _: bool = Depends(get_current_user)):
     # Ensure all content variables are strings
     if current_rules_content is None:
         current_rules_content = ""
+    if current_fp_rules_content is None:
+        current_fp_rules_content = ""
     if current_excluded_extensions_content is None:
         current_excluded_extensions_content = ""
     if current_excluded_files_content is None:
@@ -416,12 +442,51 @@ async def settings(request: Request, _: bool = Depends(get_current_user)):
         "current_token": current_token or "Not set",
         "rules_info": rules_info,
         "current_rules_content": current_rules_content,
+        "fp_rules_info": fp_rules_info,
+        "current_fp_rules_content": current_fp_rules_content,
         "excluded_extensions_info": excluded_extensions_info,
         "current_excluded_extensions_content": current_excluded_extensions_content,
         "excluded_files_info": excluded_files_info,
         "current_excluded_files_content": current_excluded_files_content,
-        "BACKUP_RETENTION_DAYS": BACKUP_RETENTION_DAYS  # Add this line
+        "BACKUP_RETENTION_DAYS": BACKUP_RETENTION_DAYS
     })
+
+@app.post("/settings/update-fp-rules")
+async def update_fp_rules(request: Request, fp_rules_content: str = Form(...), _: bool = Depends(get_current_user)):
+    try:
+        if not fp_rules_content.strip():
+            return RedirectResponse(url="/settings?error=empty_content", status_code=302)
+        
+        # Send content to microservice
+        payload = {
+            "content": fp_rules_content
+        }
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{MICROSERVICE_URL}/update-fp-rules",
+                json=payload
+            )
+            
+            if response.status_code == 200:
+                return RedirectResponse(url="/settings?success=fp_rules_updated", status_code=302)
+            else:
+                try:
+                    error_data = response.json()
+                    error_message = error_data.get("message", f"Microservice error: HTTP {response.status_code}")
+                except:
+                    error_message = f"Microservice error: HTTP {response.status_code}"
+                
+                encoded_error = urllib.parse.quote(error_message)
+                return RedirectResponse(url=f"/settings?error={encoded_error}", status_code=302)
+                
+    except Exception as e:
+        print(f"FP rules update error: {e}")
+        import traceback
+        traceback.print_exc()
+        error_message = f"Update error: {str(e)}"
+        encoded_error = urllib.parse.quote(error_message)
+        return RedirectResponse(url=f"/settings?error={encoded_error}", status_code=302)
 
 @app.post("/settings/update-token")
 async def update_token(request: Request, token: str = Form(...), _: bool = Depends(get_current_user)):
