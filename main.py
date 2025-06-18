@@ -845,7 +845,7 @@ async def receive_scan_results(project_name: str, scan_id: str, request: Request
                     status = "Confirmed"
                     exception_comment = None
                     refuted_at = None
-                else:
+                else:  # "No status"
                     is_exception = False
                     status = "No status"
                     exception_comment = None
@@ -857,7 +857,7 @@ async def receive_scan_results(project_name: str, scan_id: str, request: Request
                 exception_comment = None
                 refuted_at = None
                 severity = result["severity"]
-            
+
             secret = Secret(
                 scan_id=scan_id,
                 path=result["path"],
