@@ -13,6 +13,8 @@ test.py
 run — копия.py
 test.txt
 run_2.py
+Dataset_Secrets.txt
+Dataset_NonSecrets.txt
 
 # Distribution / packaging
 .Python
