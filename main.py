@@ -1169,7 +1169,6 @@ def safe_json_encode(data):
     json_str = json_str.replace('"', '\\u0022')
     return json_str
 
-
 @app.get("/scan/{scan_id}/results", response_class=HTMLResponse)
 async def scan_results(request: Request, scan_id: str, severity_filter: str = "", 
                      type_filter: str = "", show_exceptions: bool = False,
@@ -1213,8 +1212,12 @@ async def scan_results(request: Request, scan_id: str, severity_filter: str = ""
     unique_severities_query = db.query(Secret.severity.distinct()).filter(Secret.scan_id == scan_id)
     unique_severities = [row[0] for row in unique_severities_query.all() if row[0]]
     
-    # Оптимизированный поиск предыдущих статусов только для небольших наборов
+    # Инициализируем переменные в начале
+    secrets_data = []
     previous_secrets_map = {}
+    previous_scans = []
+    
+    # Оптимизированный поиск предыдущих статусов только для небольших наборов
     if all_secrets_query and len(all_secrets_query) < 500:  # Только для небольших наборов
         # Получить все предыдущие сканы одним запросом
         previous_scans = db.query(Scan.id, Scan.completed_at).filter(
@@ -1238,7 +1241,7 @@ async def scan_results(request: Request, scan_id: str, severity_filter: str = ""
                 if key not in previous_secrets_map:
                     previous_secrets_map[key] = prev_secret
     
-        secrets_data = []
+    # Обработка секретов
     for secret in all_secrets_query:
         previous_status = None
         previous_scan_date = None
@@ -1248,6 +1251,7 @@ async def scan_results(request: Request, scan_id: str, severity_filter: str = ""
             if key in previous_secrets_map:
                 prev_secret = previous_secrets_map[key]
                 previous_status = prev_secret.status
+                # Найти дату скана для этого секрета
                 for scan_info in previous_scans:
                     if prev_secret.scan_id == scan_info.id:
                         previous_scan_date = scan_info.completed_at.strftime('%Y-%m-%d %H:%M')
@@ -1278,7 +1282,7 @@ async def scan_results(request: Request, scan_id: str, severity_filter: str = ""
         "request": request,
         "scan": scan,
         "project": project,
-        "secrets": all_secrets_query,
+        "secrets": all_secrets_query,  # Для обратной совместимости
         "secrets_data_safe_json": secrets_data_safe_json,  # БЕЗОПАСНЫЙ JSON
         "project_repo_url_safe": html.escape(project.repo_url or "", quote=True),
         "scan_commit_safe": html.escape(scan.repo_commit or "", quote=True),
