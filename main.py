@@ -14,6 +14,7 @@ import json
 import httpx
 import asyncio
 import logging
+from logging.handlers import RotatingFileHandler
 import urllib.parse
 from typing import Optional, List
 import os
@@ -65,8 +66,15 @@ Path(BACKUP_DIR).mkdir(exist_ok=True)
 logging.basicConfig(level=logging.INFO)
 backup_logger = logging.getLogger("backup")
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("logger")
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        RotatingFileHandler('secrets_scanner.log', maxBytes=10*1024*1024, backupCount=5),
+        logging.StreamHandler()  # Также выводить в консоль
+    ]
+)
+logger = logging.getLogger("main")
 
 # Add JSON filter to Jinja2
 def tojson_filter(obj):
