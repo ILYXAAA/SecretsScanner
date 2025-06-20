@@ -26,7 +26,7 @@ from io import BytesIO
 import secrets
 import html
 from html_report_generator import generate_html_report
-
+os.system("") # Для цветной консоли
 # Load environment variables
 load_dotenv()
 

@@ -888,16 +888,8 @@
             scanResultsDiv.style.display = 'block';
             document.getElementById('scanForm').style.display = 'none';
             
-            // Check if all scans are completed and show repo list
-            const allCompleted = scans.every(scan => 
-                scan.status === 'completed' || scan.status === 'failed' || scan.status === 'timeout'
-            );
-            
-            if (allCompleted) {
-                displayCompletedRepos(scans);
-            } else {
-                document.getElementById('completedRepos').style.display = 'none';
-            }
+            // Always show repo list if there are scans with commits
+            displayCompletedRepos(scans);
             
             // Store scan data in localStorage for persistence
             localStorage.setItem('multiScanResults', JSON.stringify(scans));
@@ -913,16 +905,29 @@
             const completedReposDiv = document.getElementById('completedRepos');
             const repoListDiv = document.getElementById('repoList');
             
-            // Filter completed scans and build repo URLs with commits
-            const completedScans = scans.filter(scan => scan.status === 'completed' && scan.commit && scan.repo_url);
+            // Build repo URLs with commits for all scans that have commits (regardless of status)
+            const scansWithCommits = scans.filter(scan => scan.commit && scan.commit !== 'not_found' && scan.commit !== 'Ожидание...');
             
-            if (completedScans.length === 0) {
+            if (scansWithCommits.length === 0) {
                 completedReposDiv.style.display = 'none';
                 return;
             }
             
-            const repoUrls = completedScans.map(scan => {
-                return `${scan.repo_url}/commit/${scan.commit}`;
+            // Get base repo URL from stored scan data or construct it
+            const repoUrls = scansWithCommits.map(scan => {
+                let baseUrl = scan.repo_url;
+                
+                // If repo_url is not available, try to construct it from project name
+                if (!baseUrl && scan.base_repo_url) {
+                    baseUrl = scan.base_repo_url;
+                }
+                
+                if (baseUrl) {
+                    return `${baseUrl}/commit/${scan.commit}`;
+                } else {
+                    // Fallback - show project name with commit
+                    return `${scan.project_name}/commit/${scan.commit}`;
+                }
             });
             
             repoListDiv.innerHTML = repoUrls.map(url => 
@@ -1049,7 +1054,8 @@
                         ref_type: item.RefType,
                         ref: item.Ref,
                         commit: item.commit,
-                        scan_id: scanRequests[index].CallbackUrl.split('/').pop()
+                        scan_id: scanRequests[index].CallbackUrl.split('/').pop(),
+                        base_repo_url: scanRequests[index].RepoUrl // Добавляем base URL
                     }));
                     
                     displayScanResults(scans);
@@ -1101,7 +1107,8 @@
                         // Check if status changed
                         if (scans[i].status !== scanData.status || 
                             scans[i].high_count !== scanData.high_count || 
-                            scans[i].potential_count !== scanData.potential_count) {
+                            scans[i].potential_count !== scanData.potential_count ||
+                            scans[i].commit !== scanData.commit) {
                             
                             scans[i] = {
                                 scan_id: scanData.scan_id,
@@ -1112,7 +1119,9 @@
                                 commit: scanData.commit,
                                 started_at: scanData.started_at,
                                 high_count: scanData.high_count,
-                                potential_count: scanData.potential_count
+                                potential_count: scanData.potential_count,
+                                base_repo_url: scans[i].base_repo_url, // Сохраняем base URL
+                                repo_url: scanData.repo_url || scans[i].base_repo_url // Используем из API или fallback
                             };
                             hasUpdates = true;
                         }
@@ -1130,7 +1139,7 @@
             
             return scans.some(scan => scan.status === 'running' || scan.status === 'pending');
         }
-        
+
         function startAutoRefresh() {
             if (refreshTimer) {
                 clearInterval(refreshTimer);
