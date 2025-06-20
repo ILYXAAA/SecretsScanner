@@ -3,7 +3,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, File
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy import create_engine, Column, String, DateTime, Integer, Text, Boolean, func
+from sqlalchemy import create_engine, Column, String, DateTime, Integer, Text, Boolean, func, text
 from typing import List, Dict, Any
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
@@ -142,23 +142,24 @@ def create_indexes():
     try:
         with engine.connect() as conn:
             # Композитный индекс для поиска похожих секретов
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_secrets_composite ON secrets (path, line, secret, type)")
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_secrets_composite ON secrets (path, line, secret, type)"))
             
             # Индекс для фильтрации по scan_id и is_exception
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_secrets_scan_exception ON secrets (scan_id, is_exception)")
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_secrets_scan_exception ON secrets (scan_id, is_exception)"))
             
             # Индекс для фильтрации по severity
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_secrets_severity ON secrets (scan_id, severity, is_exception)")
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_secrets_severity ON secrets (scan_id, severity, is_exception)"))
             
             # Индекс для фильтрации по type
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_secrets_type ON secrets (scan_id, type, is_exception)")
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_secrets_type ON secrets (scan_id, type, is_exception)"))
             
             # Индекс для поиска секретов по проекту и времени
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_scans_project_time ON scans (project_name, completed_at)")
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_scans_project_time ON scans (project_name, completed_at)"))
             
             # Индекс для статуса сканов
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_scans_status ON scans (status, started_at)")
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_scans_status ON scans (status, started_at)"))
             
+            conn.commit()
             print("Database indexes created successfully")
     except Exception as e:
         print(f"Error creating indexes: {e}")
