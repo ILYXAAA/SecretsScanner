@@ -24,6 +24,7 @@ from dotenv import load_dotenv
 from jose import JWTError, jwt
 from io import BytesIO
 import secrets
+import html
 from html_report_generator import generate_html_report
 
 # Load environment variables
@@ -1157,6 +1158,18 @@ async def receive_scan_results(project_name: str, scan_id: str, request: Request
     # If status is not recognized, treat as error
     return {"status": "error", "message": "Unknown status received"}
 
+def safe_json_encode(data):
+    """Безопасное кодирование данных в JSON с экранированием опасных символов"""
+    json_str = json.dumps(data, ensure_ascii=False)
+    # Экранируем опасные HTML символы
+    json_str = json_str.replace('<', '\\u003c')
+    json_str = json_str.replace('>', '\\u003e') 
+    json_str = json_str.replace('&', '\\u0026')
+    json_str = json_str.replace("'", '\\u0027')
+    json_str = json_str.replace('"', '\\u0022')
+    return json_str
+
+
 @app.get("/scan/{scan_id}/results", response_class=HTMLResponse)
 async def scan_results(request: Request, scan_id: str, severity_filter: str = "", 
                      type_filter: str = "", show_exceptions: bool = False,
@@ -1225,7 +1238,7 @@ async def scan_results(request: Request, scan_id: str, severity_filter: str = ""
                 if key not in previous_secrets_map:
                     previous_secrets_map[key] = prev_secret
     
-    secrets_data = []
+        secrets_data = []
     for secret in all_secrets_query:
         previous_status = None
         previous_scan_date = None
@@ -1235,36 +1248,40 @@ async def scan_results(request: Request, scan_id: str, severity_filter: str = ""
             if key in previous_secrets_map:
                 prev_secret = previous_secrets_map[key]
                 previous_status = prev_secret.status
-                # Найти дату скана для этого секрета
                 for scan_info in previous_scans:
                     if prev_secret.scan_id == scan_info.id:
                         previous_scan_date = scan_info.completed_at.strftime('%Y-%m-%d %H:%M')
                         break
         
-        # БЕЗОПАСНОЕ создание объекта секрета
+        # БЕЗОПАСНОЕ создание объекта секрета с экранированием
         secret_obj = {
             "id": secret.id,
-            "path": secret.path or "",
+            "path": html.escape(secret.path or "", quote=True),
             "line": secret.line or 0,
-            "secret": secret.secret or "",
-            "context": secret.context or "",
-            "severity": secret.severity or "",
-            "type": secret.type or "",
-            "status": secret.status or "No status",
+            "secret": html.escape(secret.secret or "", quote=True),
+            "context": html.escape(secret.context or "", quote=True),
+            "severity": html.escape(secret.severity or "", quote=True),
+            "type": html.escape(secret.type or "", quote=True),
+            "status": html.escape(secret.status or "No status", quote=True),
             "is_exception": bool(secret.is_exception),
-            "exception_comment": secret.exception_comment or "",
+            "exception_comment": html.escape(secret.exception_comment or "", quote=True),
             "refuted_at": secret.refuted_at.strftime('%Y-%m-%d %H:%M') if secret.refuted_at else None,
-            "previous_status": previous_status,
+            "previous_status": html.escape(previous_status or "", quote=True) if previous_status else None,
             "previous_scan_date": previous_scan_date
         }
         secrets_data.append(secret_obj)
+
+    # Безопасное кодирование в JSON
+    secrets_data_safe_json = safe_json_encode(secrets_data)
 
     return templates.TemplateResponse("scan_results.html", {
         "request": request,
         "scan": scan,
         "project": project,
-        "secrets": all_secrets_query,  # Для обратной совместимости
-        "secrets_data_json": json.dumps(secrets_data),  # БЕЗОПАСНЫЙ JSON
+        "secrets": all_secrets_query,
+        "secrets_data_safe_json": secrets_data_safe_json,  # БЕЗОПАСНЫЙ JSON
+        "project_repo_url_safe": html.escape(project.repo_url or "", quote=True),
+        "scan_commit_safe": html.escape(scan.repo_commit or "", quote=True),
         "unique_types": unique_types,
         "unique_severities": unique_severities,
         "total_secrets": total_secrets,
@@ -1277,6 +1294,7 @@ async def scan_results(request: Request, scan_id: str, severity_filter: str = ""
             "show_exceptions": show_exceptions
         }
     })
+
 @app.post("/secrets/{secret_id}/update-status")
 async def update_secret_status(secret_id: int, status: str = Form(...), 
                               comment: str = Form(""), _: bool = Depends(get_current_user), 

@@ -1193,6 +1193,7 @@
     </div>
 
     <script>
+        // Global variables
         let selectedSecrets = new Set();
         let currentSecret = null;
         let lastClickedIndex = -1;
@@ -1210,24 +1211,33 @@
         };
         
         // Server-side data - БЕЗОПАСНАЯ загрузка
-        const secretsDataRaw = {{ secrets_data_json | safe }};
-        const projectRepoUrl = {{ project.repo_url | tojson | safe }};
-        const scanCommit = {{ scan.repo_commit | tojson | safe }};
-        const hubType = {{ hub_type | tojson | safe }};
-
-        // Парсим данные безопасно
         let secretsData = [];
+        let projectRepoUrl = '';
+        let scanCommit = '';
+        let hubType = '{{ hub_type }}';
+
         try {
-            if (typeof secretsDataRaw === 'string') {
-                secretsData = JSON.parse(secretsDataRaw);
-            } else {
-                secretsData = secretsDataRaw;
-            }
+            // Парсим безопасно экранированные данные
+            const secretsDataRaw = '{{ secrets_data_safe_json|safe }}';
+            secretsData = JSON.parse(secretsDataRaw);
+            projectRepoUrl = '{{ project_repo_url_safe|safe }}';
+            scanCommit = '{{ scan_commit_safe|safe }}';
+            
             console.log('Successfully loaded', secretsData.length, 'secrets');
         } catch (error) {
             console.error('Error parsing secrets data:', error);
             secretsData = [];
-            alert('Ошибка загрузки данных секретов. Пожалуйста, обновите страницу.');
+            alert('Ошибка загрузки данных секретов. Страница будет перезагружена.');
+            window.location.reload();
+        }
+
+        // Функция для безопасного отображения HTML (данные уже экранированы на сервере)
+        function safeHtml(text) {
+            if (text === null || text === undefined) {
+                return '';
+            }
+            // Данные уже экранированы на сервере, просто возвращаем их
+            return String(text);
         }
 
         // Initialize when page loads
@@ -1236,12 +1246,21 @@
             
             if (secretsData.length === 0) {
                 console.error('No secrets data loaded');
+                const tableContainer = document.getElementById('secretsTable');
+                if (tableContainer) {
+                    tableContainer.innerHTML = `
+                        <div class="empty-results">
+                            <h3>Нет данных о секретах</h3>
+                            <p>Секреты не найдены или произошла ошибка загрузки.</p>
+                        </div>
+                    `;
+                }
                 return;
             }
             
             // Normalize statuses immediately
             secretsData.forEach(secret => {
-                if (secret.status === null || secret.status === undefined || secret.status === '') {
+                if (secret.status === null || secret.status === undefined || secret.status === '' || secret.status === 'null') {
                     secret.status = 'No status';
                 }
             });
@@ -1473,6 +1492,65 @@
                 `;
                 return;
             }
+
+            // Calculate pagination
+            const startIndex = (currentPage - 1) * pageSize;
+            const endIndex = Math.min(startIndex + pageSize, filteredSecrets.length);
+            const pageSecrets = filteredSecrets.slice(startIndex, endIndex);
+
+            console.log(`Rendering ${pageSecrets.length} secrets (${startIndex}-${endIndex} of ${filteredSecrets.length})`);
+
+            // Generate table HTML
+            let tableHTML = `
+                <table class="secrets-table">
+                    <thead class="table-header">
+                        <tr>
+                            <th>🔑 Secret</th>
+                            <th>📍 Line</th>
+                            <th class="sortable" data-sort="file">📁 File</th>
+                            <th class="sortable" data-sort="type">🏷️ Type</th>
+                            <th class="sortable" data-sort="status">📊 Status</th>
+                            <th class="sortable" data-sort="severity">⚠️ Level</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            pageSecrets.forEach((secret, index) => {
+                const globalIndex = startIndex + index;
+                // Данные уже экранированы на сервере, просто отображаем их
+                tableHTML += `
+                    <tr class="secret-row ${safeHtml(secret.severity).toLowerCase()}" data-secret-id="${secret.id}" data-secret-index="${globalIndex}">
+                        <td>
+                            <div class="secret-value">${safeHtml(secret.secret)}</div>
+                        </td>
+                        <td>
+                            <span class="secret-line">${secret.line}</span>
+                        </td>
+                        <td>
+                            <span class="secret-file">${safeHtml(secret.path.split('/').pop())}</span>
+                        </td>
+                        <td>
+                            <span class="secret-type">${safeHtml(secret.type)}</span>
+                        </td>
+                        <td>
+                            <div class="secret-status">
+                                ${getStatusHTML(secret)}
+                            </div>
+                        </td>
+                        <td>
+                            <div class="secret-severity ${safeHtml(secret.severity).toLowerCase()}">${safeHtml(secret.severity)}</div>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            tableHTML += '</tbody></table>';
+            tableContainer.innerHTML = tableHTML;
+
+            // Attach event listeners
+            initializeTableEventListeners();
+        }
 
             // Calculate pagination
             const startIndex = (currentPage - 1) * pageSize;
@@ -1958,22 +2036,28 @@
             const secretData = allSecrets.find(s => s.id === secretId);
             if (!secretData) return;
             
-            // Build file URL
+            // Build file URL (используем безопасные данные)
             let fileUrl;
-            if (hubType === 'Azure') {
-                const startColumn = 1;
-                const endColumn = (secretData.secret || '').length + 1;
-                fileUrl = `${projectRepoUrl}?path=${encodeURIComponent(secretData.path || '')}&version=GC${scanCommit}&line=${secretData.line}&lineEnd=${secretData.line}&lineStartColumn=${startColumn}&lineEndColumn=${endColumn}&_a=contents`;
-            } else {
-                fileUrl = `${projectRepoUrl}/blob/${scanCommit}${encodeURIComponent(secretData.path || '')}?plain=1#L${secretData.line}`;
+            try {
+                if (hubType === 'Azure') {
+                    const startColumn = 1;
+                    const secretLength = secretData.secret ? secretData.secret.length : 0;
+                    const endColumn = secretLength + 1;
+                    fileUrl = `${projectRepoUrl}?path=${encodeURIComponent(secretData.path || '')}&version=GC${scanCommit}&line=${secretData.line}&lineEnd=${secretData.line}&lineStartColumn=${startColumn}&lineEndColumn=${endColumn}&_a=contents`;
+                } else {
+                    fileUrl = `${projectRepoUrl}/blob/${scanCommit}${encodeURIComponent(secretData.path || '')}?plain=1#L${secretData.line}`;
+                }
+            } catch (error) {
+                console.error('Error building file URL:', error);
+                fileUrl = '#';
             }
             
-            // Безопасное экранирование всех данных
-            const escapedSecret = escapeHtml(secretData.secret || '');
-            const escapedPath = escapeHtml(secretData.path || '');
-            const escapedContext = escapeHtml(secretData.context || '');
-            const escapedType = escapeHtml(secretData.type || '');
-            const escapedComment = escapeHtml(secretData.exception_comment || '');
+            // Данные уже экранированы на сервере
+            const safeSecret = safeHtml(secretData.secret || '');
+            const safePath = safeHtml(secretData.path || '');
+            const safeContext = safeHtml(secretData.context || '');
+            const safeType = safeHtml(secretData.type || '');
+            const safeComment = safeHtml(secretData.exception_comment || '');
             
             let previousStatusHtml = '';
             if (secretData.previous_status || secretData.previous_severity) {
@@ -1983,12 +2067,12 @@
                 if (secretData.previous_status) {
                     const statusIcon = secretData.previous_status === 'Confirmed' ? '✅' : '❌';
                     const statusClass = secretData.previous_status === 'Confirmed' ? 'status-confirmed' : 'status-refuted';
-                    statusPart = `Статус: <span class="${statusClass}">${statusIcon} ${escapeHtml(secretData.previous_status)}</span>`;
+                    statusPart = `Статус: <span class="${statusClass}">${statusIcon} ${safeHtml(secretData.previous_status)}</span>`;
                 }
                 
                 if (secretData.previous_severity && secretData.previous_severity !== secretData.severity) {
                     const severityIcon = secretData.previous_severity === 'High' ? '🔴' : '🟡';
-                    severityPart = `Уровень: <span style="color: ${secretData.previous_severity === 'High' ? '#dc2626' : '#6b7280'};">${severityIcon} ${escapeHtml(secretData.previous_severity)}</span> → <span style="color: ${secretData.severity === 'High' ? '#dc2626' : '#6b7280'};">${secretData.severity === 'High' ? '🔴' : '🟡'} ${escapeHtml(secretData.severity)}</span>`;
+                    severityPart = `Уровень: <span style="color: ${secretData.previous_severity === 'High' ? '#dc2626' : '#6b7280'};">${severityIcon} ${safeHtml(secretData.previous_severity)}</span> → <span style="color: ${secretData.severity === 'High' ? '#dc2626' : '#6b7280'};">${secretData.severity === 'High' ? '🔴' : '🟡'} ${safeHtml(secretData.severity)}</span>`;
                 }
                 
                 let content = [statusPart, severityPart].filter(p => p).join('<br>');
@@ -1998,7 +2082,7 @@
                         <h4>📊 Предыдущие изменения</h4>
                         <div class="detail-field" style="background: #fef3c7; border-left: 3px solid #f59e0b;">
                             ${content}<br>
-                            <small style="color: #666;">Изменено ${escapeHtml(secretData.previous_scan_date || '')}</small>
+                            <small style="color: #666;">Изменено ${safeHtml(secretData.previous_scan_date || '')}</small>
                         </div>
                         <div style="font-size: 0.8rem; color: #666; margin-top: 0.25rem;">
                             Настройки этого секрета были автоматически применены на основе ваших предыдущих решений. При необходимости вы можете изменить их.
@@ -2032,7 +2116,7 @@
                     <div class="detail-section">
                         <h4>🔑 Значение секрета</h4>
                         <div class="detail-field" style="background: #fef3c7; border: 1px solid #f59e0b; color: #92400e; font-weight: 600;">
-                            ${escapedSecret}
+                            ${safeSecret}
                         </div>
                     </div>
                     
@@ -2054,7 +2138,7 @@
                         </div>
                         <div class="comment-section" style="display: ${secretData.status === 'Refuted' ? 'block' : 'none'};">
                             <label for="comment-${secretId}">Комментарий:</label>
-                            <textarea id="comment-${secretId}" placeholder="Explain why this is not a real secret...">${escapedComment}</textarea>
+                            <textarea id="comment-${secretId}" placeholder="Explain why this is not a real secret...">${safeComment}</textarea>
                             <button class="btn btn-primary" style="margin-top: 0.5rem; font-size: 0.8rem;" 
                                     onclick="updateSecretStatus(${secretId}, 'Refuted')">
                                 💾 Update Comment
@@ -2083,7 +2167,7 @@
                     <div class="detail-section">
                         <h4>📁 Путь до файла</h4>
                         <a href="${fileUrl}" target="_blank" class="detail-field clickable" style="display: block; text-decoration: none; color: inherit;">
-                            ${escapedPath}
+                            ${safePath}
                         </a>
                         <div style="font-size: 0.8rem; color: #666; margin-top: 0.25rem;">
                             Нажмите чтобы открыть в репозитории (строка выделяется при открытии)
@@ -2092,19 +2176,19 @@
                     
                     <div class="detail-section">
                         <h4>📍 Номер строки</h4>
-                        <div class="detail-field">${escapeHtml((secretData.line || 0).toString())}</div>
+                        <div class="detail-field">${secretData.line || 0}</div>
                     </div>
                     
                     <div class="detail-section">
                         <h4>📝 Контекст</h4>
                         <div class="detail-field" style="white-space: pre-wrap; overflow-x: auto;">
-                            ${escapedContext}
+                            ${safeContext}
                         </div>
                     </div>
                     
                     <div class="detail-section">
                         <h4>🏷️ Тип</h4>
-                        <div class="detail-field">${escapedType}</div>
+                        <div class="detail-field">${safeType}</div>
                     </div>
 
                     ${previousStatusHtml}
