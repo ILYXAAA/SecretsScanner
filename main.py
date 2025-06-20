@@ -1622,6 +1622,7 @@ async def get_scan_status(scan_id: str, _: bool = Depends(get_current_user), db:
         "files_scanned": scan.files_scanned
     }
 
+@app.post("/multi_scan")
 async def multi_scan(request: Request, _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
     """Handle multi-scan requests"""
     try:
