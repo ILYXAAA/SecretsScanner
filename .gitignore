@@ -12,6 +12,7 @@ database/
 test.py
 run — копия.py
 test.txt
+run_2.py
 
 # Distribution / packaging
 .Python

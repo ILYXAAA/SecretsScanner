@@ -45,6 +45,20 @@ def decrypt_from_file(filename: str, key_name: str) -> str:
     decrypted = fernet.decrypt(encrypted)
     return decrypted.decode()
 
+def first_setup():
+    print("Мастер первичной настройки login, password")
+    print("="*20)
+    Path("Auth").mkdir(exist_ok=True)
+    filename = "Auth/login.dat"
+    key_name = "LOGIN_KEY"
+    message = input("Введите логин для учетной записи:")
+    encrypt_and_save(text=message, filename=filename, key_name=key_name)
+
+    filename = "Auth/password.dat"
+    key_name = "PASSWORD_KEY"
+    message = input("Введите пароль для учетной записи:")
+    encrypt_and_save(text=message, filename=filename, key_name=key_name)
+
 if __name__ == "__main__":
     print("Мастер первичной настройки login, password")
     print("="*20)
