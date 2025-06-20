@@ -915,7 +915,7 @@
             
             // Get base repo URL from stored scan data or construct it
             const repoUrls = scansWithCommits.map(scan => {
-                let baseUrl = scan.repo_url;
+                // let baseUrl = scan.repo_url;
                 
                 // If repo_url is not available, try to construct it from project name
                 // if (!baseUrl && scan.base_repo_url) {
@@ -928,7 +928,7 @@
                 //     // Fallback - show project name with commit
                 //     return `${scan.project_name}/commit/${scan.commit}`;
                 // }
-                return `${baseUrl}/commit/${scan.commit}`;
+                return `${result.RepoUrl}/commit/${scan.commit}`;
             });
             
             repoListDiv.innerHTML = repoUrls.map(url => 

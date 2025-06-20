@@ -1696,7 +1696,8 @@ async def multi_scan(request: Request, _: bool = Depends(get_current_user), db: 
                             content={
                                 "status": "accepted",
                                 "message": result.get("message", "Мультисканирование добавлено в очередь"),
-                                "data": scan_data_list
+                                "data": scan_data_list,
+                                "RepoUrl": result.get("RepoUrl", "Undefined")
                             }
                         )
                     
