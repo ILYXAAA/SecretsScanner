@@ -66,6 +66,7 @@
         .main-content {
             display: flex;
             height: calc(100vh - 72px);
+            position: relative;
         }
         
         .left-panel {
@@ -75,14 +76,14 @@
             display: flex;
             flex-direction: column;
         }
-        
+
         .right-panel {
             width: 40%;
             background: #fafbfc;
             display: flex;
             flex-direction: column;
         }
-        
+                      
         .panel-header {
             padding: 1rem 2rem;
             border-bottom: 1px solid #e5e7eb;
@@ -99,6 +100,26 @@
             color: #1f2937;
             margin-bottom: 0.25rem;
             letter-spacing: -0.025em;
+        }
+
+        .repo-link {
+            color: #3b82f6;
+            text-decoration: none;
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+            font-size: 0.8125rem;
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            background: #eff6ff;
+            border-radius: 4px;
+            border: 1px solid #dbeafe;
+            transition: all 0.2s ease;
+        }
+
+        .repo-link:hover {
+            background: #dbeafe;
+            transform: translateY(-1px);
         }
         
         .commit-info {
@@ -254,6 +275,139 @@
 
         .btn-info:hover {
             background: #0891b2;
+        }
+        
+        /* FILTERS PANEL */
+        .filters-panel {
+            position: fixed;
+            top: 72px;
+            right: -320px;
+            width: 320px;
+            height: calc(100vh - 72px);
+            background: #ffffff;
+            border-left: 1px solid #e5e7eb;
+            box-shadow: -4px 0 8px rgba(0, 0, 0, 0.1);
+            transition: right 0.3s ease;
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .filters-panel.open {
+            right: 0;
+        }
+
+        /* Remove the width transitions from panels */
+        .left-panel {
+            width: 60%;
+            background: #ffffff;
+            border-right: 1px solid #e5e7eb;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .right-panel {
+            width: 40%;
+            background: #fafbfc;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .filters-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid #e5e7eb;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .filters-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: #1f2937;
+        }
+
+        .filters-close {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: #6b7280;
+            padding: 0.25rem;
+            border-radius: 4px;
+            transition: all 0.2s ease;
+        }
+
+        .filters-close:hover {
+            background: #f3f4f6;
+            color: #374151;
+        }
+
+        .filters-content {
+            flex: 1;
+            padding: 1.5rem;
+            overflow-y: auto;
+        }
+
+        .filter-group {
+            margin-bottom: 2rem;
+        }
+
+        .filter-group h4 {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 0.75rem;
+        }
+
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            padding: 0.5rem;
+            margin-bottom: 0.25rem;
+            border-radius: 6px;
+            transition: background-color 0.2s ease;
+            cursor: pointer;
+        }
+
+        .checkbox-item:hover {
+            background: #f9fafb;
+        }
+
+        .checkbox-item input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            margin-right: 0.75rem;
+            accent-color: #3b82f6;
+        }
+
+        .checkbox-item label {
+            font-size: 0.875rem;
+            color: #374151;
+            cursor: pointer;
+            flex: 1;
+        }
+
+        .filters-actions {
+            padding: 1rem 1.5rem;
+            border-top: 1px solid #e5e7eb;
+            background: #f9fafb;
+        }
+
+        .clear-filters-btn {
+            width: 100%;
+            background: #6b7280;
+            color: white;
+            border: none;
+            padding: 0.75rem;
+            border-radius: 6px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .clear-filters-btn:hover {
+            background: #4b5563;
         }
         
         /* TABLE STYLES */
@@ -568,86 +722,6 @@
             color: #6b7280;
         }
 
-        .filters-modal {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.5);
-            display: none;
-            justify-content: center;
-            align-items: center;
-            z-index: 1000;
-            backdrop-filter: blur(4px);
-        }
-
-        .filters-modal.show {
-            display: flex;
-        }
-
-        .filters-content {
-            background: #ffffff;
-            padding: 2rem;
-            border-radius: 16px;
-            width: 420px;
-            max-width: 90vw;
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-        }
-
-        .filters-title {
-            font-size: 1.5rem;
-            font-weight: 700;
-            margin-bottom: 1.5rem;
-            color: #1f2937;
-            letter-spacing: -0.025em;
-        }
-
-        .filter-group {
-            margin-bottom: 1.5rem;
-        }
-
-        .filter-group label {
-            display: block;
-            margin-bottom: 0.5rem;
-            font-weight: 600;
-            color: #374151;
-        }
-
-        .filter-group select {
-            width: 100%;
-            padding: 0.75rem;
-            border: 1px solid #e5e7eb;
-            border-radius: 8px;
-            font-size: 0.875rem;
-            transition: border-color 0.2s ease;
-        }
-
-        .filter-group select:focus {
-            outline: none;
-            border-color: #3b82f6;
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-        }
-
-        .checkbox-group {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-        }
-
-        .checkbox-group input[type="checkbox"] {
-            width: 18px;
-            height: 18px;
-            accent-color: #3b82f6;
-        }
-
-        .filters-actions {
-            display: flex;
-            gap: 1rem;
-            justify-content: flex-end;
-            margin-top: 2rem;
-        }
-
         .bulk-detail-panel {
             background: #ffffff;
             padding: 2rem;
@@ -813,26 +887,124 @@
             background: #2563eb;
         }
 
+        /* PAGINATION */
+        .pagination-container {
+            padding: 1rem 2rem;
+            border-top: 1px solid #e5e7eb;
+            background: #ffffff;
+            display: flex;
+            justify-content: between;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .pagination-info {
+            font-size: 0.875rem;
+            color: #6b7280;
+            flex: 1;
+        }
+
+        .pagination-controls {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .pagination-btn {
+            padding: 0.5rem 0.75rem;
+            border: 1px solid #e5e7eb;
+            background: #ffffff;
+            color: #374151;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.875rem;
+            transition: all 0.2s ease;
+            text-decoration: none;
+        }
+
+        .pagination-btn:hover:not(.disabled) {
+            background: #f9fafb;
+            border-color: #d1d5db;
+        }
+
+        .pagination-btn.active {
+            background: #3b82f6;
+            color: white;
+            border-color: #3b82f6;
+        }
+
+        .pagination-btn.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .page-size-selector {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.875rem;
+            color: #6b7280;
+        }
+
+        .page-size-selector select {
+            padding: 0.25rem 0.5rem;
+            border: 1px solid #e5e7eb;
+            border-radius: 4px;
+            font-size: 0.875rem;
+        }
+
         /* Scrollbar styling */
         .secrets-table-container::-webkit-scrollbar,
-        .detail-panel::-webkit-scrollbar {
+        .detail-panel::-webkit-scrollbar,
+        .filters-content::-webkit-scrollbar {
             width: 6px;
         }
 
         .secrets-table-container::-webkit-scrollbar-track,
-        .detail-panel::-webkit-scrollbar-track {
+        .detail-panel::-webkit-scrollbar-track,
+        .filters-content::-webkit-scrollbar-track {
             background: #f3f4f6;
         }
 
         .secrets-table-container::-webkit-scrollbar-thumb,
-        .detail-panel::-webkit-scrollbar-thumb {
+        .detail-panel::-webkit-scrollbar-thumb,
+        .filters-content::-webkit-scrollbar-thumb {
             background: #d1d5db;
             border-radius: 3px;
         }
 
         .secrets-table-container::-webkit-scrollbar-thumb:hover,
-        .detail-panel::-webkit-scrollbar-thumb:hover {
+        .detail-panel::-webkit-scrollbar-thumb:hover,
+        .filters-content::-webkit-scrollbar-thumb:hover {
             background: #9ca3af;
+        }
+
+        /* Loading indicator */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.9);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #e5e7eb;
+            border-top: 4px solid #3b82f6;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
     </style>
 </head>
@@ -850,15 +1022,22 @@
     </header>
     
     <div class="main-content">
-        <div class="left-panel">
+        <div class="left-panel" id="leftPanel">
             <div class="panel-header">
                 <div class="project-info">
                     <div class="project-title">{{ project.name }}</div>
+                    {% if project.repo_url and scan.repo_commit %}
+                    <a href="{{ project.repo_url }}/commit/{{ scan.repo_commit }}" 
+                       target="_blank" 
+                       class="repo-link">
+                        🔗 {{ project.repo_url }}/commit/{{ scan.repo_commit[:8] }}...
+                    </a>
+                    {% endif %}
                     <div class="commit-info">
                         ⚙️ Commit: <span style="font-weight: bold; color: #3b82f6;">{{ scan.repo_commit if scan.repo_commit else 'Unknown' }}</span>
                     </div>
                     <div class="commit-info">
-                        🕒 Scanned: <span style="font-weight: bold; color: #3b82f6;">{{ scan.completed_at.strftime('%Y-%m-%d %H:%M') if scan.completed_at else scan.started_at.strftime('%Y-%m-%d %H:%M') }}
+                        🕒 Scanned: <span style="font-weight: bold; color: #3b82f6;">{{ scan.completed_at.strftime('%Y-%m-%d %H:%M') if scan.completed_at else scan.started_at.strftime('%Y-%m-%d %H:%M') }}</span>
                     </div>
                     {% if scan.files_scanned %}
                     <div class="files-scanned">
@@ -869,19 +1048,19 @@
                                 
                 <div class="stats-summary">
                     <div class="stat-item">
-                        <div class="stat-number">
+                        <div class="stat-number" id="totalSecretsCount">
                             {{ total_secrets if total_secrets is defined else (secrets|selectattr('is_exception', 'equalto', False)|list|length) }}
                         </div>
                         <div class="stat-label">Total</div>
                     </div>
                     <div class="stat-item high-bg">
-                        <div class="stat-number high-text">
+                        <div class="stat-number high-text" id="highSecretsCount">
                             {{ high_secrets if high_secrets is defined else (secrets|selectattr('severity', 'equalto', 'High')|selectattr('is_exception', 'equalto', False)|list|length) }}
                         </div>
                         <div class="stat-label high-text">High</div>
                     </div>
                     <div class="stat-item potential-bg">
-                        <div class="stat-number">
+                        <div class="stat-number" id="potentialSecretsCount">
                             {{ potential_secrets if potential_secrets is defined else (secrets|selectattr('severity', 'equalto', 'Potential')|selectattr('is_exception', 'equalto', False)|list|length) }}
                         </div>
                         <div class="stat-label">Potential</div>
@@ -893,77 +1072,50 @@
                         <a href="/project/{{ project.name }}" class="btn btn-secondary">← Back to Project</a>
                     </div>
                     <div class="right-actions">
-                        <button class="btn btn-info" onclick="showFiltersModal()">🔍 Фильтры</button>
+                        <button class="btn btn-info" onclick="toggleFiltersPanel()" id="filtersToggleBtn">🔍 Фильтры</button>
+                        <a href="/scan/{{ scan.id }}/export" class="btn btn-success">📥 Export JSON</a>
+                        <a href="/scan/{{ scan.id }}/export-html" class="btn btn-primary">📄 Export HTML</a>
                         <form method="post" action="/scan/{{ scan.id }}/delete" style="display: inline;" 
-                              onsubmit="return confirm('Are you sure you want to delete this scan and all its data?')">
+                            onsubmit="return confirm('Are you sure you want to delete this scan and all its data?')">
                             <button type="submit" class="btn btn-danger">🗑️ Удалить скан</button>
                         </form>
                     </div>
                 </div>
             </div>
 
-            <div class="secrets-table-container">
-                {% if secrets %}
-                <table class="secrets-table">
-                    <thead class="table-header">
-                        <tr>
-                            <th>🔑 Secret</th>
-                            <th>📍 Line</th>
-                            <th class="sortable" data-sort="file">📁 File</th>
-                            <th class="sortable" data-sort="type">🏷️ Type</th>
-                            <th class="sortable" data-sort="status">📊 Status</th>
-                            <th class="sortable" data-sort="severity">⚠️ Level</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for secret in secrets %}
-                        <tr class="secret-row {{ secret.severity.lower() }}" data-secret-id="{{ secret.id }}">
-                            <td>
-                                <div class="secret-value">{{ secret.secret }}</div>
-                            </td>
-                            <td>
-                                <span class="secret-line">{{ secret.line }}</span>
-                            </td>
-                            <td>
-                                <span class="secret-file">{{ secret.path | basename }}</span>
-                            </td>
-                            <td>
-                                <span class="secret-type">{{ secret.type }}</span>
-                            </td>
-                            <td>
-                                <div class="secret-status">
-                                    {% if secret.status == 'Confirmed' %}
-                                    <span class="status-confirmed">✅ Подтвержденный</span>
-                                    {% elif secret.status == 'Refuted' %}
-                                    <span class="status-refuted">❌ Опровергнут</span>
-                                    {% if secret.refuted_at %}
-                                    <div class="refuted-date">{{ secret.refuted_at.strftime('%Y-%m-%d %H:%M') }}</div>
-                                    {% endif %}
-                                    {% else %}
-                                    <span class="status-none">⚪ Без статуса</span>
-                                    {% endif %}
-                                </div>
-                            </td>
-                            <td>
-                                <div class="secret-severity {{ secret.severity.lower() }}">{{ secret.severity }}</div>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-                {% else %}
-                    <div class="empty-results">
-                        <h3>No secrets found</h3>
-                        <p>{% if current_filters.severity or current_filters.type %}No secrets match the current filters.{% else %}This scan didn't find any secrets in the repository.{% endif %}</p>
-                    </div>
-                {% endif %}
+            <div class="secrets-table-container" id="secretsTableContainer">
+                <div id="secretsTable">
+                    <!-- Table will be populated by JavaScript -->
+                </div>
+            </div>
+
+            <div class="pagination-container" id="paginationContainer">
+                <div class="pagination-info" id="paginationInfo">
+                    <!-- Pagination info will be populated by JavaScript -->
+                </div>
+                <div class="pagination-controls" id="paginationControls">
+                    <!-- Pagination controls will be populated by JavaScript -->
+                </div>
+                <div class="page-size-selector">
+                    <label for="pageSize">Записей на страницу:</label>
+                    <select id="pageSize" onchange="changePageSize()">
+                        <option value="100">100</option>
+                        <option value="500">500</option>
+                        <option value="1000" selected>1000</option>
+                        <option value="2000">2000</option>
+                    </select>
+                </div>
             </div>
         </div>
         
-        <div class="right-panel">
+        <div class="right-panel" id="rightPanel">
             <div class="panel-header">
                 <h3>Secret Details</h3>
-                <a href="/scan/{{ scan.id }}/export" class="btn btn-success">📥 Export JSON</a>
+                <!-- <div style="display: flex; gap: 0.5rem;">
+                    <a href="/scan/{{ scan.id }}/export" class="btn btn-success">📥 JSON</a>
+                    <a href="/scan/{{ scan.id }}/export-html" class="btn btn-primary">📄 HTML</a>
+                </div> -->
+                <!-- <a href="/scan/{{ scan.id }}/export" class="btn btn-success">📥 Export JSON</a> -->
             </div>
             <div class="detail-panel" id="detailPanel">
                 <div class="detail-empty">
@@ -980,41 +1132,56 @@
         </div>
     </div>
 
-    <!-- Filters Modal -->
-    <div class="filters-modal" id="filtersModal">
-        <div class="filters-content">
-            <h3 class="filters-title">🔍 Фильтр</h3>
-            <form id="filtersForm">
-                <div class="filter-group">
-                    <label for="severityFilter">Уровень:</label>
-                    <select id="severityFilter">
-                        <option value="">All</option>
-                        {% for severity in unique_severities %}
-                        <option value="{{ severity }}" {% if current_filters.severity == severity %}selected{% endif %}>{{ severity }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="filter-group">
-                    <label for="typeFilter">Тип:</label>
-                    <select id="typeFilter">
-                        <option value="">All</option>
-                        {% for type in unique_types %}
-                        <option value="{{ type }}" {% if current_filters.type == type %}selected{% endif %}>{{ type }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="filter-group">
-                    <div class="checkbox-group">
-                        <input type="checkbox" id="showExceptions" {% if current_filters.show_exceptions %}checked{% endif %}>
-                        <label for="showExceptions">Показывать опровергнутые</label>
-                    </div>
-                </div>
-                <div class="filters-actions">
-                    <button type="button" class="btn btn-secondary" onclick="hideFiltersModal()">Назад</button>
-                    <button type="button" class="btn btn-primary" onclick="applyFilters()">Применить фильтры</button>
-                </div>
-            </form>
+    <!-- Filters Panel -->
+    <div class="filters-panel" id="filtersPanel">
+        <div class="filters-header">
+            <h3 class="filters-title">🔍 Фильтры</h3>
+            <button class="filters-close" onclick="toggleFiltersPanel()">×</button>
         </div>
+        <div class="filters-content">
+            <div class="filter-group">
+                <h4>📊 Статус</h4>
+                <div class="checkbox-item">
+                    <input type="checkbox" id="status-confirmed" value="Confirmed" onchange="applyFilters()">
+                    <label for="status-confirmed">✅ Подтвержденный</label>
+                </div>
+                <div class="checkbox-item">
+                    <input type="checkbox" id="status-none" value="No status" onchange="applyFilters()">
+                    <label for="status-none">⚪ Без статуса</label>
+                </div>
+                <div class="checkbox-item">
+                    <input type="checkbox" id="status-refuted" value="Refuted" onchange="applyFilters()">
+                    <label for="status-refuted">❌ Опровергнут</label>
+                </div>
+            </div>
+
+            <div class="filter-group">
+                <h4>⚠️ Уровень</h4>
+                <div class="checkbox-item">
+                    <input type="checkbox" id="severity-high" value="High" onchange="applyFilters()">
+                    <label for="severity-high">🛑 High</label>
+                </div>
+                <div class="checkbox-item">
+                    <input type="checkbox" id="severity-potential" value="Potential" onchange="applyFilters()">
+                    <label for="severity-potential">🔘 Potential</label>
+                </div>
+            </div>
+
+            <div class="filter-group">
+                <h4>🏷️ Тип</h4>
+                <div id="typeFilters">
+                    <!-- Type filters will be populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+        <div class="filters-actions">
+            <button class="clear-filters-btn" onclick="clearAllFilters()">Очистить все фильтры</button>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner"></div>
     </div>
     
     <script>
@@ -1022,11 +1189,27 @@
         let selectedSecrets = new Set();
         let currentSecret = null;
         let lastClickedIndex = -1;
-        let sortColumns = []; // Array of {column, direction} objects
+        let sortColumns = [];
         let originalOrder = [];
+        let allSecrets = [];
+        let filteredSecrets = [];
+        let currentPage = 1;
+        let pageSize = 1000;
+        let isFiltersOpen = false;
+        let activeFilters = {
+            status: [],
+            severity: [],
+            type: []
+        };
         
         // Server-side data
         const secretsData = {{ secrets_data | tojson | safe }};
+        // Преобразуем статусы для корректной работы
+        secretsData.forEach(secret => {
+            if (secret.status === null || secret.status === undefined || secret.status === '') {
+                secret.status = 'No status';
+            }
+        });
         const projectRepoUrl = {{ project.repo_url | tojson | safe }};
         const scanCommit = {{ scan.repo_commit | tojson | safe }};
         const hubType = {{ hub_type | tojson | safe }};
@@ -1034,23 +1217,277 @@
         // Initialize when page loads
         document.addEventListener('DOMContentLoaded', function() {
             console.log('Page loaded with', secretsData.length, 'secrets');
-            initializeEventListeners();
-            initializeSorting();
-            storeOriginalOrder();
+            
+            // Normalize status values on load
+            secretsData.forEach(secret => {
+                if (!secret.status || secret.status === '' || secret.status === null) {
+                    secret.status = 'No status';
+                }
+            });
+            
+            allSecrets = secretsData.slice();
+            initializeFilters();
+            applyFilters();
         });
-        
-        function initializeEventListeners() {
-            // Secret items (table rows)
+
+
+        function initializeFilters() {
+            // Get unique types
+            const uniqueTypes = [...new Set(allSecrets.map(s => s.type))].sort();
+            
+            // Populate type filters
+            const typeFiltersContainer = document.getElementById('typeFilters');
+            typeFiltersContainer.innerHTML = '';
+            
+            uniqueTypes.forEach(type => {
+                const div = document.createElement('div');
+                div.className = 'checkbox-item';
+                div.innerHTML = `
+                    <input type="checkbox" id="type-${type}" value="${type}" onchange="applyFilters()">
+                    <label for="type-${type}">${type}</label>
+                `;
+                typeFiltersContainer.appendChild(div);
+            });
+
+            // Initialize filters from URL parameters
+            const urlParams = new URLSearchParams(window.location.search);
+            
+            // Status filters
+            const statusFilters = urlParams.getAll('status_filter');
+            if (statusFilters.length > 0) {
+                statusFilters.forEach(status => {
+                    const checkbox = document.querySelector(`input[value="${status}"]`);
+                    if (checkbox) {
+                        checkbox.checked = true;
+                        activeFilters.status.push(status);
+                    }
+                });
+            } else {
+                // Default: Confirmed and No status
+                document.getElementById('status-confirmed').checked = true;
+                document.getElementById('status-none').checked = true;
+                activeFilters.status = ['Confirmed', 'No status'];
+            }
+
+            // Severity filters
+            const severityFilters = urlParams.getAll('severity_filter');
+            if (severityFilters.length > 0) {
+                severityFilters.forEach(severity => {
+                    const checkbox = document.querySelector(`input[value="${severity}"]`);
+                    if (checkbox) {
+                        checkbox.checked = true;
+                        activeFilters.severity.push(severity);
+                    }
+                });
+            } else {
+                // Default: High and Potential
+                document.getElementById('severity-high').checked = true;
+                document.getElementById('severity-potential').checked = true;
+                activeFilters.severity = ['High', 'Potential'];
+            }
+
+            // Type filters
+            const typeFilters = urlParams.getAll('type_filter');
+            if (typeFilters.length > 0) {
+                typeFilters.forEach(type => {
+                    const checkbox = document.querySelector(`input[value="${type}"]`);
+                    if (checkbox) {
+                        checkbox.checked = true;
+                        activeFilters.type.push(type);
+                    }
+                });
+            } else {
+                // Default: All types
+                uniqueTypes.forEach(type => {
+                    const checkbox = document.querySelector(`input[value="${type}"]`);
+                    if (checkbox) {
+                        checkbox.checked = true;
+                        activeFilters.type.push(type);
+                    }
+                });
+            }
+        }
+
+        function applyFilters() {
+            showLoading();
+            
+            setTimeout(() => {
+                // Update active filters from checkboxes
+                activeFilters.status = Array.from(document.querySelectorAll('#filtersPanel input[type="checkbox"]:checked')).filter(cb => ['Confirmed', 'No status', 'Refuted'].includes(cb.value)).map(cb => cb.value);
+                activeFilters.severity = Array.from(document.querySelectorAll('#filtersPanel input[type="checkbox"]:checked')).filter(cb => ['High', 'Potential'].includes(cb.value)).map(cb => cb.value);
+                activeFilters.type = Array.from(document.querySelectorAll('#typeFilters input[type="checkbox"]:checked')).map(cb => cb.value);
+
+                console.log('Active filters:', activeFilters); // Debug log
+
+                // Filter logic: if ANY category has no filters selected, show nothing
+                if (activeFilters.status.length === 0 || activeFilters.severity.length === 0 || activeFilters.type.length === 0) {
+                    filteredSecrets = [];
+                } else {
+                    filteredSecrets = allSecrets.filter(secret => {
+                        // Normalize status
+                        let secretStatus = secret.status;
+                        if (!secretStatus || secretStatus === '' || secretStatus === null) {
+                            secretStatus = 'No status';
+                        }
+                        
+                        // ALL three conditions must be true
+                        const statusMatch = activeFilters.status.includes(secretStatus);
+                        const severityMatch = activeFilters.severity.includes(secret.severity);
+                        const typeMatch = activeFilters.type.includes(secret.type);
+                        
+                        return statusMatch && severityMatch && typeMatch;
+                    });
+                }
+
+                console.log(`Filtered ${filteredSecrets.length} secrets from ${allSecrets.length} total`); // Debug log
+
+                // Reset to first page and clear selections
+                currentPage = 1;
+                selectedSecrets.clear();
+                showEmptyDetail();
+
+                // Update URL, stats, and render
+                updateURL();
+                updateStats();
+                renderTable();
+                renderPagination();
+                
+                hideLoading();
+            }, 10);
+        }
+
+        function clearAllFilters() {
+            // Uncheck all checkboxes
+            document.querySelectorAll('#filtersPanel input[type="checkbox"]').forEach(cb => {
+                cb.checked = false;
+            });
+            
+            // Clear active filters
+            activeFilters = { status: [], severity: [], type: [] };
+            
+            // Apply filters
+            applyFilters();
+        }
+
+        function updateStats() {
+            const totalCount = filteredSecrets.length;
+            const highCount = filteredSecrets.filter(s => s.severity === 'High').length;
+            const potentialCount = filteredSecrets.filter(s => s.severity === 'Potential').length;
+
+            document.getElementById('totalSecretsCount').textContent = totalCount;
+            document.getElementById('highSecretsCount').textContent = highCount;
+            document.getElementById('potentialSecretsCount').textContent = potentialCount;
+        }
+
+        function updateURL() {
+            const params = new URLSearchParams();
+            
+            activeFilters.status.forEach(status => params.append('status_filter', status));
+            activeFilters.severity.forEach(severity => params.append('severity_filter', severity));
+            activeFilters.type.forEach(type => params.append('type_filter', type));
+            
+            params.set('page', currentPage);
+            params.set('page_size', pageSize);
+            
+            // Update URL without reload
+            const newURL = window.location.pathname + '?' + params.toString();
+            history.replaceState(null, '', newURL);
+        }
+
+        function renderTable() {
+            const tableContainer = document.getElementById('secretsTable');
+            
+            if (filteredSecrets.length === 0) {
+                tableContainer.innerHTML = `
+                    <div class="empty-results">
+                        <h3>No secrets found</h3>
+                        <p>No secrets match the current filters.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            // Calculate pagination
+            const startIndex = (currentPage - 1) * pageSize;
+            const endIndex = Math.min(startIndex + pageSize, filteredSecrets.length);
+            const pageSecrets = filteredSecrets.slice(startIndex, endIndex);
+
+            // Generate table HTML
+            let tableHTML = `
+                <table class="secrets-table">
+                    <thead class="table-header">
+                        <tr>
+                            <th>🔑 Secret</th>
+                            <th>📍 Line</th>
+                            <th class="sortable" data-sort="file">📁 File</th>
+                            <th class="sortable" data-sort="type">🏷️ Type</th>
+                            <th class="sortable" data-sort="status">📊 Status</th>
+                            <th class="sortable" data-sort="severity">⚠️ Level</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            pageSecrets.forEach((secret, index) => {
+                const globalIndex = startIndex + index;
+                tableHTML += `
+                    <tr class="secret-row ${secret.severity.toLowerCase()}" data-secret-id="${secret.id}" data-secret-index="${globalIndex}">
+                        <td>
+                            <div class="secret-value">${escapeHtml(secret.secret)}</div>
+                        </td>
+                        <td>
+                            <span class="secret-line">${secret.line}</span>
+                        </td>
+                        <td>
+                            <span class="secret-file">${escapeHtml(secret.path.split('/').pop())}</span>
+                        </td>
+                        <td>
+                            <span class="secret-type">${escapeHtml(secret.type)}</span>
+                        </td>
+                        <td>
+                            <div class="secret-status">
+                                ${getStatusHTML(secret)}
+                            </div>
+                        </td>
+                        <td>
+                            <div class="secret-severity ${secret.severity.toLowerCase()}">${secret.severity}</div>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            tableHTML += '</tbody></table>';
+            tableContainer.innerHTML = tableHTML;
+
+            // Attach event listeners
+            initializeTableEventListeners();
+        }
+
+        function getStatusHTML(secret) {
+            if (secret.status === 'Confirmed') {
+                return '<span class="status-confirmed">✅ Подтвержденный</span>';
+            } else if (secret.status === 'Refuted') {
+                let html = '<span class="status-refuted">❌ Опровергнут</span>';
+                if (secret.refuted_at) {
+                    html += `<div class="refuted-date">${secret.refuted_at}</div>`;
+                }
+                return html;
+            } else {
+                return '<span class="status-none">⚪ Без статуса</span>';
+            }
+        }
+
+        function initializeTableEventListeners() {
             const secretRows = document.querySelectorAll('.secret-row');
             secretRows.forEach((row, index) => {
-                row.dataset.secretIndex = index; // <-- Добавь это
                 row.addEventListener('click', function(e) {
-                    handleSecretClick(e, parseInt(row.dataset.secretId), index);
+                    const secretId = parseInt(row.dataset.secretId);
+                    const globalIndex = parseInt(row.dataset.secretIndex);
+                    handleSecretClick(e, secretId, globalIndex);
                 });
             });
-        }
-        
-        function initializeSorting() {
+
+            // Sort headers
             const sortableHeaders = document.querySelectorAll('.sortable');
             sortableHeaders.forEach(header => {
                 header.addEventListener('click', function() {
@@ -1059,157 +1496,109 @@
                 });
             });
         }
-        
-        function storeOriginalOrder() {
-            const rows = document.querySelectorAll('.secret-row');
-            originalOrder = Array.from(rows).map(row => ({
-                id: row.dataset.secretId,
-                element: row.cloneNode(true)
-            }));
-        }
-        
-        function handleSort(column) {
-            // Check if this column is already being sorted
-            const existingSortIndex = sortColumns.findIndex(sort => sort.column === column);
-            
-            if (existingSortIndex !== -1) {
-                // Column exists, cycle through directions
-                const currentSort = sortColumns[existingSortIndex];
-                if (currentSort.direction === 'asc') {
-                    currentSort.direction = 'desc';
-                } else {
-                    // Remove this column from sorting
-                    sortColumns.splice(existingSortIndex, 1);
-                }
+
+        function renderPagination() {
+            const totalPages = Math.ceil(filteredSecrets.length / pageSize);
+            const startIndex = (currentPage - 1) * pageSize + 1;
+            const endIndex = Math.min(currentPage * pageSize, filteredSecrets.length);
+
+            // Pagination info
+            const paginationInfo = document.getElementById('paginationInfo');
+            paginationInfo.textContent = `Показаны ${startIndex}-${endIndex} из ${filteredSecrets.length} секретов`;
+
+            // Pagination controls
+            const paginationControls = document.getElementById('paginationControls');
+            let controlsHTML = '';
+
+            // Previous button
+            if (currentPage > 1) {
+                controlsHTML += `<button class="pagination-btn" onclick="goToPage(${currentPage - 1})">← Предыдущая</button>`;
             } else {
-                // New column, add to sorting
-                sortColumns.push({ column: column, direction: 'asc' });
+                controlsHTML += `<button class="pagination-btn disabled">← Предыдущая</button>`;
             }
+
+            // Page numbers
+            const maxVisiblePages = 5;
+            let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+            let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
             
-            // Update header indicators
-            updateSortIndicators();
-            
-            // Sort the table
-            sortTable();
-        }
-        
-        function updateSortIndicators() {
-            // Reset all headers
-            const headers = document.querySelectorAll('.sortable');
-            headers.forEach(header => {
-                header.classList.remove('sort-asc', 'sort-desc');
-                // Remove any existing sort numbers
-                const existingNumber = header.querySelector('.sort-number');
-                if (existingNumber) existingNumber.remove();
-            });
-            
-            // Set current sort indicators
-            sortColumns.forEach((sort, index) => {
-                const header = document.querySelector(`[data-sort="${sort.column}"]`);
-                if (header) {
-                    header.classList.add(`sort-${sort.direction}`);
-                    
-                    // Add sort order number if multiple columns
-                    if (sortColumns.length > 1) {
-                        const sortNumber = document.createElement('span');
-                        sortNumber.className = 'sort-number';
-                        sortNumber.textContent = index + 1;
-                        sortNumber.style.cssText = 'font-size: 0.7rem; background: #3b82f6; color: white; border-radius: 50%; width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; margin-left: 4px;';
-                        header.appendChild(sortNumber);
-                    }
-                }
-            });
-        }
-        
-        function sortTable() {
-            const tbody = document.querySelector('.secrets-table tbody');
-            if (!tbody) return;
-            
-            let rows = Array.from(tbody.querySelectorAll('.secret-row'));
-            
-            if (sortColumns.length === 0) {
-                // No sorting, restore original order
-                tbody.innerHTML = '';
-                originalOrder.forEach(item => {
-                    const newRow = item.element.cloneNode(true);
-                    tbody.appendChild(newRow);
-                });
-                reinitializeAfterSort();
-                return;
+            if (endPage - startPage < maxVisiblePages - 1) {
+                startPage = Math.max(1, endPage - maxVisiblePages + 1);
             }
-            
-            // Multi-column sort
-            rows.sort((a, b) => {
-                for (let sort of sortColumns) {
-                    let valueA, valueB;
-                    
-                    switch (sort.column) {
-                        case 'file':
-                            valueA = a.querySelector('.secret-file').textContent.toLowerCase();
-                            valueB = b.querySelector('.secret-file').textContent.toLowerCase();
-                            break;
-                        case 'type':
-                            valueA = a.querySelector('.secret-type').textContent.toLowerCase();
-                            valueB = b.querySelector('.secret-type').textContent.toLowerCase();
-                            break;
-                        case 'status':
-                            const statusOrder = { 'confirmed': 3, 'none': 2, 'refuted': 1 };
-                            const statusA = a.querySelector('.secret-status span').className.split(' ')[0].replace('status-', '');
-                            const statusB = b.querySelector('.secret-status span').className.split(' ')[0].replace('status-', '');
-                            valueA = statusOrder[statusA] || 0;
-                            valueB = statusOrder[statusB] || 0;
-                            break;
-                        case 'severity':
-                            const severityOrder = { 'high': 2, 'potential': 1 };
-                            valueA = severityOrder[a.querySelector('.secret-severity').textContent.toLowerCase()] || 0;
-                            valueB = severityOrder[b.querySelector('.secret-severity').textContent.toLowerCase()] || 0;
-                            break;
-                        default:
-                            continue;
-                    }
-                    
-                    let comparison = 0;
-                    if (valueA < valueB) comparison = -1;
-                    else if (valueA > valueB) comparison = 1;
-                    
-                    if (comparison !== 0) {
-                        return sort.direction === 'asc' ? comparison : -comparison;
-                    }
+
+            if (startPage > 1) {
+                controlsHTML += `<button class="pagination-btn" onclick="goToPage(1)">1</button>`;
+                if (startPage > 2) {
+                    controlsHTML += `<span style="padding: 0.5rem;">...</span>`;
                 }
-                return 0;
-            });
-            
-            // Re-append sorted rows
-            tbody.innerHTML = '';
-            rows.forEach(row => tbody.appendChild(row));
-            
-            reinitializeAfterSort();
-        }
-        
-        function reinitializeAfterSort() {
-            // Reset last clicked index
-            lastClickedIndex = -1;
-            
-            // Re-attach all event listeners with fresh indexes
-            const secretRows = document.querySelectorAll('.secret-row');
-            secretRows.forEach((row, index) => {
-                // Remove any existing listeners by cloning the element
-                const newRow = row.cloneNode(true);
-                row.parentNode.replaceChild(newRow, row);
-                
-                // Add fresh event listener
-                newRow.addEventListener('click', function(e) {
-                    handleSecretClick(e, parseInt(newRow.dataset.secretId), index);
-                });
-                
-                // Restore selection state
-                const secretId = parseInt(newRow.dataset.secretId);
-                if (selectedSecrets.has(secretId)) {
-                    newRow.classList.add('multi-selected');
+            }
+
+            for (let i = startPage; i <= endPage; i++) {
+                const activeClass = i === currentPage ? 'active' : '';
+                controlsHTML += `<button class="pagination-btn ${activeClass}" onclick="goToPage(${i})">${i}</button>`;
+            }
+
+            if (endPage < totalPages) {
+                if (endPage < totalPages - 1) {
+                    controlsHTML += `<span style="padding: 0.5rem;">...</span>`;
                 }
-            });
+                controlsHTML += `<button class="pagination-btn" onclick="goToPage(${totalPages})">${totalPages}</button>`;
+            }
+
+            // Next button
+            if (currentPage < totalPages) {
+                controlsHTML += `<button class="pagination-btn" onclick="goToPage(${currentPage + 1})">Следующая →</button>`;
+            } else {
+                controlsHTML += `<button class="pagination-btn disabled">Следующая →</button>`;
+            }
+
+            paginationControls.innerHTML = controlsHTML;
         }
-        
+
+        function goToPage(page) {
+            const totalPages = Math.ceil(filteredSecrets.length / pageSize);
+            if (page >= 1 && page <= totalPages) {
+                currentPage = page;
+                selectedSecrets.clear();
+                showEmptyDetail();
+                updateURL();
+                renderTable();
+                renderPagination();
+            }
+        }
+
+        function changePageSize() {
+            pageSize = parseInt(document.getElementById('pageSize').value);
+            currentPage = 1;
+            selectedSecrets.clear();
+            showEmptyDetail();
+            updateURL();
+            renderTable();
+            renderPagination();
+        }
+
+        function toggleFiltersPanel() {
+            const filtersPanel = document.getElementById('filtersPanel');
+            
+            isFiltersOpen = !isFiltersOpen;
+            
+            if (isFiltersOpen) {
+                filtersPanel.classList.add('open');
+                document.getElementById('filtersToggleBtn').textContent = '✖️ Закрыть';
+            } else {
+                filtersPanel.classList.remove('open');
+                document.getElementById('filtersToggleBtn').textContent = '🔍 Фильтры';
+            }
+        }
+
+        function showLoading() {
+            document.getElementById('loadingOverlay').style.display = 'flex';
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingOverlay').style.display = 'none';
+        }
+
         function handleSecretClick(e, secretId, index) {
             e.preventDefault();
 
@@ -1229,19 +1618,16 @@
             selectSingleSecret(secretId, index);
         }
 
-        
         function toggleMultiSelection(secretId, index) {
             const row = document.querySelector(`[data-secret-id="${secretId}"]`);
             if (!row) return;
 
             if (selectedSecrets.has(secretId)) {
-                // Remove from selection
                 selectedSecrets.delete(secretId);
                 row.classList.remove('multi-selected', 'selected');
             } else {
-                // Add to selection
                 selectedSecrets.add(secretId);
-                row.classList.remove('selected'); // убираем одиночное выделение, если вдруг
+                row.classList.remove('selected');
                 row.classList.add('multi-selected');
             }
 
@@ -1249,59 +1635,35 @@
             updateSelectionView();
         }
 
-        function getSecretIdByIndex(index) {
-            const row = document.querySelector(`[data-secret-index="${index}"]`);
-            return row ? row.getAttribute('data-secret-id') : null;
-        }
-
-        function addToMultiSelection(secretId, index) {
-            const secretIdStr = String(secretId);
-            const row = document.querySelector(`[data-secret-id="${secretIdStr}"]`);
-            if (!row) {
-                console.warn('Row not found for secretId', secretIdStr);
-                return;
-            }
-
-            console.log('Adding to multi-selection:', secretIdStr);
-
-            selectedSecrets.add(secretId);
-
-            if (row.classList.contains('selected')) {
-                row.classList.remove('selected');
-                console.log('Removed selected class');
-            }
-
-            if (!row.classList.contains('multi-selected')) {
-                row.classList.add('multi-selected');
-                console.log('Added multi-selected class');
-            }
-
-            updateSelectionView();
-        }
-        
         function selectRange(startIndex, endIndex) {
             const start = Math.min(startIndex, endIndex);
             const end = Math.max(startIndex, endIndex);
-            const allRows = document.querySelectorAll('.secret-row');
+            
+            // Get the current page secrets
+            const pageStartIndex = (currentPage - 1) * pageSize;
+            const pageEndIndex = Math.min(pageStartIndex + pageSize, filteredSecrets.length);
             
             for (let i = start; i <= end; i++) {
-                if (allRows[i]) {
-                    const secretId = parseInt(allRows[i].dataset.secretId);
-                    selectedSecrets.add(secretId);
-                    allRows[i].classList.add('multi-selected');
-                    allRows[i].classList.remove('selected');
+                if (i >= pageStartIndex && i < pageEndIndex) {
+                    const secret = filteredSecrets[i];
+                    if (secret) {
+                        const row = document.querySelector(`[data-secret-id="${secret.id}"]`);
+                        if (row) {
+                            selectedSecrets.add(secret.id);
+                            row.classList.add('multi-selected');
+                            row.classList.remove('selected');
+                        }
+                    }
                 }
             }
             
             lastClickedIndex = endIndex;
             updateSelectionView();
         }
-        
+
         function selectSingleSecret(secretId, index) {
-            // Clear all selections
             clearMultiSelection();
             
-            // Set single selection
             const row = document.querySelector(`[data-secret-id="${secretId}"]`);
             if (row) {
                 row.classList.add('selected');
@@ -1311,14 +1673,14 @@
                 loadSecretDetails(secretId);
             }
         }
-        
+
         function clearMultiSelection() {
             selectedSecrets.clear();
             document.querySelectorAll('.secret-row').forEach(row => {
                 row.classList.remove('selected', 'multi-selected');
             });
         }
-        
+
         function updateSelectionView() {
             if (selectedSecrets.size > 1) {
                 showBulkDetail();
@@ -1337,8 +1699,8 @@
                     <h3 class="bulk-title">📌 Выбрано секретов: <span class="bulk-count">${selectedSecrets.size}</span></h3>
                     
                     <div class="bulk-section">
-                        <button class="bulk-btn select-all-btn" onclick="selectAllSecrets()">
-                            ✅ Выделить все секреты
+                        <button class="bulk-btn select-all-btn" onclick="selectAllVisibleSecrets()">
+                            ✅ Выделить все на странице
                         </button>
                     </div>
                     
@@ -1393,12 +1755,12 @@
                 </div>
             `;
         }
-        
-        function selectAllSecrets() {
-            const allRows = document.querySelectorAll('.secret-row');
+
+        function selectAllVisibleSecrets() {
+            const visibleRows = document.querySelectorAll('.secret-row');
             selectedSecrets.clear();
             
-            allRows.forEach(row => {
+            visibleRows.forEach(row => {
                 const secretId = parseInt(row.dataset.secretId);
                 selectedSecrets.add(secretId);
                 row.classList.add('multi-selected');
@@ -1408,56 +1770,109 @@
             showBulkDetail();
         }
 
-        function showFiltersModal() {
-            document.getElementById('filtersModal').classList.add('show');
-        }
-
-        function hideFiltersModal() {
-            document.getElementById('filtersModal').classList.remove('show');
-        }
-
-        async function restoreSingleSecret(secretId) {
-            if (confirm('Are you sure you want to restore this secret? It will be changed from "Refuted" to "No status".')) {
-                try {
-                    const response = await fetch(`/secrets/${secretId}/update-status`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                        body: new URLSearchParams({ status: 'No status', comment: '' })
-                    });
-                    
-                    if (response.ok) {
-                        location.reload();
-                    } else {
-                        alert('Error restoring secret');
-                    }
-                } catch (error) {
-                    console.error('Error restoring secret:', error);
-                    alert('Error restoring secret');
+        function handleSort(column) {
+            // Find existing sort for this column
+            const existingSortIndex = sortColumns.findIndex(sort => sort.column === column);
+            
+            if (existingSortIndex !== -1) {
+                // Column exists, cycle: asc -> desc -> remove
+                const currentSort = sortColumns[existingSortIndex];
+                if (currentSort.direction === 'asc') {
+                    currentSort.direction = 'desc';
+                } else {
+                    // Remove this column from sorting
+                    sortColumns.splice(existingSortIndex, 1);
                 }
+            } else {
+                // New column, add as ascending
+                sortColumns.push({ column: column, direction: 'asc' });
             }
+            
+            // Update visual indicators
+            updateSortIndicators();
+            
+            // Apply sort and re-render
+            sortSecrets();
+            renderTable();
+            renderPagination();
         }
 
-        function applyFilters() {
-            const severity = document.getElementById('severityFilter').value;
-            const type = document.getElementById('typeFilter').value;
-            const showExceptions = document.getElementById('showExceptions').checked;
+        function updateSortIndicators() {
+            const headers = document.querySelectorAll('.sortable');
+            headers.forEach(header => {
+                header.classList.remove('sort-asc', 'sort-desc');
+                const existingNumber = header.querySelector('.sort-number');
+                if (existingNumber) existingNumber.remove();
+            });
             
-            const params = new URLSearchParams();
-            if (severity) params.set('severity_filter', severity);
-            if (type) params.set('type_filter', type);
-            if (showExceptions) params.set('show_exceptions', 'true');
-            
-            window.location.search = params.toString();
+            sortColumns.forEach((sort, index) => {
+                const header = document.querySelector(`[data-sort="${sort.column}"]`);
+                if (header) {
+                    header.classList.add(`sort-${sort.direction}`);
+                    
+                    if (sortColumns.length > 1) {
+                        const sortNumber = document.createElement('span');
+                        sortNumber.className = 'sort-number';
+                        sortNumber.textContent = index + 1;
+                        sortNumber.style.cssText = 'font-size: 0.7rem; background: #3b82f6; color: white; border-radius: 50%; width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; margin-left: 4px;';
+                        header.appendChild(sortNumber);
+                    }
+                }
+            });
         }
-        
+
+        function sortSecrets() {
+            if (sortColumns.length === 0) {
+                return;
+            }
+
+            filteredSecrets.sort((a, b) => {
+                for (let sort of sortColumns) {
+                    let valueA, valueB;
+                    
+                    switch (sort.column) {
+                        case 'file':
+                            valueA = a.path.toLowerCase();
+                            valueB = b.path.toLowerCase();
+                            break;
+                        case 'type':
+                            valueA = a.type.toLowerCase();
+                            valueB = b.type.toLowerCase();
+                            break;
+                        case 'status':
+                            const statusOrder = { 'Confirmed': 3, 'No status': 2, 'Refuted': 1 };
+                            valueA = statusOrder[a.status] || 0;
+                            valueB = statusOrder[b.status] || 0;
+                            break;
+                        case 'severity':
+                            const severityOrder = { 'High': 2, 'Potential': 1 };
+                            valueA = severityOrder[a.severity] || 0;
+                            valueB = severityOrder[b.severity] || 0;
+                            break;
+                        default:
+                            continue;
+                    }
+                    
+                    let comparison = 0;
+                    if (valueA < valueB) comparison = -1;
+                    else if (valueA > valueB) comparison = 1;
+                    
+                    if (comparison !== 0) {
+                        return sort.direction === 'asc' ? comparison : -comparison;
+                    }
+                }
+                return 0;
+            });
+        }
+
         function escapeHtml(text) {
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
         }
-        
+
         function loadSecretDetails(secretId) {
-            const secretData = secretsData.find(s => s.id === secretId);
+            const secretData = allSecrets.find(s => s.id === secretId);
             if (!secretData) return;
             
             // Build file URL
@@ -1606,6 +2021,27 @@
                 </div>
             `;
         }
+
+        async function restoreSingleSecret(secretId) {
+            if (confirm('Are you sure you want to restore this secret? It will be changed from "Refuted" to "No status".')) {
+                try {
+                    const response = await fetch(`/secrets/${secretId}/update-status`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: new URLSearchParams({ status: 'No status', comment: '' })
+                    });
+                    
+                    if (response.ok) {
+                        location.reload();
+                    } else {
+                        alert('Error restoring secret');
+                    }
+                } catch (error) {
+                    console.error('Error restoring secret:', error);
+                    alert('Error restoring secret');
+                }
+            }
+        }
         
         async function updateSecretStatus(secretId, status) {
             const comment = document.getElementById(`comment-${secretId}`)?.value || '';
@@ -1618,7 +2054,24 @@
                 });
                 
                 if (response.ok) {
-                    location.reload();
+                    // Update local data
+                    const secret = allSecrets.find(s => s.id === secretId);
+                    if (secret) {
+                        secret.status = status;
+                        if (status === 'Refuted') {
+                            secret.is_exception = true;
+                            secret.exception_comment = comment;
+                            secret.refuted_at = new Date().toISOString().slice(0, 16).replace('T', ' ');
+                        } else {
+                            secret.is_exception = false;
+                            secret.exception_comment = null;
+                            secret.refuted_at = null;
+                        }
+                    }
+                    
+                    // Reapply filters and reload details
+                    applyFilters();
+                    loadSecretDetails(secretId);
                 }
             } catch (error) {
                 console.error('Error updating status:', error);
@@ -1639,7 +2092,15 @@
                 });
                 
                 if (response.ok) {
-                    location.reload();
+                    // Update local data
+                    const secret = allSecrets.find(s => s.id === secretId);
+                    if (secret) {
+                        secret.severity = severity;
+                    }
+                    
+                    // Reapply filters and reload details
+                    applyFilters();
+                    loadSecretDetails(secretId);
                 }
             } catch (error) {
                 console.error('Error updating severity:', error);
@@ -1658,6 +2119,8 @@
                 comment = prompt('Введите комментарий (опционально):') || '';
             }
             
+            showLoading();
+            
             try {
                 const response = await fetch('/secrets/bulk-action', {
                     method: 'POST',
@@ -1671,35 +2134,64 @@
                 });
                 
                 if (response.ok) {
-                    location.reload();
+                    // Update local data
+                    selectedSecrets.forEach(secretId => {
+                        const secret = allSecrets.find(s => s.id === secretId);
+                        if (secret) {
+                            if (action === 'status') {
+                                secret.status = value;
+                                if (value === 'Refuted') {
+                                    secret.is_exception = true;
+                                    secret.exception_comment = comment;
+                                    secret.refuted_at = new Date().toISOString().slice(0, 16).replace('T', ' ');
+                                } else {
+                                    secret.is_exception = false;
+                                    secret.exception_comment = null;
+                                    secret.refuted_at = null;
+                                }
+                            } else if (action === 'severity') {
+                                secret.severity = value;
+                            }
+                        }
+                    });
+                    
+                    // Clear selections and reapply filters
+                    selectedSecrets.clear();
+                    showEmptyDetail();
+                    applyFilters();
+                    hideLoading();
                 } else {
                     alert('Error performing bulk action');
+                    hideLoading();
                 }
             } catch (error) {
                 console.error('Error performing bulk action:', error);
                 alert('Error performing bulk action');
+                hideLoading();
             }
-        }
-        
-        function openFile(path, line, secret) {
-            let fileUrl;
-            
-            if (hubType === 'Azure') {
-                const startColumn = 1;
-                const endColumn = secret.length + 1;
-                fileUrl = `${projectRepoUrl}?path=${path}&version=GC${scanCommit}&line=${line}&lineEnd=${line}&lineStartColumn=${startColumn}&lineEndColumn=${endColumn}&_a=contents`;
-            } else {
-                fileUrl = `${projectRepoUrl}/blob/${scanCommit}${path}?plain=1#L${line}`;
-            }
-            
-            window.open(fileUrl, '_blank');
         }
 
-        // Close filters modal when clicking outside
-        document.getElementById('filtersModal').addEventListener('click', function(e) {
-            if (e.target === this) {
-                hideFiltersModal();
+        // Close filters panel when clicking outside
+        document.addEventListener('click', function(e) {
+            const filtersPanel = document.getElementById('filtersPanel');
+            const filtersToggleBtn = document.getElementById('filtersToggleBtn');
+            
+            if (isFiltersOpen && 
+                !filtersPanel.contains(e.target) && 
+                !filtersToggleBtn.contains(e.target)) {
+                toggleFiltersPanel();
             }
+        });
+
+        // Initialize page from URL parameters
+        window.addEventListener('load', function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const page = parseInt(urlParams.get('page')) || 1;
+            const size = parseInt(urlParams.get('page_size')) || 1000;
+            
+            currentPage = page;
+            pageSize = size;
+            document.getElementById('pageSize').value = size;
         });
     </script>
 </body>

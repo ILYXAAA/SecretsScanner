@@ -384,6 +384,64 @@
             margin-bottom: 1rem;
             font-size: 1.5rem;
         }
+
+        .file-upload-area {
+            border: 2px dashed #e1e5e9;
+            border-radius: 8px;
+            padding: 2rem;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color 0.3s, background-color 0.3s;
+            background: #fafbfc;
+        }
+
+        .file-upload-area:hover {
+            border-color: #28a745;
+            background: #f8f9fa;
+        }
+
+        .file-upload-area.dragover {
+            border-color: #28a745;
+            background: #e8f5e8;
+        }
+
+        .file-upload-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+
+        .file-upload-text {
+            color: #666;
+            font-size: 1rem;
+        }
+
+        .file-upload-browse {
+            color: #28a745;
+            text-decoration: underline;
+            cursor: pointer;
+        }
+
+        .file-info {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem;
+            background: #e8f5e8;
+            border: 1px solid #28a745;
+            border-radius: 6px;
+            margin-top: 0.5rem;
+        }
+
+        .file-remove {
+            background: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            cursor: pointer;
+            font-size: 12px;
+        }
     </style>
 </head>
 <body>
@@ -411,6 +469,9 @@
             <div class="project-actions">
                 <button class="btn btn-success" onclick="toggleScanForm()">
                     Запустить сканирование
+                </button>
+                <button class="btn btn-secondary" onclick="toggleLocalScanForm()">
+                    📦 Локальное сканирование
                 </button>
                 <button class="btn btn-warning btn-sm" onclick="toggleEditForm()">
                     ✏️ Редактировать
@@ -442,6 +503,10 @@
             <div class="alert alert-error">Не удалось обновить проект.</div>
             {% elif 'error=' in request.url.query %}
             <div class="alert alert-error">{{ request.url.query.split('error=')[1].split('&')[0] | urldecode }}</div>
+            {% elif 'error=invalid_file_format' in request.url.query %}
+            <div class="alert alert-error">Файл должен быть в формате ZIP</div>
+            {% elif 'error=local_scan_failed' in request.url.query %}
+            <div class="alert alert-error">Ошибка при запуске локального сканирования</div>
             {% endif %}
         {% endif %}
         
@@ -495,6 +560,43 @@
                 <div class="form-actions">
                     <button type="submit" class="btn btn-success">Start Scan</button>
                     <button type="button" class="btn btn-secondary" onclick="toggleScanForm()">Cancel</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="scan-form" id="localScanForm">
+            <h2 class="section-title">📦 Локальное сканирование ZIP-архива</h2>
+            <form method="post" action="/project/{{ project.name }}/local-scan" enctype="multipart/form-data">
+                <div class="form-group">
+                    <label for="commit">Коммит (обязательно):</label>
+                    <input type="text" id="commit" name="commit" placeholder="a1b2c3d4..." required>
+                    <small style="color: #666; font-size: 0.85rem;">
+                        SHA коммита, соответствующего содержимому ZIP-архива
+                    </small>
+                </div>
+                <div class="form-group">
+                    <label for="zip_file">ZIP-файл с исходным кодом:</label>
+                    <div class="file-upload-area" id="fileUploadArea">
+                        <div class="file-upload-content">
+                            <div class="file-upload-icon">📁</div>
+                            <div class="file-upload-text">
+                                <strong>Перетащите ZIP-файл сюда</strong><br>
+                                или <span class="file-upload-browse">выберите файл</span>
+                            </div>
+                        </div>
+                        <input type="file" id="zip_file" name="zip_file" accept=".zip" required hidden>
+                    </div>
+                    <div class="file-info" id="fileInfo" style="display: none;">
+                        <span id="fileName"></span>
+                        <button type="button" class="file-remove" onclick="removeFile()">✕</button>
+                    </div>
+                    <small style="color: #666; font-size: 0.85rem;">
+                        Выберите ZIP-архив с исходным кодом проекта
+                    </small>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-success">Запустить локальное сканирование</button>
+                    <button type="button" class="btn btn-secondary" onclick="toggleLocalScanForm()">Отмена</button>
                 </div>
             </form>
         </div>
@@ -605,17 +707,82 @@
     </div>
     
     <script>
+        const fileUploadArea = document.getElementById('fileUploadArea');
+        const fileInput = document.getElementById('zip_file');
+        const fileInfo = document.getElementById('fileInfo');
+        const fileName = document.getElementById('fileName');
+
+        fileUploadArea.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        fileUploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            fileUploadArea.classList.add('dragover');
+        });
+
+        fileUploadArea.addEventListener('dragleave', () => {
+            fileUploadArea.classList.remove('dragover');
+        });
+
+        fileUploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            fileUploadArea.classList.remove('dragover');
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                const file = files[0];
+                if (file.name.endsWith('.zip')) {
+                    fileInput.files = files;
+                    showFileInfo(file.name);
+                } else {
+                    alert('Пожалуйста, выберите ZIP-файл');
+                }
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                showFileInfo(e.target.files[0].name);
+            }
+        });
+
+        function showFileInfo(name) {
+            fileName.textContent = name;
+            fileUploadArea.style.display = 'none';
+            fileInfo.style.display = 'flex';
+        }
+
+        function removeFile() {
+            fileInput.value = '';
+            fileUploadArea.style.display = 'block';
+            fileInfo.style.display = 'none';
+        }
+
         function toggleScanForm() {
             const form = document.getElementById('scanForm');
             const editForm = document.getElementById('editProjectForm');
+            const localForm = document.getElementById('localScanForm');
             editForm.classList.remove('show');
+            localForm.classList.remove('show');
             form.classList.toggle('show');
         }
-        
+
         function toggleEditForm() {
             const form = document.getElementById('editProjectForm');
             const scanForm = document.getElementById('scanForm');
+            const localForm = document.getElementById('localScanForm');
             scanForm.classList.remove('show');
+            localForm.classList.remove('show');
+            form.classList.toggle('show');
+        }
+
+        function toggleLocalScanForm() {
+            const form = document.getElementById('localScanForm');
+            const scanForm = document.getElementById('scanForm');
+            const editForm = document.getElementById('editProjectForm');
+            scanForm.classList.remove('show');
+            editForm.classList.remove('show');
             form.classList.toggle('show');
         }
         

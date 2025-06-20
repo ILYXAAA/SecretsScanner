@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request, Form, Depends, HTTPException, status, File, UploadFile, BackgroundTasks
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -21,12 +21,20 @@ import os
 from pathlib import Path
 import shutil
 from dotenv import load_dotenv
+from jose import JWTError, jwt
+from io import BytesIO
+import secrets
+from html_report_generator import generate_html_report
 
 # Load environment variables
 load_dotenv()
 
 os.environ["NO_PROXY"] = "127.0.0.1,localhost"
 os.environ["no_proxy"] = "127.0.0.1,localhost"
+
+SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_urlsafe(32))
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 480  # 8 часов
 
 app = FastAPI(title="Secrets Scanner")
 
@@ -129,7 +137,65 @@ class Secret(Base):
     exception_comment = Column(Text)
     refuted_at = Column(DateTime)  # New field for tracking when secret was refuted
 
+def create_indexes():
+    """Создание индексов для оптимизации производительности"""
+    try:
+        with engine.connect() as conn:
+            # Композитный индекс для поиска похожих секретов
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_secrets_composite ON secrets (path, line, secret, type)")
+            
+            # Индекс для фильтрации по scan_id и is_exception
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_secrets_scan_exception ON secrets (scan_id, is_exception)")
+            
+            # Индекс для фильтрации по severity
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_secrets_severity ON secrets (scan_id, severity, is_exception)")
+            
+            # Индекс для фильтрации по type
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_secrets_type ON secrets (scan_id, type, is_exception)")
+            
+            # Индекс для поиска секретов по проекту и времени
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_scans_project_time ON scans (project_name, completed_at)")
+            
+            # Индекс для статуса сканов
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_scans_status ON scans (status, started_at)")
+            
+            print("Database indexes created successfully")
+    except Exception as e:
+        print(f"Error creating indexes: {e}")
+
 Base.metadata.create_all(bind=engine)
+create_indexes()
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+def verify_token(token: str):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            return None
+        return username
+    except JWTError:
+        return None
+
+async def get_current_user(request: Request):
+    token = request.cookies.get("auth_token")
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    username = verify_token(token)
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    
+    return username
 
 # Dependency
 def get_db():
@@ -238,8 +304,19 @@ async def login_page(request: Request):
 @app.post("/login")
 async def login(request: Request, username: str = Form(...), password: str = Form(...)):
     if verify_credentials(username, password):
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": username}, expires_delta=access_token_expires
+        )
         response = RedirectResponse(url="/dashboard", status_code=302)
-        response.set_cookie(key="auth_token", value="authenticated", httponly=True)
+        response.set_cookie(
+            key="auth_token", 
+            value=access_token, 
+            httponly=True,
+            secure=True if os.getenv("HTTPS", "false").lower() == "true" else False,
+            samesite="strict",
+            max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60
+        )
         return response
     return templates.TemplateResponse("login.html", {"request": request, "error": "Invalid credentials"})
 
@@ -254,40 +331,71 @@ async def dashboard(request: Request, page: int = 1, search: str = "", _: bool =
     per_page = 10
     offset = (page - 1) * per_page
     
-    # Get recent scans (last 20 scans ordered by start time)
-    recent_scans_query = db.query(Scan).order_by(Scan.started_at.desc()).limit(20)
-    recent_scans = recent_scans_query.all()
+    # Оптимизированный запрос для получения recent scans с статистикой
+    recent_scans_query = db.query(
+        Scan,
+        func.count(Secret.id).filter(Secret.severity == 'High', Secret.is_exception == False).label('high_count'),
+        func.count(Secret.id).filter(Secret.severity == 'Potential', Secret.is_exception == False).label('potential_count')
+    ).outerjoin(Secret, Scan.id == Secret.scan_id).group_by(Scan.id).order_by(Scan.started_at.desc()).limit(20)
     
-    # Add statistics to recent scans
     recent_scans_data = []
-    for scan in recent_scans:
-        high_count, potential_count = get_scan_statistics(db, scan.id)
+    for scan, high_count, potential_count in recent_scans_query.all():
         recent_scans_data.append({
             "scan": scan,
-            "high_count": high_count,
-            "potential_count": potential_count
+            "high_count": high_count or 0,
+            "potential_count": potential_count or 0
         })
     
-    # Get projects with pagination and search
+    # Оптимизированный запрос проектов с пагинацией и поиском по названию и репозиторию
     projects_query = db.query(Project)
     if search:
-        projects_query = projects_query.filter(Project.name.contains(search))
+        projects_query = projects_query.filter(
+            Project.name.contains(search) | Project.repo_url.contains(search)
+        )
     
     total_projects = projects_query.count()
     projects_list = projects_query.offset(offset).limit(per_page).all()
     
-    # Add latest scan info to each project and sort by latest scan date
+    # Получить последние сканы для проектов одним запросом
+    project_names = [p.name for p in projects_list]
+    latest_scans_subquery = db.query(
+        Scan.project_name,
+        func.max(Scan.started_at).label('max_date')
+    ).filter(Scan.project_name.in_(project_names)).group_by(Scan.project_name).subquery()
+    
+    latest_scans = db.query(Scan).join(
+        latest_scans_subquery,
+        (Scan.project_name == latest_scans_subquery.c.project_name) &
+        (Scan.started_at == latest_scans_subquery.c.max_date)
+    ).all()
+    
+    # Создать словарь для быстрого поиска
+    scans_dict = {scan.project_name: scan for scan in latest_scans}
+    
+    # Получить статистику для latest scans одним запросом
+    completed_scan_ids = [scan.id for scan in latest_scans if scan.status == 'completed']
+    if completed_scan_ids:
+        stats_query = db.query(
+            Secret.scan_id,
+            func.count(Secret.id).filter(Secret.severity == 'High').label('high_count'),
+            func.count(Secret.id).filter(Secret.severity == 'Potential').label('potential_count')
+        ).filter(
+            Secret.scan_id.in_(completed_scan_ids),
+            Secret.is_exception == False
+        ).group_by(Secret.scan_id).all()
+        
+        stats_dict = {stat.scan_id: (stat.high_count, stat.potential_count) for stat in stats_query}
+    else:
+        stats_dict = {}
+    
     projects_data = []
     for project in projects_list:
-        latest_scan = db.query(Scan).filter(
-            Scan.project_name == project.name
-        ).order_by(Scan.started_at.desc()).first()
-        
+        latest_scan = scans_dict.get(project.name)
         high_count = 0
         potential_count = 0
         
         if latest_scan and latest_scan.status == 'completed':
-            high_count, potential_count = get_scan_statistics(db, latest_scan.id)
+            high_count, potential_count = stats_dict.get(latest_scan.id, (0, 0))
         
         projects_data.append({
             "project": project,
@@ -297,9 +405,7 @@ async def dashboard(request: Request, page: int = 1, search: str = "", _: bool =
             "latest_scan_date": latest_scan.started_at if latest_scan else datetime.min
         })
     
-    # Sort projects by latest scan date (newest first)
     projects_data.sort(key=lambda x: x["latest_scan_date"], reverse=True)
-    
     total_pages = (total_projects + per_page - 1) // per_page
     
     return templates.TemplateResponse("dashboard.html", {
@@ -318,6 +424,8 @@ async def dashboard(request: Request, page: int = 1, search: str = "", _: bool =
 async def settings(request: Request, _: bool = Depends(get_current_user)):
     # Get current PAT token
     current_token = "Not set"
+    microservice_available = True
+    
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(f"{MICROSERVICE_URL}/get-pat", timeout=5.0)
@@ -326,106 +434,118 @@ async def settings(request: Request, _: bool = Depends(get_current_user)):
                 if data.get("status") == "success":
                     current_token = data.get("token", "Not set")
     except:
-        current_token = "Error fetching token"
+        current_token = "Error: microservice unavailable"
+        microservice_available = False
     
     # Get rules info and content
     rules_info = None
     current_rules_content = ""
     
-    try:
-        async with httpx.AsyncClient() as client:
-            # Get rules info
-            info_response = await client.get(f"{MICROSERVICE_URL}/rules-info", timeout=5.0)
-            
-            if info_response.status_code == 200:
-                rules_info = info_response.json()
+    if microservice_available:
+        try:
+            async with httpx.AsyncClient() as client:
+                # Get rules info
+                info_response = await client.get(f"{MICROSERVICE_URL}/rules-info", timeout=5.0)
                 
-                # If rules exist, get their content
-                if rules_info and rules_info.get("exists", False):
-                    rules_response = await client.get(f"{MICROSERVICE_URL}/get-rules", timeout=5.0)
+                if info_response.status_code == 200:
+                    rules_info = info_response.json()
                     
-                    if rules_response.status_code == 200:
-                        rules_data = rules_response.json()
-                        if rules_data.get("status") == "success":
-                            current_rules_content = rules_data.get("rules", "")
-            else:
-                if info_response.status_code == 503:
-                    rules_info = "error=microservice_unavailable"
-    except Exception as e:
-        print(f"Error fetching rules: {e}")
-        pass
+                    # If rules exist, get their content
+                    if rules_info and rules_info.get("exists", False):
+                        rules_response = await client.get(f"{MICROSERVICE_URL}/get-rules", timeout=5.0)
+                        
+                        if rules_response.status_code == 200:
+                            rules_data = rules_response.json()
+                            if rules_data.get("status") == "success":
+                                current_rules_content = rules_data.get("rules", "")
+                else:
+                    rules_info = {"error": "microservice_unavailable"}
+        except Exception as e:
+            print(f"Error fetching rules: {e}")
+            rules_info = {"error": "microservice_unavailable"}
+    else:
+        rules_info = {"error": "microservice_unavailable"}
     
     # Get False-Positive rules info and content
     fp_rules_info = None
     current_fp_rules_content = ""
     
-    try:
-        async with httpx.AsyncClient() as client:
-            # Get FP rules info
-            info_response = await client.get(f"{MICROSERVICE_URL}/rules-fp-info", timeout=5.0)
-            
-            if info_response.status_code == 200:
-                fp_rules_info = info_response.json()
+    if microservice_available:
+        try:
+            async with httpx.AsyncClient() as client:
+                # Get FP rules info
+                info_response = await client.get(f"{MICROSERVICE_URL}/rules-fp-info", timeout=5.0)
                 
-                # If FP rules exist, get their content
-                if fp_rules_info and fp_rules_info.get("exists", False):
-                    fp_rules_response = await client.get(f"{MICROSERVICE_URL}/get-fp-rules", timeout=5.0)
+                if info_response.status_code == 200:
+                    fp_rules_info = info_response.json()
                     
-                    if fp_rules_response.status_code == 200:
-                        fp_rules_data = fp_rules_response.json()
-                        if fp_rules_data.get("status") == "success":
-                            current_fp_rules_content = fp_rules_data.get("fp_rules", "")
-    except Exception as e:
-        print(f"Error fetching FP rules: {e}")
-        pass
+                    # If FP rules exist, get their content
+                    if fp_rules_info and fp_rules_info.get("exists", False):
+                        fp_rules_response = await client.get(f"{MICROSERVICE_URL}/get-fp-rules", timeout=5.0)
+                        
+                        if fp_rules_response.status_code == 200:
+                            fp_rules_data = fp_rules_response.json()
+                            if fp_rules_data.get("status") == "success":
+                                current_fp_rules_content = fp_rules_data.get("fp_rules", "")
+        except Exception as e:
+            print(f"Error fetching FP rules: {e}")
+            fp_rules_info = {"error": "microservice_unavailable"}
+    else:
+        fp_rules_info = {"error": "microservice_unavailable"}
     
     # Get excluded extensions info and content
     excluded_extensions_info = None
     current_excluded_extensions_content = ""
     
-    try:
-        async with httpx.AsyncClient() as client:
-            # Get excluded extensions info
-            info_response = await client.get(f"{MICROSERVICE_URL}/excluded-extensions-info", timeout=5.0)
-            
-            if info_response.status_code == 200:
-                excluded_extensions_info = info_response.json()
+    if microservice_available:
+        try:
+            async with httpx.AsyncClient() as client:
+                # Get excluded extensions info
+                info_response = await client.get(f"{MICROSERVICE_URL}/excluded-extensions-info", timeout=5.0)
                 
-                # If file exists, get content
-                if excluded_extensions_info and excluded_extensions_info.get("exists", False):
-                    content_response = await client.get(f"{MICROSERVICE_URL}/get-excluded-extensions", timeout=5.0)
+                if info_response.status_code == 200:
+                    excluded_extensions_info = info_response.json()
                     
-                    if content_response.status_code == 200:
-                        content_data = content_response.json()
-                        if content_data.get("status") == "success":
-                            current_excluded_extensions_content = content_data.get("excluded_extensions", "")
-    except Exception as e:
-        print(f"Error fetching excluded extensions: {e}")
-        pass
+                    # If file exists, get content
+                    if excluded_extensions_info and excluded_extensions_info.get("exists", False):
+                        content_response = await client.get(f"{MICROSERVICE_URL}/get-excluded-extensions", timeout=5.0)
+                        
+                        if content_response.status_code == 200:
+                            content_data = content_response.json()
+                            if content_data.get("status") == "success":
+                                current_excluded_extensions_content = content_data.get("excluded_extensions", "")
+        except Exception as e:
+            print(f"Error fetching excluded extensions: {e}")
+            excluded_extensions_info = {"error": "microservice_unavailable"}
+    else:
+        excluded_extensions_info = {"error": "microservice_unavailable"}
     
     # Get excluded files info and content
     excluded_files_info = None
     current_excluded_files_content = ""
     
-    try:
-        async with httpx.AsyncClient() as client:
-            # Get excluded files info
-            info_response = await client.get(f"{MICROSERVICE_URL}/excluded-files-info", timeout=5.0)
-            
-            if info_response.status_code == 200:
-                excluded_files_info = info_response.json()
+    if microservice_available:
+        try:
+            async with httpx.AsyncClient() as client:
+                # Get excluded files info
+                info_response = await client.get(f"{MICROSERVICE_URL}/excluded-files-info", timeout=5.0)
                 
-                # If file exists, get content
-                if excluded_files_info and excluded_files_info.get("exists", False):
-                    content_response = await client.get(f"{MICROSERVICE_URL}/get-excluded-files", timeout=5.0)
+                if info_response.status_code == 200:
+                    excluded_files_info = info_response.json()
                     
-                    if content_response.status_code == 200:
-                        content_data = content_response.json()
-                        if content_data.get("status") == "success":
-                            current_excluded_files_content = content_data.get("excluded_files", "")
-    except Exception as e:
-        print(f"Error fetching excluded files: {e}")
-        pass
+                    # If file exists, get content
+                    if excluded_files_info and excluded_files_info.get("exists", False):
+                        content_response = await client.get(f"{MICROSERVICE_URL}/get-excluded-files", timeout=5.0)
+                        
+                        if content_response.status_code == 200:
+                            content_data = content_response.json()
+                            if content_data.get("status") == "success":
+                                current_excluded_files_content = content_data.get("excluded_files", "")
+        except Exception as e:
+            print(f"Error fetching excluded files: {e}")
+            excluded_files_info = {"error": "microservice_unavailable"}
+    else:
+        excluded_files_info = {"error": "microservice_unavailable"}
     
     # Ensure all content variables are strings
     if current_rules_content is None:
@@ -448,7 +568,8 @@ async def settings(request: Request, _: bool = Depends(get_current_user)):
         "current_excluded_extensions_content": current_excluded_extensions_content,
         "excluded_files_info": excluded_files_info,
         "current_excluded_files_content": current_excluded_files_content,
-        "BACKUP_RETENTION_DAYS": BACKUP_RETENTION_DAYS
+        "BACKUP_RETENTION_DAYS": BACKUP_RETENTION_DAYS,
+        "microservice_available": microservice_available
     })
 
 @app.post("/settings/update-fp-rules")
@@ -828,6 +949,96 @@ async def start_scan(request: Request, project_name: str, ref_type: str = Form(.
         db.commit()
         return RedirectResponse(url=f"/project/{project_name}?error=microservice_connection_error", status_code=302)
 
+@app.post("/project/{project_name}/local-scan")
+async def start_local_scan(request: Request, project_name: str, 
+                          commit: str = Form(...), zip_file: UploadFile = File(...),
+                          _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
+    project = db.query(Project).filter(Project.name == project_name).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Check microservice health
+    if not await check_microservice_health():
+        return RedirectResponse(url=f"/project/{project_name}?error=microservice_unavailable", status_code=302)
+    
+    # Validate file type
+    if not zip_file.filename.endswith('.zip'):
+        return RedirectResponse(url=f"/project/{project_name}?error=invalid_file_format", status_code=302)
+    
+    # Create scan record
+    scan_id = str(uuid.uuid4())
+    scan = Scan(
+        id=scan_id, 
+        project_name=project_name, 
+        ref_type="Commit", 
+        ref=commit, 
+        repo_commit=commit,
+        status="pending"
+    )
+    db.add(scan)
+    db.commit()
+    
+    # Prepare callback URL
+    callback_url = f"http://{APP_HOST}:{APP_PORT}/get_results/{project_name}/{scan_id}"
+    
+    try:
+        # Read file content BEFORE creating the request
+        file_content = await zip_file.read()
+        
+        # Reset file pointer and create new file-like object
+        from io import BytesIO
+        file_obj = BytesIO(file_content)
+        
+        # Create form data
+        files = {
+            'zip_file': (zip_file.filename, file_obj, 'application/zip')
+        }
+        data = {
+            'ProjectName': project_name,
+            'RepoUrl': project.repo_url,
+            'CallbackUrl': callback_url,
+            'RefType': 'Commit',
+            'Ref': commit
+        }
+        
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                f"{MICROSERVICE_URL}/local_scan",
+                files=files,
+                data=data
+            )
+            
+            try:
+                result = response.json()
+            except:
+                scan.status = "failed"
+                scan.error_message = "Invalid response from microservice"
+                db.commit()
+                return RedirectResponse(url=f"/project/{project_name}?error=microservice_invalid_response", status_code=302)
+            
+            if response.status_code == 200 and result.get("status") == "accepted":
+                scan.status = "running"
+                db.commit()
+                return RedirectResponse(url=f"/scan/{scan_id}", status_code=302)
+            else:
+                scan.status = "failed"
+                scan.error_message = result.get("message", "Unknown error")
+                db.commit()
+                error_msg = result.get("message", "Unknown error from microservice")
+                encoded_error = urllib.parse.quote(error_msg)
+                return RedirectResponse(url=f"/project/{project_name}?error={encoded_error}", status_code=302)
+                
+    except httpx.TimeoutException:
+        scan.status = "failed"
+        scan.error_message = "Microservice timeout"
+        db.commit()
+        return RedirectResponse(url=f"/project/{project_name}?error=microservice_timeout", status_code=302)
+    except Exception as e:
+        scan.status = "failed"
+        scan.error_message = str(e)
+        db.commit()
+        return RedirectResponse(url=f"/project/{project_name}?error=local_scan_failed", status_code=302)
+
 @app.get("/scan/{scan_id}", response_class=HTMLResponse)
 async def scan_status(request: Request, scan_id: str, _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
     scan = db.query(Scan).filter(Scan.id == scan_id).first()
@@ -956,68 +1167,72 @@ async def scan_results(request: Request, scan_id: str, severity_filter: str = ""
     # Get project info
     project = db.query(Project).filter(Project.name == scan.project_name).first()
     
-    # Get ALL secrets for statistics (excluding exceptions)
-    all_non_exception_secrets = db.query(Secret).filter(
+    # Подсчет статистики только для не-исключений
+    stats = db.query(
+        func.count().label('total'),
+        func.sum(Secret.severity == 'High').label('high'),
+        func.sum(Secret.severity == 'Potential').label('potential')
+    ).filter(
         Secret.scan_id == scan_id,
         Secret.is_exception == False
-    ).all()
+    ).first()
     
-    # Calculate statistics
-    total_secrets = len(all_non_exception_secrets)
-    high_secrets = len([s for s in all_non_exception_secrets if s.severity == 'High'])
-    potential_secrets = len([s for s in all_non_exception_secrets if s.severity == 'Potential'])
+    total_secrets = stats.total or 0
+    high_secrets = stats.high or 0
+    potential_secrets = stats.potential or 0
     
-    # Build query for secrets to display
-    query = db.query(Secret).filter(Secret.scan_id == scan_id)
-    
-    if not show_exceptions:
-        query = query.filter(Secret.is_exception == False)
-    
-    if severity_filter:
-        query = query.filter(Secret.severity == severity_filter)
-    
-    if type_filter:
-        query = query.filter(Secret.type == type_filter)
-    
-    # Order: High first, then Potential, then by path and line
-    secrets = query.order_by(
-        Secret.severity == 'Potential',  # This puts High (False) before Potential (True)
+    # Получить ВСЕ секреты для этого скана
+    all_secrets = db.query(Secret).filter(Secret.scan_id == scan_id).order_by(
+        Secret.severity == 'Potential',
         Secret.path,
         Secret.line
     ).all()
     
-    # Get unique types and severities for filters
-    all_secrets = db.query(Secret).filter(Secret.scan_id == scan_id).all()
-    unique_types = list(set(s.type for s in all_secrets))
-    unique_severities = list(set(s.severity for s in all_secrets))
+    # Получить уникальные типы и severity из всех секретов
+    unique_types = list(set(secret.type for secret in all_secrets))
+    unique_severities = list(set(secret.severity for secret in all_secrets))
     
-    # For each secret, check if there are similar secrets in previous scans with different statuses
-    # This helps users see the history and make informed decisions
-    secrets_data = []
-    for secret in secrets:
-        # Find similar secrets in previous scans for this project
-        previous_scans = db.query(Scan).filter(
+    # Оптимизированный поиск предыдущих статусов
+    previous_secrets_map = {}
+    if all_secrets:
+        # Получить все предыдущие сканы одним запросом
+        previous_scans = db.query(Scan.id, Scan.completed_at).filter(
             Scan.project_name == scan.project_name,
             Scan.id != scan_id,
             Scan.completed_at < scan.completed_at
         ).order_by(Scan.completed_at.desc()).all()
         
+        previous_scan_ids = [s.id for s in previous_scans]
+        
+        # Получить все предыдущие секреты одним запросом
+        if previous_scan_ids:
+            previous_secrets = db.query(Secret).filter(
+                Secret.scan_id.in_(previous_scan_ids),
+                Secret.status != "No status"
+            ).all()
+            
+            # Создать карту для быстрого поиска
+            for prev_secret in previous_secrets:
+                key = (prev_secret.path, prev_secret.line, prev_secret.secret, prev_secret.type)
+                if key not in previous_secrets_map:
+                    previous_secrets_map[key] = prev_secret
+    
+    # Подготовить данные для всех секретов
+    secrets_data = []
+    for secret in all_secrets:
         previous_status = None
         previous_scan_date = None
         
-        for prev_scan in previous_scans:
-            similar_secret = db.query(Secret).filter(
-                Secret.scan_id == prev_scan.id,
-                Secret.path == secret.path,
-                Secret.line == secret.line,
-                Secret.secret == secret.secret,
-                Secret.type == secret.type
-            ).first()
-            
-            if similar_secret and similar_secret.status != "No status":
-                previous_status = similar_secret.status
-                previous_scan_date = prev_scan.completed_at.strftime('%Y-%m-%d %H:%M')
-                break  # Take the most recent previous status
+        if previous_secrets_map:
+            key = (secret.path, secret.line, secret.secret, secret.type)
+            if key in previous_secrets_map:
+                prev_secret = previous_secrets_map[key]
+                previous_status = prev_secret.status
+                # Найти дату скана для этого секрета
+                for scan_info in previous_scans:
+                    if prev_secret.scan_id == scan_info.id:
+                        previous_scan_date = scan_info.completed_at.strftime('%Y-%m-%d %H:%M')
+                        break
         
         secrets_data.append({
             "id": secret.id,
@@ -1034,19 +1249,19 @@ async def scan_results(request: Request, scan_id: str, severity_filter: str = ""
             "previous_status": previous_status,
             "previous_scan_date": previous_scan_date
         })
-    
+
     return templates.TemplateResponse("scan_results.html", {
         "request": request,
         "scan": scan,
         "project": project,
-        "secrets": secrets,
+        "secrets": all_secrets,  # Передаем все секреты
         "secrets_data": secrets_data,
         "unique_types": unique_types,
         "unique_severities": unique_severities,
         "total_secrets": total_secrets,
         "high_secrets": high_secrets,
         "potential_secrets": potential_secrets,
-        "hub_type": HUB_TYPE,  # Add hub type to template context
+        "hub_type": HUB_TYPE,
         "current_filters": {
             "severity": severity_filter,
             "type": type_filter,
@@ -1125,13 +1340,13 @@ async def export_scan_results(scan_id: str, _: bool = Depends(get_current_user),
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
     
-    # Get non-exception secrets
+    # Get only non-exception secrets from this scan
     secrets = db.query(Secret).filter(
         Secret.scan_id == scan_id,
         Secret.is_exception == False
     ).all()
     
-    # Create export data (without actual secrets)
+    # Create export data (only path and line)
     export_data = [
         {
             "path": secret.path,
@@ -1142,10 +1357,44 @@ async def export_scan_results(scan_id: str, _: bool = Depends(get_current_user),
     
     # Generate filename
     commit_short = scan.repo_commit[:7] if scan.repo_commit else "unknown"
-    filename = f"{scan.project_name}_{commit_short}.json"
+    scan_date = scan.completed_at.strftime("%Y%m%d") if scan.completed_at else "pending"
+    filename = f"{scan.project_name}_{commit_short}_{scan_date}.json"
     
     return JSONResponse(
         content=export_data,
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+@app.get("/scan/{scan_id}/export-html")
+async def export_scan_results_html(scan_id: str, _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
+    scan = db.query(Scan).filter(Scan.id == scan_id).first()
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan not found")
+    
+    project = db.query(Project).filter(Project.name == scan.project_name).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Get only non-exception secrets from this scan (same as displayed on page)
+    secrets = db.query(Secret).filter(
+        Secret.scan_id == scan_id,
+        Secret.is_exception == False
+    ).order_by(
+        Secret.severity == 'Potential',
+        Secret.path,
+        Secret.line
+    ).all()
+    
+    # Generate HTML report
+    html_content = generate_html_report(scan, project, secrets, HUB_TYPE)
+    
+    # Generate filename
+    commit_short = scan.repo_commit[:7] if scan.repo_commit else "unknown"
+    scan_date = scan.completed_at.strftime("%Y%m%d") if scan.completed_at else "pending"
+    filename = f"{scan.project_name}_{commit_short}_{scan_date}_report.html"
+    
+    return HTMLResponse(
+        content=html_content,
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
 
@@ -1218,28 +1467,59 @@ async def backup_status(_: bool = Depends(get_current_user)):
     """Get backup configuration and status"""
     try:
         backup_dir = Path(BACKUP_DIR)
-        backups = []
+        all_backups = []
         
         if backup_dir.exists():
-            for backup_file in sorted(backup_dir.glob("secrets_scanner_backup_*.db"), reverse=True):
+            for backup_file in sorted(backup_dir.glob("secrets_scanner_backup_*.db"), 
+                                    key=lambda x: x.stat().st_mtime, reverse=True):
                 stat = backup_file.stat()
-                backups.append({
+                all_backups.append({
                     "filename": backup_file.name,
                     "size_mb": round(stat.st_size / (1024 * 1024), 2),
                     "created": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
                 })
         
-        return {
+        response_data = {
             "status": "success",
             "config": {
-                "backup_dir": BACKUP_DIR,
+                "backup_dir": str(BACKUP_DIR),
                 "retention_days": BACKUP_RETENTION_DAYS,
                 "interval_hours": BACKUP_INTERVAL_HOURS
             },
-            "backups": backups[:10]  # Show last 10 backups
+            "backups": all_backups[:20],  # Show only first 20
+            "total_backups": len(all_backups),  # Total count
+            "timestamp": datetime.now().isoformat()
         }
+        
+        return JSONResponse(
+            content=response_data,
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0"
+            }
+        )
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        print(f"Backup status error: {e}")
+        return JSONResponse(
+            content={
+                "status": "error", 
+                "message": str(e),
+                "config": {
+                    "backup_dir": str(BACKUP_DIR),
+                    "retention_days": BACKUP_RETENTION_DAYS,
+                    "interval_hours": BACKUP_INTERVAL_HOURS
+                },
+                "backups": [],
+                "total_backups": 0,
+                "timestamp": datetime.now().isoformat()
+            },
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0"
+            }
+        )
 
 @app.post("/admin/backup")
 async def manual_backup(_: bool = Depends(get_current_user)):

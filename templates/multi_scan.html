@@ -454,6 +454,58 @@
             margin-bottom: 1rem;
             font-size: 1.5rem;
         }
+
+        .completed-repos {
+            background: white;
+            border-radius: 12px;
+            padding: 2rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            border: 1px solid #e1e5e9;
+            margin-bottom: 2rem;
+        }
+
+        .completed-repos h3 {
+            color: #333;
+            margin-bottom: 1rem;
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+
+        .repo-list {
+            background: #f8f9fa;
+            padding: 1rem;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 0.9rem;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .repo-item {
+            margin-bottom: 0.5rem;
+            color: #333;
+            word-break: break-all;
+        }
+
+        .repo-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .copy-button {
+            background: #6c757d;
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            cursor: pointer;
+            margin-top: 1rem;
+            transition: background-color 0.2s;
+        }
+
+        .copy-button:hover {
+            background: #5a6268;
+        }
     </style>
 </head>
 <body>
@@ -516,6 +568,14 @@
                 </div>
             </div>
             <div id="scanList" class="scan-list"></div>
+        </div>
+    </div>
+
+    <div id="completedRepos" style="display: none;">
+        <div class="completed-repos">
+            <h3>📋 Просканированные репозитории</h3>
+            <div class="repo-list" id="repoList"></div>
+            <button class="copy-button" onclick="copyRepoList()">📋 Копировать список</button>
         </div>
     </div>
     
@@ -828,6 +888,17 @@
             scanResultsDiv.style.display = 'block';
             document.getElementById('scanForm').style.display = 'none';
             
+            // Check if all scans are completed and show repo list
+            const allCompleted = scans.every(scan => 
+                scan.status === 'completed' || scan.status === 'failed' || scan.status === 'timeout'
+            );
+            
+            if (allCompleted) {
+                displayCompletedRepos(scans);
+            } else {
+                document.getElementById('completedRepos').style.display = 'none';
+            }
+            
             // Store scan data in localStorage for persistence
             localStorage.setItem('multiScanResults', JSON.stringify(scans));
             
@@ -837,7 +908,43 @@
                 startAutoRefresh();
             }
         }
-        
+
+        function displayCompletedRepos(scans) {
+            const completedReposDiv = document.getElementById('completedRepos');
+            const repoListDiv = document.getElementById('repoList');
+            
+            // Filter completed scans and build repo URLs with commits
+            const completedScans = scans.filter(scan => scan.status === 'completed' && scan.commit && scan.repo_url);
+            
+            if (completedScans.length === 0) {
+                completedReposDiv.style.display = 'none';
+                return;
+            }
+            
+            const repoUrls = completedScans.map(scan => {
+                return `${scan.repo_url}/commit/${scan.commit}`;
+            });
+            
+            repoListDiv.innerHTML = repoUrls.map(url => 
+                `<div class="repo-item">${url}</div>`
+            ).join('');
+            
+            completedReposDiv.style.display = 'block';
+        }
+
+        function copyRepoList() {
+            const repoItems = document.querySelectorAll('#repoList .repo-item');
+            const repoUrls = Array.from(repoItems).map(item => item.textContent);
+            const textToCopy = repoUrls.join('\n');
+            
+            navigator.clipboard.writeText(textToCopy).then(() => {
+                showAlert('success', 'Список репозиториев скопирован в буфер обмена');
+            }).catch(err => {
+                console.error('Error copying to clipboard:', err);
+                showAlert('error', 'Не удалось скопировать в буфер обмена');
+            });
+        }
+    
         function displayValidationErrors(errors) {
             const errorHtml = `
                 <div class="validation-error-list">
@@ -1089,6 +1196,7 @@
         function clearScanResults() {
             localStorage.removeItem('multiScanResults');
             document.getElementById('scanResults').style.display = 'none';
+            document.getElementById('completedRepos').style.display = 'none';
             document.getElementById('scanForm').style.display = 'block';
             showAlert('success', 'Результаты мультисканирования очищены');
             

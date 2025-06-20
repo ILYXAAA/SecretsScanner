@@ -320,7 +320,9 @@
             {% elif 'error=backup_failed' in request.url.query %}
             <div class="alert alert-error">Failed to create database backup.</div>
             {% elif 'error=microservice_unavailable' in rules_info %}
-            <div class="alert alert-error">Microservice is unavailable. Please check if the scanning service is running.</div>
+                {% if not microservice_available or (rules_info and rules_info.get('error') == 'microservice_unavailable') %}
+                    <div class="alert alert-error">Microservice is unavailable. Please check if the scanning service is running.</div>
+                {% endif %}
             {% elif 'error=' in request.url.query %}
             <div class="alert alert-error">{{ request.url.query.split('error=')[1].split('&')[0] | urldecode }}</div>
             {% endif %}
@@ -578,8 +580,26 @@ excluded_files:
         
         // Backup Management Functions
         async function loadBackups() {
+            const backupList = document.getElementById('backup-list');
+            
+            // Show loading state
+            backupList.innerHTML = `
+                <div style="padding: 2rem; text-align: center; color: #666;">
+                    <div class="spinner"></div>
+                    Загрузка бэкапов...
+                </div>
+            `;
+            
             try {
-                const response = await fetch('/admin/backup-status');
+                // Add timestamp to prevent caching
+                const timestamp = new Date().getTime();
+                const response = await fetch(`/admin/backup-status?t=${timestamp}`, {
+                    method: 'GET',
+                    headers: {
+                        'Cache-Control': 'no-cache',
+                        'Pragma': 'no-cache'
+                    }
+                });
                 const data = await response.json();
                 
                 if (data.status === 'success') {
@@ -588,13 +608,14 @@ excluded_files:
                     showBackupError(data.message || 'Failed to load backups');
                 }
             } catch (error) {
+                console.error('Backup loading error:', error);
                 showBackupError('Network error: ' + error.message);
             }
         }
-        
+
         function updateBackupDisplay(data) {
-            // Update stats
-            document.getElementById('backup-count').textContent = data.backups.length;
+            // Update stats with total count
+            document.getElementById('backup-count').textContent = data.total_backups || data.backups.length;
             
             // Update backup list
             const backupList = document.getElementById('backup-list');
@@ -608,7 +629,7 @@ excluded_files:
                 return;
             }
             
-            backupList.innerHTML = data.backups.map(backup => `
+            let listHtml = data.backups.map(backup => `
                 <div class="backup-item">
                     <div>
                         <div class="backup-filename">${backup.filename}</div>
@@ -619,8 +640,19 @@ excluded_files:
                     </div>
                 </div>
             `).join('');
+            
+            // Add note if showing limited results
+            if (data.total_backups > data.backups.length) {
+                listHtml += `
+                    <div style="padding: 1rem; text-align: center; color: #666; font-style: italic; border-top: 1px solid #e1e5e9;">
+                        Showing latest ${data.backups.length} of ${data.total_backups} backups
+                    </div>
+                `;
+            }
+            
+            backupList.innerHTML = listHtml;
         }
-        
+
         function showBackupError(message) {
             const backupList = document.getElementById('backup-list');
             backupList.innerHTML = `
@@ -658,17 +690,22 @@ excluded_files:
             }
         }
         
-        function refreshBackups() {
+        async function refreshBackups() {
             const btn = document.getElementById('refreshBtn');
             const originalText = btn.innerHTML;
             
             btn.disabled = true;
             btn.innerHTML = '<div class="spinner"></div> Refreshing...';
             
-            loadBackups().finally(() => {
+            try {
+                await loadBackups();
+                showNotification('✅ Backup list refreshed', 'success');
+            } catch (error) {
+                showNotification('❌ Failed to refresh: ' + error.message, 'error');
+            } finally {
                 btn.disabled = false;
                 btn.innerHTML = originalText;
-            });
+            }
         }
         
         function showNotification(message, type) {

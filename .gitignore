@@ -9,6 +9,7 @@ secrets_aggregator.db
 backups/
 Auth/
 database/
+test.py
 
 # Distribution / packaging
 .Python
