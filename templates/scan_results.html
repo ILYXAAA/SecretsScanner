@@ -1226,10 +1226,13 @@
             });
             
             allSecrets = secretsData.slice();
-            initializeFilters();
-            applyFilters();
+            
+            // Дождаться, пока DOM полностью загрузится
+            setTimeout(() => {
+                initializeFilters();
+                applyFilters();
+            }, 100);
         });
-
 
         function initializeFilters() {
             // Get unique types
@@ -1237,26 +1240,31 @@
             
             // Populate type filters
             const typeFiltersContainer = document.getElementById('typeFilters');
+            if (!typeFiltersContainer) {
+                console.error('typeFilters container not found');
+                return;
+            }
+            
             typeFiltersContainer.innerHTML = '';
             
             uniqueTypes.forEach(type => {
                 const div = document.createElement('div');
                 div.className = 'checkbox-item';
                 div.innerHTML = `
-                    <input type="checkbox" id="type-${type}" value="${type}" onchange="applyFilters()">
-                    <label for="type-${type}">${type}</label>
+                    <input type="checkbox" id="type-${type.replace(/[^a-zA-Z0-9]/g, '_')}" value="${type}" onchange="applyFilters()">
+                    <label for="type-${type.replace(/[^a-zA-Z0-9]/g, '_')}">${type}</label>
                 `;
                 typeFiltersContainer.appendChild(div);
             });
 
-            // Initialize filters from URL parameters
+            // Initialize filters from URL parameters or defaults
             const urlParams = new URLSearchParams(window.location.search);
             
-            // Status filters
+            // Status filters - DEFAULT: Confirmed and No status
             const statusFilters = urlParams.getAll('status_filter');
             if (statusFilters.length > 0) {
                 statusFilters.forEach(status => {
-                    const checkbox = document.querySelector(`input[value="${status}"]`);
+                    const checkbox = document.querySelector(`#filtersPanel input[value="${status}"]`);
                     if (checkbox) {
                         checkbox.checked = true;
                         activeFilters.status.push(status);
@@ -1264,16 +1272,23 @@
                 });
             } else {
                 // Default: Confirmed and No status
-                document.getElementById('status-confirmed').checked = true;
-                document.getElementById('status-none').checked = true;
-                activeFilters.status = ['Confirmed', 'No status'];
+                const confirmedCb = document.getElementById('status-confirmed');
+                const noneCb = document.getElementById('status-none');
+                if (confirmedCb) {
+                    confirmedCb.checked = true;
+                    activeFilters.status.push('Confirmed');
+                }
+                if (noneCb) {
+                    noneCb.checked = true;
+                    activeFilters.status.push('No status');
+                }
             }
 
-            // Severity filters
+            // Severity filters - DEFAULT: High and Potential
             const severityFilters = urlParams.getAll('severity_filter');
             if (severityFilters.length > 0) {
                 severityFilters.forEach(severity => {
-                    const checkbox = document.querySelector(`input[value="${severity}"]`);
+                    const checkbox = document.querySelector(`#filtersPanel input[value="${severity}"]`);
                     if (checkbox) {
                         checkbox.checked = true;
                         activeFilters.severity.push(severity);
@@ -1281,16 +1296,23 @@
                 });
             } else {
                 // Default: High and Potential
-                document.getElementById('severity-high').checked = true;
-                document.getElementById('severity-potential').checked = true;
-                activeFilters.severity = ['High', 'Potential'];
+                const highCb = document.getElementById('severity-high');
+                const potentialCb = document.getElementById('severity-potential');
+                if (highCb) {
+                    highCb.checked = true;
+                    activeFilters.severity.push('High');
+                }
+                if (potentialCb) {
+                    potentialCb.checked = true;
+                    activeFilters.severity.push('Potential');
+                }
             }
 
-            // Type filters
+            // Type filters - DEFAULT: All types
             const typeFilters = urlParams.getAll('type_filter');
             if (typeFilters.length > 0) {
                 typeFilters.forEach(type => {
-                    const checkbox = document.querySelector(`input[value="${type}"]`);
+                    const checkbox = document.querySelector(`#typeFilters input[value="${type}"]`);
                     if (checkbox) {
                         checkbox.checked = true;
                         activeFilters.type.push(type);
@@ -1299,7 +1321,7 @@
             } else {
                 // Default: All types
                 uniqueTypes.forEach(type => {
-                    const checkbox = document.querySelector(`input[value="${type}"]`);
+                    const checkbox = document.querySelector(`#typeFilters input[value="${type}"]`);
                     if (checkbox) {
                         checkbox.checked = true;
                         activeFilters.type.push(type);
@@ -1309,13 +1331,30 @@
         }
 
         function applyFilters() {
+            console.log('Applying filters...'); // Debug log
+            
             showLoading();
             
             setTimeout(() => {
                 // Update active filters from checkboxes
-                activeFilters.status = Array.from(document.querySelectorAll('#filtersPanel input[type="checkbox"]:checked')).filter(cb => ['Confirmed', 'No status', 'Refuted'].includes(cb.value)).map(cb => cb.value);
-                activeFilters.severity = Array.from(document.querySelectorAll('#filtersPanel input[type="checkbox"]:checked')).filter(cb => ['High', 'Potential'].includes(cb.value)).map(cb => cb.value);
-                activeFilters.type = Array.from(document.querySelectorAll('#typeFilters input[type="checkbox"]:checked')).map(cb => cb.value);
+                activeFilters.status = [];
+                activeFilters.severity = [];
+                activeFilters.type = [];
+                
+                // Получить статус фильтры
+                document.querySelectorAll('#filtersPanel input[type="checkbox"]:checked').forEach(cb => {
+                    const value = cb.value;
+                    if (['Confirmed', 'No status', 'Refuted'].includes(value)) {
+                        activeFilters.status.push(value);
+                    } else if (['High', 'Potential'].includes(value)) {
+                        activeFilters.severity.push(value);
+                    }
+                });
+                
+                // Получить типы фильтры
+                document.querySelectorAll('#typeFilters input[type="checkbox"]:checked').forEach(cb => {
+                    activeFilters.type.push(cb.value);
+                });
 
                 console.log('Active filters:', activeFilters); // Debug log
 
@@ -1579,15 +1618,21 @@
 
         function toggleFiltersPanel() {
             const filtersPanel = document.getElementById('filtersPanel');
+            const filtersToggleBtn = document.getElementById('filtersToggleBtn');
+            
+            if (!filtersPanel || !filtersToggleBtn) {
+                console.error('Filters panel elements not found');
+                return;
+            }
             
             isFiltersOpen = !isFiltersOpen;
             
             if (isFiltersOpen) {
                 filtersPanel.classList.add('open');
-                document.getElementById('filtersToggleBtn').textContent = '✖️ Закрыть';
+                filtersToggleBtn.textContent = '✖️ Закрыть';
             } else {
                 filtersPanel.classList.remove('open');
-                document.getElementById('filtersToggleBtn').textContent = '🔍 Фильтры';
+                filtersToggleBtn.textContent = '🔍 Фильтры';
             }
         }
 

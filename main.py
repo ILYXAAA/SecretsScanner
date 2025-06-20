@@ -1168,6 +1168,13 @@ async def scan_results(request: Request, scan_id: str, severity_filter: str = ""
    # Get project info
    project = db.query(Project).filter(Project.name == scan.project_name).first()
    
+   # Получить ВСЕ секреты для JavaScript (БЕЗ фильтрации на стороне сервера)
+   all_secrets_query = db.query(Secret).filter(Secret.scan_id == scan_id).order_by(
+       Secret.severity == 'Potential',
+       Secret.path,
+       Secret.line
+   ).all()
+   
    # Исправленный подсчет статистики - отдельными запросами
    total_secrets = db.query(func.count(Secret.id)).filter(
        Secret.scan_id == scan_id,
@@ -1186,25 +1193,6 @@ async def scan_results(request: Request, scan_id: str, severity_filter: str = ""
        Secret.is_exception == False
    ).scalar() or 0
    
-   # Оптимизированный запрос секретов с фильтрами (БЕЗ лимита - пагинация в JS)
-   query = db.query(Secret).filter(Secret.scan_id == scan_id)
-   
-   if not show_exceptions:
-       query = query.filter(Secret.is_exception == False)
-   
-   if severity_filter:
-       query = query.filter(Secret.severity == severity_filter)
-   
-   if type_filter:
-       query = query.filter(Secret.type == type_filter)
-   
-   # Получение всех секретов (без лимита, так как пагинация в JavaScript)
-   secrets = query.order_by(
-       Secret.severity == 'Potential',
-       Secret.path,
-       Secret.line
-   ).all()
-   
    # Получить уникальные типы и severity отдельными эффективными запросами
    unique_types_query = db.query(Secret.type.distinct()).filter(Secret.scan_id == scan_id)
    unique_types = [row[0] for row in unique_types_query.all() if row[0]]
@@ -1214,7 +1202,7 @@ async def scan_results(request: Request, scan_id: str, severity_filter: str = ""
    
    # Оптимизированный поиск предыдущих статусов только для небольших наборов
    previous_secrets_map = {}
-   if secrets and len(secrets) < 500:  # Только для небольших наборов
+   if all_secrets_query and len(all_secrets_query) < 500:  # Только для небольших наборов
        # Получить все предыдущие сканы одним запросом
        previous_scans = db.query(Scan.id, Scan.completed_at).filter(
            Scan.project_name == scan.project_name,
@@ -1238,7 +1226,7 @@ async def scan_results(request: Request, scan_id: str, severity_filter: str = ""
                    previous_secrets_map[key] = prev_secret
    
    secrets_data = []
-   for secret in secrets:
+   for secret in all_secrets_query:  # Передаем ВСЕ секреты
        previous_status = None
        previous_scan_date = None
        
@@ -1273,8 +1261,8 @@ async def scan_results(request: Request, scan_id: str, severity_filter: str = ""
        "request": request,
        "scan": scan,
        "project": project,
-       "secrets": secrets,
-       "secrets_data": secrets_data,
+       "secrets": all_secrets_query,  # Для обратной совместимости
+       "secrets_data": secrets_data,  # ВСЕ секреты для JavaScript
        "unique_types": unique_types,
        "unique_severities": unique_severities,
        "total_secrets": total_secrets,
