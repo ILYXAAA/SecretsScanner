@@ -1552,71 +1552,13 @@
             initializeTableEventListeners();
         }
 
-            // Calculate pagination
-            const startIndex = (currentPage - 1) * pageSize;
-            const endIndex = Math.min(startIndex + pageSize, filteredSecrets.length);
-            const pageSecrets = filteredSecrets.slice(startIndex, endIndex);
-
-            console.log(`Rendering ${pageSecrets.length} secrets (${startIndex}-${endIndex} of ${filteredSecrets.length})`);
-
-            // Generate table HTML
-            let tableHTML = `
-                <table class="secrets-table">
-                    <thead class="table-header">
-                        <tr>
-                            <th>🔑 Secret</th>
-                            <th>📍 Line</th>
-                            <th class="sortable" data-sort="file">📁 File</th>
-                            <th class="sortable" data-sort="type">🏷️ Type</th>
-                            <th class="sortable" data-sort="status">📊 Status</th>
-                            <th class="sortable" data-sort="severity">⚠️ Level</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-            `;
-
-            pageSecrets.forEach((secret, index) => {
-                const globalIndex = startIndex + index;
-                tableHTML += `
-                    <tr class="secret-row ${secret.severity.toLowerCase()}" data-secret-id="${secret.id}" data-secret-index="${globalIndex}">
-                        <td>
-                            <div class="secret-value">${escapeHtml(secret.secret)}</div>
-                        </td>
-                        <td>
-                            <span class="secret-line">${secret.line}</span>
-                        </td>
-                        <td>
-                            <span class="secret-file">${escapeHtml(secret.path.split('/').pop())}</span>
-                        </td>
-                        <td>
-                            <span class="secret-type">${escapeHtml(secret.type)}</span>
-                        </td>
-                        <td>
-                            <div class="secret-status">
-                                ${getStatusHTML(secret)}
-                            </div>
-                        </td>
-                        <td>
-                            <div class="secret-severity ${secret.severity.toLowerCase()}">${secret.severity}</div>
-                        </td>
-                    </tr>
-                `;
-            });
-
-            tableHTML += '</tbody></table>';
-            tableContainer.innerHTML = tableHTML;
-
-            // Attach event listeners
-            initializeTableEventListeners();
-        }
-
         function getStatusHTML(secret) {
             if (secret.status === 'Confirmed') {
                 return '<span class="status-confirmed">✅ Подтвержденный</span>';
             } else if (secret.status === 'Refuted') {
                 let html = '<span class="status-refuted">❌ Опровергнут</span>';
                 if (secret.refuted_at) {
-                    html += `<div class="refuted-date">${secret.refuted_at}</div>`;
+                    html += `<div class="refuted-date">${safeHtml(secret.refuted_at)}</div>`;
                 }
                 return html;
             } else {
