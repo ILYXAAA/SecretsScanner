@@ -271,17 +271,17 @@ async def check_microservice_health():
 
 def get_scan_statistics(db: Session, scan_id: str):
     """Get high and potential secret counts for a scan"""
-    high_count = db.query(Secret).filter(
+    high_count = db.query(func.count(Secret.id)).filter(
         Secret.scan_id == scan_id,
         Secret.severity == "High",
         Secret.is_exception == False
-    ).count()
+    ).scalar() or 0
     
-    potential_count = db.query(Secret).filter(
+    potential_count = db.query(func.count(Secret.id)).filter(
         Secret.scan_id == scan_id,
         Secret.severity == "Potential",
         Secret.is_exception == False
-    ).count()
+    ).scalar() or 0
     
     return high_count, potential_count
 
@@ -1159,116 +1159,134 @@ async def receive_scan_results(project_name: str, scan_id: str, request: Request
 
 @app.get("/scan/{scan_id}/results", response_class=HTMLResponse)
 async def scan_results(request: Request, scan_id: str, severity_filter: str = "", 
-                      type_filter: str = "", show_exceptions: bool = False,
-                      _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
-    scan = db.query(Scan).filter(Scan.id == scan_id).first()
-    if not scan:
-        raise HTTPException(status_code=404, detail="Scan not found")
-    
-    # Get project info
-    project = db.query(Project).filter(Project.name == scan.project_name).first()
-    
-    # Подсчет статистики только для не-исключений
-    stats = db.query(
-        func.count().label('total'),
-        func.sum(Secret.severity == 'High').label('high'),
-        func.sum(Secret.severity == 'Potential').label('potential')
-    ).filter(
-        Secret.scan_id == scan_id,
-        Secret.is_exception == False
-    ).first()
-    
-    total_secrets = stats.total or 0
-    high_secrets = stats.high or 0
-    potential_secrets = stats.potential or 0
-    
-    # Получить ВСЕ секреты для этого скана
-    all_secrets = db.query(Secret).filter(Secret.scan_id == scan_id).order_by(
-        Secret.severity == 'Potential',
-        Secret.path,
-        Secret.line
-    ).all()
-    
-    # Получить уникальные типы и severity из всех секретов
-    unique_types = list(set(secret.type for secret in all_secrets))
-    unique_severities = list(set(secret.severity for secret in all_secrets))
-    
-    # Оптимизированный поиск предыдущих статусов
-    previous_secrets_map = {}
-    if all_secrets:
-        # Получить все предыдущие сканы одним запросом
-        previous_scans = db.query(Scan.id, Scan.completed_at).filter(
-            Scan.project_name == scan.project_name,
-            Scan.id != scan_id,
-            Scan.completed_at < scan.completed_at
-        ).order_by(Scan.completed_at.desc()).all()
-        
-        previous_scan_ids = [s.id for s in previous_scans]
-        
-        # Получить все предыдущие секреты одним запросом
-        if previous_scan_ids:
-            previous_secrets = db.query(Secret).filter(
-                Secret.scan_id.in_(previous_scan_ids),
-                Secret.status != "No status"
-            ).all()
-            
-            # Создать карту для быстрого поиска
-            for prev_secret in previous_secrets:
-                key = (prev_secret.path, prev_secret.line, prev_secret.secret, prev_secret.type)
-                if key not in previous_secrets_map:
-                    previous_secrets_map[key] = prev_secret
-    
-    # Подготовить данные для всех секретов
-    secrets_data = []
-    for secret in all_secrets:
-        previous_status = None
-        previous_scan_date = None
-        
-        if previous_secrets_map:
-            key = (secret.path, secret.line, secret.secret, secret.type)
-            if key in previous_secrets_map:
-                prev_secret = previous_secrets_map[key]
-                previous_status = prev_secret.status
-                # Найти дату скана для этого секрета
-                for scan_info in previous_scans:
-                    if prev_secret.scan_id == scan_info.id:
-                        previous_scan_date = scan_info.completed_at.strftime('%Y-%m-%d %H:%M')
-                        break
-        
-        secrets_data.append({
-            "id": secret.id,
-            "path": secret.path,
-            "line": secret.line,
-            "secret": secret.secret,
-            "context": secret.context,
-            "severity": secret.severity,
-            "type": secret.type,
-            "status": secret.status,
-            "is_exception": secret.is_exception,
-            "exception_comment": secret.exception_comment or "",
-            "refuted_at": secret.refuted_at.strftime('%Y-%m-%d %H:%M') if secret.refuted_at else None,
-            "previous_status": previous_status,
-            "previous_scan_date": previous_scan_date
-        })
+                     type_filter: str = "", show_exceptions: bool = False,
+                     _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
+   scan = db.query(Scan).filter(Scan.id == scan_id).first()
+   if not scan:
+       raise HTTPException(status_code=404, detail="Scan not found")
+   
+   # Get project info
+   project = db.query(Project).filter(Project.name == scan.project_name).first()
+   
+   # Исправленный подсчет статистики - отдельными запросами
+   total_secrets = db.query(func.count(Secret.id)).filter(
+       Secret.scan_id == scan_id,
+       Secret.is_exception == False
+   ).scalar() or 0
+   
+   high_secrets = db.query(func.count(Secret.id)).filter(
+       Secret.scan_id == scan_id,
+       Secret.severity == 'High',
+       Secret.is_exception == False
+   ).scalar() or 0
+   
+   potential_secrets = db.query(func.count(Secret.id)).filter(
+       Secret.scan_id == scan_id,
+       Secret.severity == 'Potential',
+       Secret.is_exception == False
+   ).scalar() or 0
+   
+   # Оптимизированный запрос секретов с фильтрами (БЕЗ лимита - пагинация в JS)
+   query = db.query(Secret).filter(Secret.scan_id == scan_id)
+   
+   if not show_exceptions:
+       query = query.filter(Secret.is_exception == False)
+   
+   if severity_filter:
+       query = query.filter(Secret.severity == severity_filter)
+   
+   if type_filter:
+       query = query.filter(Secret.type == type_filter)
+   
+   # Получение всех секретов (без лимита, так как пагинация в JavaScript)
+   secrets = query.order_by(
+       Secret.severity == 'Potential',
+       Secret.path,
+       Secret.line
+   ).all()
+   
+   # Получить уникальные типы и severity отдельными эффективными запросами
+   unique_types_query = db.query(Secret.type.distinct()).filter(Secret.scan_id == scan_id)
+   unique_types = [row[0] for row in unique_types_query.all() if row[0]]
+   
+   unique_severities_query = db.query(Secret.severity.distinct()).filter(Secret.scan_id == scan_id)
+   unique_severities = [row[0] for row in unique_severities_query.all() if row[0]]
+   
+   # Оптимизированный поиск предыдущих статусов только для небольших наборов
+   previous_secrets_map = {}
+   if secrets and len(secrets) < 500:  # Только для небольших наборов
+       # Получить все предыдущие сканы одним запросом
+       previous_scans = db.query(Scan.id, Scan.completed_at).filter(
+           Scan.project_name == scan.project_name,
+           Scan.id != scan_id,
+           Scan.completed_at < scan.completed_at
+       ).order_by(Scan.completed_at.desc()).all()
+       
+       previous_scan_ids = [s.id for s in previous_scans]
+       
+       # Получить все предыдущие секреты одним запросом
+       if previous_scan_ids:
+           previous_secrets = db.query(Secret).filter(
+               Secret.scan_id.in_(previous_scan_ids),
+               Secret.status != "No status"
+           ).all()
+           
+           # Создать карту для быстрого поиска
+           for prev_secret in previous_secrets:
+               key = (prev_secret.path, prev_secret.line, prev_secret.secret, prev_secret.type)
+               if key not in previous_secrets_map:
+                   previous_secrets_map[key] = prev_secret
+   
+   secrets_data = []
+   for secret in secrets:
+       previous_status = None
+       previous_scan_date = None
+       
+       if previous_secrets_map:
+           key = (secret.path, secret.line, secret.secret, secret.type)
+           if key in previous_secrets_map:
+               prev_secret = previous_secrets_map[key]
+               previous_status = prev_secret.status
+               # Найти дату скана для этого секрета
+               for scan_info in previous_scans:
+                   if prev_secret.scan_id == scan_info.id:
+                       previous_scan_date = scan_info.completed_at.strftime('%Y-%m-%d %H:%M')
+                       break
+       
+       secrets_data.append({
+           "id": secret.id,
+           "path": secret.path,
+           "line": secret.line,
+           "secret": secret.secret,
+           "context": secret.context,
+           "severity": secret.severity,
+           "type": secret.type,
+           "status": secret.status,
+           "is_exception": secret.is_exception,
+           "exception_comment": secret.exception_comment or "",
+           "refuted_at": secret.refuted_at.strftime('%Y-%m-%d %H:%M') if secret.refuted_at else None,
+           "previous_status": previous_status,
+           "previous_scan_date": previous_scan_date
+       })
 
-    return templates.TemplateResponse("scan_results.html", {
-        "request": request,
-        "scan": scan,
-        "project": project,
-        "secrets": all_secrets,  # Передаем все секреты
-        "secrets_data": secrets_data,
-        "unique_types": unique_types,
-        "unique_severities": unique_severities,
-        "total_secrets": total_secrets,
-        "high_secrets": high_secrets,
-        "potential_secrets": potential_secrets,
-        "hub_type": HUB_TYPE,
-        "current_filters": {
-            "severity": severity_filter,
-            "type": type_filter,
-            "show_exceptions": show_exceptions
-        }
-    })
+   return templates.TemplateResponse("scan_results.html", {
+       "request": request,
+       "scan": scan,
+       "project": project,
+       "secrets": secrets,
+       "secrets_data": secrets_data,
+       "unique_types": unique_types,
+       "unique_severities": unique_severities,
+       "total_secrets": total_secrets,
+       "high_secrets": high_secrets,
+       "potential_secrets": potential_secrets,
+       "hub_type": HUB_TYPE,
+       "current_filters": {
+           "severity": severity_filter,
+           "type": type_filter,
+           "show_exceptions": show_exceptions
+       }
+   })
 
 @app.post("/secrets/{secret_id}/update-status")
 async def update_secret_status(secret_id: int, status: str = Form(...), 
