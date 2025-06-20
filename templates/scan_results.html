@@ -1017,6 +1017,7 @@
     </style>
 </head>
 <body>
+    <script type="application/json" id="secrets-data">{{ secrets_data | tojson | safe }}</script>
     <header class="header">
         <a href="/dashboard" class="logo">
             🔍 Secrets Scanner
@@ -1209,49 +1210,85 @@
             severity: [],
             type: []
         };
-        
-        // Server-side data - БЕЗОПАСНАЯ загрузка
+
+        // Server-side data - БЕЗОПАСНАЯ загрузка через скрытый элемент
         let secretsData = [];
-        let projectRepoUrl = '';
-        let scanCommit = '';
-        let hubType = '{{ hub_type }}';
+        let projectRepoUrl = {{ project_repo_url | tojson | safe }};
+        let scanCommit = {{ scan_commit | tojson | safe }};
+        let hubType = {{ hub_type | tojson | safe }};
 
-        try {
-            // Парсим безопасно экранированные данные
-            const secretsDataRaw = '{{ secrets_data_safe_json|safe }}';
-            secretsData = JSON.parse(secretsDataRaw);
-            projectRepoUrl = '{{ project_repo_url_safe|safe }}';
-            scanCommit = '{{ scan_commit_safe|safe }}';
-            
-            console.log('Successfully loaded', secretsData.length, 'secrets');
-        } catch (error) {
-            console.error('Error parsing secrets data:', error);
-            secretsData = [];
-            alert('Ошибка загрузки данных секретов. Страница будет перезагружена.');
-            window.location.reload();
-        }
-
-        // Функция для безопасного отображения HTML (данные уже экранированы на сервере)
+        // Функция для безопасного отображения HTML
         function safeHtml(text) {
             if (text === null || text === undefined) {
                 return '';
             }
-            // Данные уже экранированы на сервере, просто возвращаем их
             return String(text);
+        }
+
+        // Функция для экранирования HTML (для создания новых элементов)
+        function escapeHtml(text) {
+            if (text === null || text === undefined) {
+                return '';
+            }
+            const div = document.createElement('div');
+            div.textContent = String(text);
+            return div.innerHTML;
+        }
+
+        // Загрузка данных из скрытого элемента
+        function loadSecretsData() {
+            try {
+                const dataElement = document.getElementById('secrets-data');
+                if (!dataElement) {
+                    console.error('Secrets data element not found');
+                    return false;
+                }
+                
+                const rawData = dataElement.textContent;
+                if (!rawData || rawData.trim() === '') {
+                    console.error('No data in secrets data element');
+                    return false;
+                }
+                
+                secretsData = JSON.parse(rawData);
+                console.log('Successfully loaded', secretsData.length, 'secrets');
+                return true;
+                
+            } catch (error) {
+                console.error('Error parsing secrets data:', error);
+                console.error('Raw data length:', document.getElementById('secrets-data')?.textContent?.length || 'N/A');
+                return false;
+            }
         }
 
         // Initialize when page loads
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('Page loaded with', secretsData.length, 'secrets');
+            console.log('Page loading...');
             
-            if (secretsData.length === 0) {
-                console.error('No secrets data loaded');
+            // Загружаем данные
+            if (!loadSecretsData()) {
+                console.error('Failed to load secrets data');
                 const tableContainer = document.getElementById('secretsTable');
                 if (tableContainer) {
                     tableContainer.innerHTML = `
                         <div class="empty-results">
-                            <h3>Нет данных о секретах</h3>
-                            <p>Секреты не найдены или произошла ошибка загрузки.</p>
+                            <h3>Ошибка загрузки данных</h3>
+                            <p>Не удалось загрузить данные о секретах. Попробуйте обновить страницу.</p>
+                            <button onclick="window.location.reload()" class="btn btn-primary">Обновить страницу</button>
+                        </div>
+                    `;
+                }
+                return;
+            }
+            
+            if (secretsData.length === 0) {
+                console.log('No secrets found in scan');
+                const tableContainer = document.getElementById('secretsTable');
+                if (tableContainer) {
+                    tableContainer.innerHTML = `
+                        <div class="empty-results">
+                            <h3>Секреты не найдены</h3>
+                            <p>В этом скане не обнаружено секретов.</p>
                         </div>
                     `;
                 }
@@ -1266,6 +1303,8 @@
             });
             
             allSecrets = secretsData.slice();
+            
+            console.log('Initializing with', allSecrets.length, 'secrets');
             
             // Initialize filters synchronously
             initializeFilters();
@@ -1294,7 +1333,7 @@
                 div.className = 'checkbox-item';
                 const safeId = type.replace(/[^a-zA-Z0-9]/g, '_');
                 div.innerHTML = `
-                    <input type="checkbox" id="type-${safeId}" value="${type}" onchange="applyFilters()">
+                    <input type="checkbox" id="type-${safeId}" value="${escapeHtml(type)}" onchange="applyFilters()">
                     <label for="type-${safeId}">${escapeHtml(type)}</label>
                 `;
                 typeFiltersContainer.appendChild(div);
@@ -1518,20 +1557,19 @@
 
             pageSecrets.forEach((secret, index) => {
                 const globalIndex = startIndex + index;
-                // Данные уже экранированы на сервере, просто отображаем их
                 tableHTML += `
                     <tr class="secret-row ${safeHtml(secret.severity).toLowerCase()}" data-secret-id="${secret.id}" data-secret-index="${globalIndex}">
                         <td>
-                            <div class="secret-value">${safeHtml(secret.secret)}</div>
+                            <div class="secret-value">${escapeHtml(secret.secret)}</div>
                         </td>
                         <td>
                             <span class="secret-line">${secret.line}</span>
                         </td>
                         <td>
-                            <span class="secret-file">${safeHtml(secret.path.split('/').pop())}</span>
+                            <span class="secret-file">${escapeHtml((secret.path || '').split('/').pop())}</span>
                         </td>
                         <td>
-                            <span class="secret-type">${safeHtml(secret.type)}</span>
+                            <span class="secret-type">${escapeHtml(secret.type)}</span>
                         </td>
                         <td>
                             <div class="secret-status">
@@ -1539,7 +1577,7 @@
                             </div>
                         </td>
                         <td>
-                            <div class="secret-severity ${safeHtml(secret.severity).toLowerCase()}">${safeHtml(secret.severity)}</div>
+                            <div class="secret-severity ${safeHtml(secret.severity).toLowerCase()}">${escapeHtml(secret.severity)}</div>
                         </td>
                     </tr>
                 `;
@@ -1558,7 +1596,7 @@
             } else if (secret.status === 'Refuted') {
                 let html = '<span class="status-refuted">❌ Опровергнут</span>';
                 if (secret.refuted_at) {
-                    html += `<div class="refuted-date">${safeHtml(secret.refuted_at)}</div>`;
+                    html += `<div class="refuted-date">${escapeHtml(secret.refuted_at)}</div>`;
                 }
                 return html;
             } else {

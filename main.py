@@ -1283,9 +1283,9 @@ async def scan_results(request: Request, scan_id: str, severity_filter: str = ""
         "scan": scan,
         "project": project,
         "secrets": all_secrets_query,  # Для обратной совместимости
-        "secrets_data_safe_json": secrets_data_safe_json,  # БЕЗОПАСНЫЙ JSON
-        "project_repo_url_safe": html.escape(project.repo_url or "", quote=True),
-        "scan_commit_safe": html.escape(scan.repo_commit or "", quote=True),
+        "secrets_data": secrets_data,  # Передаем как объект для скрытого элемента
+        "project_repo_url": project.repo_url or "",
+        "scan_commit": scan.repo_commit or "",
         "unique_types": unique_types,
         "unique_severities": unique_severities,
         "total_secrets": total_secrets,
