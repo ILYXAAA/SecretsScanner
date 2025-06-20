@@ -288,7 +288,7 @@
             
             <div class="scan-details">
                 <div class="scan-detail-item">
-                    <span class="scan-detail-label">Project:</span>
+                    <span class="scan-detail-label">Проект:</span>
                     <span class="scan-detail-value">{{ scan.project_name }}</span>
                 </div>
                 <div class="scan-detail-item">
@@ -310,12 +310,12 @@
                     <span class="scan-detail-value">{{ scan.id }}</span>
                 </div>
                 <div class="scan-detail-item">
-                    <span class="scan-detail-label">Started:</span>
+                    <span class="scan-detail-label">Запущен:</span>
                     <span class="scan-detail-value">{{ scan.started_at.strftime('%Y-%m-%d %H:%M:%S') }}</span>
                 </div>
                 {% if scan.completed_at %}
                 <div class="scan-detail-item">
-                    <span class="scan-detail-label">Completed:</span>
+                    <span class="scan-detail-label">Завершен:</span>
                     <span class="scan-detail-value">{{ scan.completed_at.strftime('%Y-%m-%d %H:%M:%S') }}</span>
                 </div>
                 {% endif %}
@@ -323,16 +323,16 @@
             
             <div style="margin-top: 2rem;">
                 <a href="/project/{{ scan.project_name }}" class="btn btn-secondary">
-                    ← Back to Project
+                    ← Назад к проекту
                 </a>
                 
                 {% if scan.status == 'completed' %}
                 <a href="/scan/{{ scan.id }}/results" class="btn btn-primary">
-                    📊 View Results
+                    📊 Посмотреть результаты
                 </a>
                 {% elif scan.status == 'running' %}
                 <button class="btn btn-danger" onclick="refreshPage()">
-                    🔄 Refresh Status
+                    🔄 Обновить статус
                 </button>
                 <form method="post" action="/scan/{{ scan.id }}/delete" style="display: inline;" 
                       onsubmit="return confirm('Are you sure you want to delete this scan?')">

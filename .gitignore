@@ -10,6 +10,8 @@ backups/
 Auth/
 database/
 test.py
+run — копия.py
+test.txt
 
 # Distribution / packaging
 .Python

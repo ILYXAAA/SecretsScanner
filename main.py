@@ -25,7 +25,7 @@ from jose import JWTError, jwt
 from io import BytesIO
 import secrets
 import html
-from html_report_generator import generate_html_report
+from utils.html_report_generator import generate_html_report
 os.system("") # Для цветной консоли
 # Load environment variables
 load_dotenv()
@@ -66,6 +66,9 @@ Path(BACKUP_DIR).mkdir(exist_ok=True)
 # Setup logging for backups
 logging.basicConfig(level=logging.INFO)
 backup_logger = logging.getLogger("backup")
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("backup")
 
 # Add JSON filter to Jinja2
 def tojson_filter(obj):
@@ -161,9 +164,9 @@ def create_indexes():
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_scans_status ON scans (status, started_at)"))
             
             conn.commit()
-            print("Database indexes created successfully")
+            logger.info("Database indexes created successfully")
     except Exception as e:
-        print(f"Error creating indexes: {e}")
+        logger.error(f"Error creating indexes: {e}")
 
 Base.metadata.create_all(bind=engine)
 create_indexes()
@@ -218,8 +221,8 @@ def load_credentials():
         password = decrypt_from_file(PASSWORD_FILE, key_name="PASSWORD_KEY")
         return [username, password]
     except Exception as error:
-        print(f"Error: {str(error)}")
-        print("Если это первый запуск - необходимо запустить мастер настройки Auth данных `python CredsManager.py`")
+        logger.error(f"Error: {str(error)}")
+        logger.error("Если это первый запуск - необходимо запустить мастер настройки Auth данных `python CredsManager.py`")
 
     return None
 
@@ -253,11 +256,11 @@ async def check_scan_timeouts():
             
             if timed_out_scans:
                 db.commit()
-                print(f"Marked {len(timed_out_scans)} scans as timed out")
+                logger.warning(f"Marked {len(timed_out_scans)} scans as timed out")
             
             db.close()
         except Exception as e:
-            print(f"Error checking scan timeouts: {e}")
+            logger.error(f"Error checking scan timeouts: {e}")
         
         # Check every minute
         await asyncio.sleep(60)
@@ -463,7 +466,7 @@ async def settings(request: Request, _: bool = Depends(get_current_user)):
                 else:
                     rules_info = {"error": "microservice_unavailable"}
         except Exception as e:
-            print(f"Error fetching rules: {e}")
+            logger.error(f"Error fetching rules: {e}")
             rules_info = {"error": "microservice_unavailable"}
     else:
         rules_info = {"error": "microservice_unavailable"}
@@ -490,7 +493,7 @@ async def settings(request: Request, _: bool = Depends(get_current_user)):
                             if fp_rules_data.get("status") == "success":
                                 current_fp_rules_content = fp_rules_data.get("fp_rules", "")
         except Exception as e:
-            print(f"Error fetching FP rules: {e}")
+            logger.error(f"Error fetching FP rules: {e}")
             fp_rules_info = {"error": "microservice_unavailable"}
     else:
         fp_rules_info = {"error": "microservice_unavailable"}
@@ -517,7 +520,7 @@ async def settings(request: Request, _: bool = Depends(get_current_user)):
                             if content_data.get("status") == "success":
                                 current_excluded_extensions_content = content_data.get("excluded_extensions", "")
         except Exception as e:
-            print(f"Error fetching excluded extensions: {e}")
+            logger.error(f"Error fetching excluded extensions: {e}")
             excluded_extensions_info = {"error": "microservice_unavailable"}
     else:
         excluded_extensions_info = {"error": "microservice_unavailable"}
@@ -544,7 +547,7 @@ async def settings(request: Request, _: bool = Depends(get_current_user)):
                             if content_data.get("status") == "success":
                                 current_excluded_files_content = content_data.get("excluded_files", "")
         except Exception as e:
-            print(f"Error fetching excluded files: {e}")
+            logger.error(f"Error fetching excluded files: {e}")
             excluded_files_info = {"error": "microservice_unavailable"}
     else:
         excluded_files_info = {"error": "microservice_unavailable"}
@@ -604,7 +607,7 @@ async def update_fp_rules(request: Request, fp_rules_content: str = Form(...), _
                 return RedirectResponse(url=f"/settings?error={encoded_error}", status_code=302)
                 
     except Exception as e:
-        print(f"FP rules update error: {e}")
+        logger.error(f"FP rules update error: {e}")
         import traceback
         traceback.print_exc()
         error_message = f"Update error: {str(e)}"
@@ -654,7 +657,7 @@ async def update_rules(request: Request, rules_content: str = Form(...), _: bool
                 return RedirectResponse(url=f"/settings?error={encoded_error}", status_code=302)
                 
     except Exception as e:
-        print(f"Rules update error: {e}")
+        logger.error(f"Rules update error: {e}")
         import traceback
         traceback.print_exc()
         error_message = f"Update error: {str(e)}"
@@ -691,7 +694,7 @@ async def update_excluded_extensions(request: Request, excluded_extensions_conte
                 return RedirectResponse(url=f"/settings?error={encoded_error}", status_code=302)
                 
     except Exception as e:
-        print(f"Excluded extensions update error: {e}")
+        logger.error(f"Excluded extensions update error: {e}")
         import traceback
         traceback.print_exc()
         error_message = f"Update error: {str(e)}"
@@ -728,7 +731,7 @@ async def update_excluded_files(request: Request, excluded_files_content: str = 
                 return RedirectResponse(url=f"/settings?error={encoded_error}", status_code=302)
                 
     except Exception as e:
-        print(f"Excluded files update error: {e}")
+        logger.error(f"Excluded files update error: {e}")
         import traceback
         traceback.print_exc()
         error_message = f"Update error: {str(e)}"
@@ -797,7 +800,7 @@ async def add_project(request: Request, project_name: str = Form(...), repo_url:
         encoded_error = urllib.parse.quote(str(e))
         return RedirectResponse(url=f"/dashboard?error={encoded_error}", status_code=302)
     except Exception as e:
-        print(f"Error adding project: {e}")
+        logger.error(f"Error adding project: {e}")
         return RedirectResponse(url="/dashboard?error=unexpected_error", status_code=302)
 
 @app.post("/projects/update")
@@ -836,7 +839,7 @@ async def update_project(request: Request, project_id: int = Form(...), project_
         encoded_error = urllib.parse.quote(str(e))
         return RedirectResponse(url=f"/project/{project_name}?error={encoded_error}", status_code=302)
     except Exception as e:
-        print(f"Error updating project: {e}")
+        logger.error(f"Error updating project: {e}")
         return RedirectResponse(url=f"/project/{project_name}?error=project_update_failed", status_code=302)
 
 @app.post("/projects/{project_id}/delete")
@@ -1065,7 +1068,7 @@ async def receive_scan_results(project_name: str, scan_id: str, request: Request
         scan.status = "failed"
         scan.completed_at = datetime.utcnow()
         error_message = data.get("Message", "Unknown error occurred during scanning")
-        print(f"Scan {scan_id} failed with error: {error_message}")
+        logger.error(f"Scan {scan_id} failed with error: {error_message}")
         scan.error_message = error_message
         db.commit()
         return {"status": "error", "message": error_message}
@@ -1530,7 +1533,7 @@ async def backup_status(_: bool = Depends(get_current_user)):
             }
         )
     except Exception as e:
-        print(f"Backup status error: {e}")
+        logger.error(f"Backup status error: {e}")
         return JSONResponse(
             content={
                 "status": "error", 
@@ -1851,7 +1854,7 @@ async def multi_scan(request: Request, _: bool = Depends(get_current_user), db: 
             )
     
     except Exception as e:
-        print(f"Multi-scan error: {e}")
+        logger.error(f"Multi-scan error: {e}")
         import traceback
         traceback.print_exc()
         

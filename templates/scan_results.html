@@ -1251,7 +1251,7 @@
                 }
                 
                 secretsData = JSON.parse(rawData);
-                console.log('Successfully loaded', secretsData.length, 'secrets');
+                // console.log('Successfully loaded', secretsData.length, 'secrets');
                 return true;
                 
             } catch (error) {
@@ -1263,7 +1263,7 @@
 
         // Initialize when page loads
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('Page loading...');
+            // console.log('Page loading...');
             
             // Загружаем данные
             if (!loadSecretsData()) {
@@ -1282,7 +1282,7 @@
             }
             
             if (secretsData.length === 0) {
-                console.log('No secrets found in scan');
+                // console.log('No secrets found in scan');
                 const tableContainer = document.getElementById('secretsTable');
                 if (tableContainer) {
                     tableContainer.innerHTML = `
@@ -1304,7 +1304,7 @@
             
             allSecrets = secretsData.slice();
             
-            console.log('Initializing with', allSecrets.length, 'secrets');
+            // console.log('Initializing with', allSecrets.length, 'secrets');
             
             // Initialize filters synchronously
             initializeFilters();
@@ -1314,7 +1314,7 @@
         });
 
         function initializeFilters() {
-            console.log('Initializing filters...');
+            // console.log('Initializing filters...');
             
             // Get unique types
             const uniqueTypes = [...new Set(allSecrets.map(s => s.type))].sort();
@@ -1411,11 +1411,11 @@
                 });
             }
             
-            console.log('Filters initialized:', activeFilters);
+            // console.log('Filters initialized:', activeFilters);
         }
 
         function applyFiltersSync() {
-            console.log('Applying filters synchronously...');
+            // console.log('Applying filters synchronously...');
             
             // Update active filters from checkboxes
             activeFilters.status = [];
@@ -1437,7 +1437,7 @@
                 activeFilters.type.push(cb.value);
             });
 
-            console.log('Active filters:', activeFilters);
+            // console.log('Active filters:', activeFilters);
 
             // Filter logic
             if (activeFilters.status.length === 0 || activeFilters.severity.length === 0 || activeFilters.type.length === 0) {
@@ -1459,7 +1459,7 @@
                 });
             }
 
-            console.log(`Filtered ${filteredSecrets.length} secrets from ${allSecrets.length} total`);
+            // console.log(`Filtered ${filteredSecrets.length} secrets from ${allSecrets.length} total`);
 
             // Reset to first page and clear selections
             currentPage = 1;
@@ -1537,7 +1537,7 @@
             const endIndex = Math.min(startIndex + pageSize, filteredSecrets.length);
             const pageSecrets = filteredSecrets.slice(startIndex, endIndex);
 
-            console.log(`Rendering ${pageSecrets.length} secrets (${startIndex}-${endIndex} of ${filteredSecrets.length})`);
+            // console.log(`Rendering ${pageSecrets.length} secrets (${startIndex}-${endIndex} of ${filteredSecrets.length})`);
 
             // Generate table HTML
             let tableHTML = `
