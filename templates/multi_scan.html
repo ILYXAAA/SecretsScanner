@@ -918,16 +918,17 @@
                 let baseUrl = scan.repo_url;
                 
                 // If repo_url is not available, try to construct it from project name
-                if (!baseUrl && scan.base_repo_url) {
-                    baseUrl = scan.base_repo_url;
-                }
+                // if (!baseUrl && scan.base_repo_url) {
+                //     baseUrl = scan.base_repo_url;
+                // }
                 
-                if (baseUrl) {
-                    return `${baseUrl}/commit/${scan.commit}`;
-                } else {
-                    // Fallback - show project name with commit
-                    return `${scan.project_name}/commit/${scan.commit}`;
-                }
+                // if (baseUrl) {
+                //     return `${baseUrl}/commit/${scan.commit}`;
+                // } else {
+                //     // Fallback - show project name with commit
+                //     return `${scan.project_name}/commit/${scan.commit}`;
+                // }
+                return `${baseUrl}/commit/${scan.commit}`;
             });
             
             repoListDiv.innerHTML = repoUrls.map(url => 
