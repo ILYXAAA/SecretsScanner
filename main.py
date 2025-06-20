@@ -68,7 +68,7 @@ logging.basicConfig(level=logging.INFO)
 backup_logger = logging.getLogger("backup")
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("backup")
+logger = logging.getLogger("logger")
 
 # Add JSON filter to Jinja2
 def tojson_filter(obj):
