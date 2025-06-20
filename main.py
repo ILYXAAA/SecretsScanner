@@ -6,9 +6,10 @@ from fastapi.security import HTTPBearer
 from sqlalchemy import create_engine, Column, String, DateTime, Integer, Text, Boolean, func, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from CredsManager import decrypt_from_file
 from urllib.parse import urlparse
+from contextlib import asynccontextmanager
 import uuid
 import json
 import httpx
@@ -36,7 +37,28 @@ SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_urlsafe(32))
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 480  # 8 часов
 
-app = FastAPI(title="Secrets Scanner")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    task1 = asyncio.create_task(check_scan_timeouts())
+    task2 = asyncio.create_task(backup_scheduler())
+    
+    yield
+    
+    # Shutdown
+    task1.cancel()
+    task2.cancel()
+    try:
+        await task1
+    except asyncio.CancelledError:
+        pass
+    try:
+        await task2
+    except asyncio.CancelledError:
+        pass
+
+
+app = FastAPI(title="Secrets Scanner", lifespan=lifespan)
 
 # Create directories if they don't exist
 Path("templates").mkdir(exist_ok=True)
@@ -90,10 +112,10 @@ def datetime_filter(timestamp):
         return datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
     return 'Unknown'
 
-def basename_filter(path):
-    if path:
-        return path.split('/')[-1]
-    return ''
+# def basename_filter(path):
+#     if path:
+#         return path.split('/')[-1]
+#     return ''
 
 def urldecode_filter(text):
     if text:
@@ -102,7 +124,7 @@ def urldecode_filter(text):
 
 templates.env.filters['tojson'] = tojson_filter
 templates.env.filters['strftime'] = datetime_filter
-templates.env.filters['basename'] = basename_filter
+# templates.env.filters['basename'] = basename_filter
 templates.env.filters['urldecode'] = urldecode_filter
 
 # Database setup
@@ -117,7 +139,7 @@ class Project(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, index=True)
     repo_url = Column(String)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 class Scan(Base):
     __tablename__ = "scans"
@@ -145,7 +167,7 @@ class Secret(Base):
     status = Column(String, default="No status")  # No status, Confirmed, Refuted
     is_exception = Column(Boolean, default=False)
     exception_comment = Column(Text)
-    refuted_at = Column(DateTime)  # New field for tracking when secret was refuted
+    refuted_at = Column(DateTime)  # Field for tracking when secret was refuted
 
 def create_indexes():
     """Создание индексов для оптимизации производительности"""
@@ -180,9 +202,9 @@ create_indexes()
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
@@ -248,7 +270,7 @@ async def check_scan_timeouts():
     while True:
         try:
             db = SessionLocal()
-            timeout_threshold = datetime.utcnow() - timedelta(minutes=10)
+            timeout_threshold = datetime.now(timezone.utc) - timedelta(minutes=10)
             
             # Find running scans that started more than 10 minutes ago
             timed_out_scans = db.query(Scan).filter(
@@ -258,7 +280,7 @@ async def check_scan_timeouts():
             
             for scan in timed_out_scans:
                 scan.status = "timeout"
-                scan.completed_at = datetime.utcnow()
+                scan.completed_at = datetime.now(timezone.utc)
             
             if timed_out_scans:
                 db.commit()
@@ -1072,7 +1094,7 @@ async def receive_scan_results(project_name: str, scan_id: str, request: Request
     # Check if scan completed with error
     if data.get("Status") == "Error":
         scan.status = "failed"
-        scan.completed_at = datetime.utcnow()
+        scan.completed_at = datetime.now(timezone.utc)
         error_message = data.get("Message", "Unknown error occurred during scanning")
         logger.error(f"Scan {scan_id} failed with error: {error_message}")
         scan.error_message = error_message
@@ -1091,7 +1113,7 @@ async def receive_scan_results(project_name: str, scan_id: str, request: Request
     if data.get("Status") == "completed":
         scan.status = "completed"
         scan.repo_commit = data.get("RepoCommit")
-        scan.completed_at = datetime.utcnow()
+        scan.completed_at = datetime.now(timezone.utc)
         scan.files_scanned = data.get("FilesScanned")
         
         # Clear existing secrets for this scan (in case of reprocessing)
@@ -1166,17 +1188,6 @@ async def receive_scan_results(project_name: str, scan_id: str, request: Request
 
     # If status is not recognized, treat as error
     return {"status": "error", "message": "Unknown status received"}
-
-def safe_json_encode(data):
-    """Безопасное кодирование данных в JSON с экранированием опасных символов"""
-    json_str = json.dumps(data, ensure_ascii=False)
-    # Экранируем опасные HTML символы
-    json_str = json_str.replace('<', '\\u003c')
-    json_str = json_str.replace('>', '\\u003e') 
-    json_str = json_str.replace('&', '\\u0026')
-    json_str = json_str.replace("'", '\\u0027')
-    json_str = json_str.replace('"', '\\u0022')
-    return json_str
 
 @app.get("/scan/{scan_id}/results", response_class=HTMLResponse)
 async def scan_results(request: Request, scan_id: str, severity_filter: str = "", 
@@ -1284,14 +1295,11 @@ async def scan_results(request: Request, scan_id: str, severity_filter: str = ""
         }
         secrets_data.append(secret_obj)
 
-    # Безопасное кодирование в JSON
-    secrets_data_safe_json = safe_json_encode(secrets_data)
-
     return templates.TemplateResponse("scan_results.html", {
         "request": request,
         "scan": scan,
         "project": project,
-        "secrets": all_secrets_query,  # Для обратной совместимости
+        # "secrets": all_secrets_query,  # Для обратной совместимости от предыдущей версии html шаблона. Сейчас уже работает нормально
         "secrets_data": secrets_data,  # Передаем как объект для скрытого элемента
         "project_repo_url": project.repo_url or "",
         "scan_commit": scan.repo_commit or "",
@@ -1320,7 +1328,7 @@ async def update_secret_status(secret_id: int, status: str = Form(...),
     if status == "Refuted":
         secret.is_exception = True
         secret.exception_comment = comment
-        secret.refuted_at = datetime.utcnow()
+        secret.refuted_at = datetime.now(timezone.utc)
     else:
         secret.is_exception = False
         secret.exception_comment = None
@@ -1345,7 +1353,7 @@ async def bulk_secret_action(request: Request, _: bool = Depends(get_current_use
             if value == "Refuted":
                 secret.is_exception = True
                 secret.exception_comment = comment
-                secret.refuted_at = datetime.utcnow()
+                secret.refuted_at = datetime.now(timezone.utc)
             else:
                 secret.is_exception = False
                 secret.exception_comment = None
@@ -1868,12 +1876,6 @@ async def multi_scan(request: Request, _: bool = Depends(get_current_user), db: 
             status_code=500,
             content={"status": "error", "message": "Внутренняя ошибка сервера"}
         )
-
-# Start background task
-@app.on_event("startup")
-async def startup_event():
-    asyncio.create_task(check_scan_timeouts())
-    asyncio.create_task(backup_scheduler())
 
 if __name__ == "__main__":
     import uvicorn
