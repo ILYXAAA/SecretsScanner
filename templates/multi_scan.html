@@ -963,7 +963,7 @@
                 <div class="validation-error-list">
                     <h4 style="margin-bottom: 1rem; color: #721c24;">Не удалось отрезолвить коммиты для следующих репозиториев:</h4>
                     ${errorItems.map(item => 
-                        `<div class="validation-error-item">Проект: ${item.ProjectName}<br>Тип: ${item.RefType}, Ссылка: ${item.Ref}</div>`
+                        `<div class="validation-error-item">Проект: ${item.ProjectName}<br>Тип: ${item.RefType}, Значение: ${item.Ref}</div>`
                     ).join('')}
                 </div>
             `;
