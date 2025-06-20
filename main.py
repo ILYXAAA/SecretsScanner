@@ -1,10 +1,9 @@
-from fastapi import FastAPI, Request, Form, Depends, HTTPException, status, File, UploadFile, BackgroundTasks
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse, Response
+from fastapi import FastAPI, Request, Form, Depends, HTTPException, File, UploadFile
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import HTTPBearer
 from sqlalchemy import create_engine, Column, String, DateTime, Integer, Text, Boolean, func, text
-from typing import List, Dict, Any
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from datetime import datetime, timedelta
@@ -22,7 +21,6 @@ from pathlib import Path
 import shutil
 from dotenv import load_dotenv
 from jose import JWTError, jwt
-from io import BytesIO
 import secrets
 import html
 from utils.html_report_generator import generate_html_report
