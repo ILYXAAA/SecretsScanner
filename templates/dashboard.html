@@ -155,22 +155,24 @@
         }
         
         .btn-primary {
-            background: linear-gradient(135deg, #3ccf4e, #29b948);
+            background-color: #3b82f6;
             color: white;
-            font-weight: 600;
+            font-weight: 700;
             border: none;
-            border-radius: 8px;
-            padding: 10px 18px;
-            font-size: 16px;
+            border-radius: 6px;
+            padding: 10px 16px;
+            font-size: 15px;
             cursor: pointer;
-            transition: background 0.3s ease;
+            transition: background-color 0.2s ease, box-shadow 0.2s ease;
             display: inline-flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
         }
-        
+
         .btn-primary:hover {
-            background: linear-gradient(135deg, #2ebc3f, #219837);
+            background-color: #2c68c7;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
         }
         
         .btn-secondary {
@@ -201,7 +203,7 @@
             position: relative;
             overflow: hidden;
         }
-        
+
         .scan-item::before {
             content: '';
             position: absolute;
@@ -213,15 +215,55 @@
             transform: scaleY(0);
             transition: transform 0.3s ease;
         }
-        
+
+        /* Базовый hover для completed и running сканов */
         .scan-item:hover {
             transform: translateY(-1px);
             box-shadow: 0 6px 20px rgba(40, 167, 69, 0.15);
             border-color: #28a745;
         }
-        
+
         .scan-item:hover::before {
             transform: scaleY(1);
+        }
+
+        /* Специальные стили для failed сканов */
+        .scan-item:has(.scan-status.failed)::before {
+            background: linear-gradient(135deg, #dc3545, #c82333);
+        }
+
+        .scan-item:has(.scan-status.failed):hover {
+            box-shadow: 0 6px 20px rgba(220, 53, 69, 0.15);
+            border-color: #dc3545;
+        }
+
+        /* Специальные стили для timeout сканов */
+        .scan-item:has(.scan-status.timeout)::before {
+            background: linear-gradient(135deg, #ffc107, #e0a800);
+        }
+
+        .scan-item:has(.scan-status.timeout):hover {
+            box-shadow: 0 6px 20px rgba(255, 193, 7, 0.15);
+            border-color: #ffc107;
+        }
+
+        /* Fallback для браузеров, не поддерживающих :has() */
+        .scan-item.scan-failed::before {
+            background: linear-gradient(135deg, #dc3545, #c82333);
+        }
+
+        .scan-item.scan-failed:hover {
+            box-shadow: 0 6px 20px rgba(220, 53, 69, 0.15);
+            border-color: #dc3545;
+        }
+
+        .scan-item.scan-timeout::before {
+            background: linear-gradient(135deg, #ffc107, #e0a800);
+        }
+
+        .scan-item.scan-timeout:hover {
+            box-shadow: 0 6px 20px rgba(255, 193, 7, 0.15);
+            border-color: #ffc107;
         }
         
         .scan-main {
@@ -643,7 +685,7 @@
             {% if recent_scans %}
             <div class="scan-list">
                 {% for scan_data in recent_scans %}
-                <a href="{% if scan_data.scan.status == 'completed' %}/scan/{{ scan_data.scan.id }}/results{% elif scan_data.scan.status == 'running' %}/scan/{{ scan_data.scan.id }}{% else %}/project/{{ scan_data.scan.project_name }}{% endif %}" class="scan-item">
+                <a href="{% if scan_data.scan.status == 'completed' %}/scan/{{ scan_data.scan.id }}/results{% elif scan_data.scan.status == 'running' %}/scan/{{ scan_data.scan.id }}{% else %}/project/{{ scan_data.scan.project_name }}{% endif %}" class="scan-item{% if scan_data.scan.status == 'failed' %} scan-failed{% elif scan_data.scan.status == 'timeout' %} scan-timeout{% endif %}">
                     <div class="scan-main">
                         <div class="scan-project">{{ scan_data.scan.project_name }}</div>
                         <div class="scan-meta">
@@ -656,11 +698,12 @@
                             </span>
                         </div>
                         <div class="scan-meta">
-                            🕒 {{ scan_data.scan.started_at.strftime('%d.%m.%Y %H:%M') }}
+                            🕒 Создан : {{ scan_data.scan.started_at.strftime('%d.%m.%Y %H:%M') }}
+                        </div>
+                        <div class="scan-meta">
                             {% if scan_data.scan.repo_commit %}
-                            • ⚙️ {{ scan_data.scan.repo_commit[:7] }}
+                            ⚙️ Commit: {{ scan_data.scan.repo_commit }}
                             {% endif %}
-                            • 📂 {{ scan_data.scan.ref_type }}: {{ scan_data.scan.ref }}
                         </div>
                     </div>
                     {% if scan_data.scan.status == 'completed' %}
@@ -709,7 +752,7 @@
                     </form>
                 </div>
                 <button class="btn btn-primary" onclick="toggleAddForm()">
-                    ➕ Новый проект
+                    📑 Новый проект
                 </button>
             </div>
             
@@ -718,7 +761,7 @@
                 <form method="post" action="/projects/add">
                     <div class="form-group">
                         <label for="project_name">Название проекта</label>
-                        <input type="text" id="project_name" name="project_name" required 
+                        <input type="text" id="project_name" name="project_name" placeholder="Project_Repository" required 
                                pattern="[a-zA-Z0-9._\-\s]+" 
                                title="Допустимы буквы, цифры, точки, дефисы, подчеркивания и пробелы">
                     </div>
@@ -726,16 +769,27 @@
                         <label for="repo_url">Ссылка на репозиторий</label>
                         {% if HUB_TYPE == "Azure" %}
                         <input type="url" id="repo_url" name="repo_url" 
-                               placeholder="http://server/Collection/Project/_git/Repository" required>
-                        <small style="color: #666; font-size: 0.85rem;">
-                            Формат для Azure DevOps: http://server/collection/project/_git/repository<br>
-                            или http://server/collection/_git/repository
+                               placeholder="https://server/Collection/Project/_git/Repository" required>
+                        <small style="color: #444; font-size: 0.85rem;">
+                        <div style="display: flex; align-items: center; gap: 6px; font-weight: bold; color: #e09122; margin-bottom: 4px;">
+                            <span style="font-size: 1rem;">⚠️</span>
+                            <span style="font-size: 0.95rem;">Важно</span>
+                        </div>
+
+                        <b>Формат для Названия проекта</b> 
+                        <span style="color: #28a745;">(recommended)</span>:<br>
+                        • https://../TFS/../Project1/_git/Repo1 ┈➤ <b>Project1_Repo1</b><br><br>
+
+                        <b>Формат ссылок для Azure DevOps</b> 
+                        <span style="color: #dc3545;">(required)</span>:<br>
+                        • https://server/collection/project/<span style="color: #dc3545;">_git</span>/repository <b>(full format)</b><br>
+                        • https://server/collection/<span style="color: #dc3545;">_git</span>/repository <b>(short format)</b>
                         </small>
                         {% else %}
                         <input type="url" id="repo_url" name="repo_url" 
                                placeholder="https://github.com/user/repo" required>
                         <small style="color: #666; font-size: 0.85rem;">
-                            Поддерживаются GitHub, GitLab, Bitbucket и другие Git-хостинги
+                            Поддерживаются GitHub и Azure
                         </small>
                         {% endif %}
                     </div>
@@ -755,9 +809,9 @@
                             <span class="project-icon">📁</span>
                             {{ project_data.project.name }}
                         </div>
-                        <div class="project-url">{{ project_data.project.repo_url }}</div>
+                        <div class="project-url">🔗 {{ project_data.project.repo_url }}</div>
                         <div class="project-meta">
-                            Создан: {{ project_data.project.created_at.strftime('%d.%m.%Y %H:%M') }}
+                            🕒 Создан: {{ project_data.project.created_at.strftime('%d.%m.%Y %H:%M') }}
                         </div>
                     </div>
                     {% if project_data.latest_scan %}

@@ -55,7 +55,7 @@
         }
         
         .container {
-            max-width: 800px;
+            max-width: 1200px;
             margin: 0 auto;
             padding: 2rem;
         }
@@ -279,6 +279,106 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+
+        /* New styles for tabbed interface */
+        .config-tabs {
+            display: flex;
+            border-bottom: 2px solid #e1e5e9;
+            margin-bottom: 2rem;
+            overflow-x: auto;
+        }
+
+        .config-tab {
+            padding: 1rem 1.5rem;
+            cursor: pointer;
+            border: none;
+            background: transparent;
+            color: #666;
+            font-weight: 500;
+            font-size: 0.95rem;
+            white-space: nowrap;
+            transition: all 0.2s;
+            border-bottom: 3px solid transparent;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .config-tab:hover {
+            color: #333;
+            background: #f8f9fa;
+        }
+
+        .config-tab.active {
+            color: #28a745;
+            border-bottom-color: #28a745;
+            background: #f8f9fa;
+        }
+
+        .config-content {
+            display: none;
+        }
+
+        .config-content.active {
+            display: block;
+        }
+
+        .config-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 1.5rem;
+            gap: 2rem;
+        }
+
+        .config-description {
+            flex: 1;
+        }
+
+        .config-stats {
+            flex-shrink: 0;
+            min-width: 200px;
+        }
+
+        .unsaved-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: #ffc107;
+            border-radius: 50%;
+            margin-left: 0.5rem;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        .tab-content-wrapper {
+            position: relative;
+        }
+
+        @media (max-width: 768px) {
+            .config-header {
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .config-stats {
+                min-width: auto;
+                width: 100%;
+            }
+
+            .config-tabs {
+                font-size: 0.9rem;
+            }
+
+            .config-tab {
+                padding: 0.75rem 1rem;
+            }
+        }
     </style>
 </head>
 <body>
@@ -295,7 +395,7 @@
     </header>
     
     <div class="container">
-        <h1 class="page-title">Settings</h1>
+        <h1 class="page-title">Настройки</h1>
         {% if 'error=microservice_unavailable' in rules_info %}
             <div class="alert alert-error">Microservice is unavailable. Please check if the scanning service is running.</div>
         {% endif %}
@@ -327,6 +427,232 @@
             <div class="alert alert-error">{{ request.url.query.split('error=')[1].split('&')[0] | urldecode }}</div>
             {% endif %}
         {% endif %}
+        
+        <!-- Combined Configuration Section with Tabs -->
+        <div class="settings-section">
+            <h2 class="section-title">⚙️ Настройка .yml файлов (правил сканирования)</h2>
+            <p style="color: #666; margin-bottom: 2rem;">
+                Управление конфигурационными файлами сканирования. Выберите файл для редактирования.
+            </p>
+            
+            <div class="config-tabs">
+                <button class="config-tab active" data-tab="rules">
+                    🛡️ Rules Configuration
+                    <span class="unsaved-indicator" id="rules-unsaved" style="display: none;"></span>
+                </button>
+                <button class="config-tab" data-tab="fp-rules">
+                    🚫 False-Positive Rules
+                    <span class="unsaved-indicator" id="fp-rules-unsaved" style="display: none;"></span>
+                </button>
+                <button class="config-tab" data-tab="extensions">
+                    🧩 Excluded Extensions
+                    <span class="unsaved-indicator" id="extensions-unsaved" style="display: none;"></span>
+                </button>
+                <button class="config-tab" data-tab="files">
+                    🗂️ Excluded Files
+                    <span class="unsaved-indicator" id="files-unsaved" style="display: none;"></span>
+                </button>
+            </div>
+
+            <div class="tab-content-wrapper">
+                <!-- Rules Configuration Tab -->
+                <div class="config-content active" id="rules-content">
+                    <div class="config-header">
+                        <div class="config-description">
+                            <p style="color: #666; margin-bottom: 1rem;">
+                                Отредактируйте конфигурацию правил YAML для определения паттернов секретов.
+                            </p>
+                        </div>
+                        <div class="config-stats">
+                            {% if rules_info %}
+                            <div class="config-info">
+                                <p><strong>Статус файла:</strong></p>
+                                {% if rules_info.exists %}
+                                <p>📁 Размер: {{ "%.1f"|format(rules_info.size / 1024) }} KB</p>
+                                <p>📅 Изменено: {{ rules_info.modified | strftime if rules_info.modified else 'Unknown' }}</p>
+                                {% else %}
+                                <p style="color: #ff6b6b;">❌ Микросервис недоступен, либо файла не существует</p>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    
+                    <form method="post" action="/settings/update-rules" id="rulesForm">
+                        <div class="form-group">
+                            <label for="rules_content">Содержимое файла правил (YAML):</label>
+                            <textarea 
+                                id="rules_content" 
+                                name="rules_content" 
+                                required
+                                class="config-textarea"
+                                placeholder='# Введите свою конфигурацию правил YAML здесь
+# Example:
+- id: privateKey.key
+  message: Private key
+  pattern: "\\s*-----\\s*BEGIN*PRIVATE KEY*\\s*-----"
+  severity: HIGH'>{{ current_rules_content or "" }}</textarea>
+                        </div>
+                        <div style="display: flex; gap: 1rem; align-items: center;">
+                            <button type="submit" class="btn btn-success" id="updateRulesBtn">
+                                💾 Обновить правила
+                            </button>
+                            <button type="button" class="btn btn-secondary" onclick="resetContent('rules')">
+                                🔄 Сбросить до текущих
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- False-Positive Rules Tab -->
+                <div class="config-content" id="fp-rules-content">
+                    <div class="config-header">
+                        <div class="config-description">
+                            <p style="color: #666; margin-bottom: 1rem;">
+                                Настройте правила для игнорирования ложных срабатываний при сканировании. Если строка из .yml файла находится в 'context' найденного секрета - данный секрет не учитывается при сканировании.
+                            </p>
+                        </div>
+                        <div class="config-stats">
+                            {% if fp_rules_info %}
+                            <div class="config-info">
+                                <p><strong>Статус файла:</strong></p>
+                                {% if fp_rules_info.exists %}
+                                <p>📁 Размер: {{ "%.1f"|format(fp_rules_info.size / 1024) }} KB</p>
+                                <p>📅 Изменено: {{ fp_rules_info.modified | strftime if fp_rules_info.modified else 'Unknown' }}</p>
+                                {% else %}
+                                <p style="color: #ff6b6b;">❌ Микросервис недоступен, либо файла не существует</p>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    
+                    <form method="post" action="/settings/update-fp-rules" id="fpRulesForm">
+                        <div class="form-group">
+                            <label for="fp_rules_content">False-Positive Rules Content (YAML):</label>
+                            <textarea 
+                                id="fp_rules_content" 
+                                name="fp_rules_content" 
+                                required
+                                class="config-textarea"
+                                placeholder='# Введите здесь свою конфигурацию правил определения ложных срабатываний
+# Example:
+false_positive:
+  - "token cancellationtoken"
+  - "sha512"
+  - "sha256"
+  - "password = null"'>{{ current_fp_rules_content or "" }}</textarea>
+                        </div>
+                        <div style="display: flex; gap: 1rem; align-items: center;">
+                            <button type="submit" class="btn btn-success" id="updateFpRulesBtn">
+                                💾 Обновить правила
+                            </button>
+                            <button type="button" class="btn btn-secondary" onclick="resetContent('fp_rules')">
+                                🔄 Сбросить до текущих
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Excluded Extensions Tab -->
+                <div class="config-content" id="extensions-content">
+                    <div class="config-header">
+                        <div class="config-description">
+                            <p style="color: #666; margin-bottom: 1rem;">
+                                Настройте расширения файлов, чтобы они исключались при сканировании.
+                            </p>
+                        </div>
+                        <div class="config-stats">
+                            {% if excluded_extensions_info %}
+                            <div class="config-info">
+                                <p><strong>Статус файла:</strong></p>
+                                {% if excluded_extensions_info.exists %}
+                                <p>📁 Размер: {{ "%.1f"|format(excluded_extensions_info.size / 1024) }} KB</p>
+                                <p>📅 Изменено: {{ excluded_extensions_info.modified | strftime if excluded_extensions_info.modified else 'Unknown' }}</p>
+                                {% else %}
+                                <p style="color: #ff6b6b;">❌ Микросервис недоступен, либо файла не существует</p>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    
+                    <form method="post" action="/settings/update-excluded-extensions" id="excludedExtensionsForm">
+                        <div class="form-group">
+                            <label for="excluded_extensions_content">Excluded Extensions Content (YAML):</label>
+                            <textarea 
+                                id="excluded_extensions_content" 
+                                name="excluded_extensions_content" 
+                                required
+                                class="config-textarea"
+                                placeholder="# Введите свою конфигурацию исключенных расширений здесь
+# Example:
+excluded_extensions:
+- png
+- jpg
+- jpeg">{{ current_excluded_extensions_content or "" }}</textarea>
+                        </div>
+                        <div style="display: flex; gap: 1rem; align-items: center;">
+                            <button type="submit" class="btn btn-success" id="updateExtensionsBtn">
+                                💾 Обновить правила
+                            </button>
+                            <button type="button" class="btn btn-secondary" onclick="resetContent('extensions')">
+                                🔄 Сбросить до текущих
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Excluded Files Tab -->
+                <div class="config-content" id="files-content">
+                    <div class="config-header">
+                        <div class="config-description">
+                            <p style="color: #666; margin-bottom: 1rem;">
+                                Настройте файлы, чтобы они исключались при сканировании.
+                            </p>
+                        </div>
+                        <div class="config-stats">
+                            {% if excluded_files_info %}
+                            <div class="config-info">
+                                <p><strong>Статус файла:</strong></p>
+                                {% if excluded_files_info.exists %}
+                                <p>📁 Размер: {{ "%.1f"|format(excluded_files_info.size / 1024) }} KB</p>
+                                <p>📅 Изменено: {{ excluded_files_info.modified | strftime if excluded_files_info.modified else 'Unknown' }}</p>
+                                {% else %}
+                                <p style="color: #ff6b6b;">❌ Микросервис недоступен, либо файла не существует</p>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    
+                    <form method="post" action="/settings/update-excluded-files" id="excludedFilesForm">
+                        <div class="form-group">
+                            <label for="excluded_files_content">Excluded Files Content (YAML):</label>
+                            <textarea 
+                                id="excluded_files_content" 
+                                name="excluded_files_content" 
+                                required
+                                class="config-textarea"
+                                placeholder="# Введите здесь свою конфигурацию файлов-исключений
+# Example:
+excluded_files:
+- yarn.lock
+- requirements.txt
+- CMakeLists.txt">{{ current_excluded_files_content or "" }}</textarea>
+                        </div>
+                        <div style="display: flex; gap: 1rem; align-items: center;">
+                            <button type="submit" class="btn btn-success" id="updateFilesBtn">
+                                💾 Обновить правила
+                            </button>
+                            <button type="button" class="btn btn-secondary" onclick="resetContent('files')">
+                                🔄 Сбросить до текущих
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
         
         <!-- Database Backup Section -->
         <div class="settings-section">
@@ -387,187 +713,6 @@
                 </button>
             </form>
         </div>
-        
-        <div class="settings-section">
-            <h2 class="section-title">📋 Rules Configuration</h2>
-            <p style="color: #666; margin-bottom: 1rem;">
-                Отредактируйте конфигурацию правил YAML.
-            </p>
-            
-            {% if rules_info %}
-            <div class="config-info">
-                <p><strong>Текущий Rules File Статус:</strong></p>
-                {% if rules_info.exists %}
-                <p>📁 Размер: {{ "%.1f"|format(rules_info.size / 1024) }} KB</p>
-                <p>📅 Изменено: {{ rules_info.modified | strftime if rules_info.modified else 'Unknown' }}</p>
-                <!-- <p>📂 Путь: {{ rules_info.path }}</p> -->
-                {% else %}
-                <p style="color: #ff6b6b;">❌ No rules file exists yet</p>
-                {% endif %}
-            </div>
-            {% endif %}
-            
-            <form method="post" action="/settings/update-rules" id="rulesForm">
-                <div class="form-group">
-                    <label for="rules_content">Содержимое текущего файла (YAML):</label>
-                    <textarea 
-                        id="rules_content" 
-                        name="rules_content" 
-                        required
-                        class="config-textarea"
-                        placeholder='# Введите свою конфигурацию правил YAML здесь
-# Example:
-- id: privateKey.key
-  message: Private key
-  pattern: "\\s*-----\\s*BEGIN*PRIVATE KEY*\\s*-----"
-  severity: HIG'>{{ current_rules_content or "" }}</textarea>
-                </div>
-                <div style="display: flex; gap: 1rem; align-items: center;">
-                    <button type="submit" class="btn btn-success" id="updateRulesBtn">
-                        💾 Обновить правила
-                    </button>
-                    <button type="button" class="btn btn-secondary" onclick="resetContent('rules')">
-                        🔄 Сбросить до текущих
-                    </button>
-                </div>
-            </form>
-        </div>
-
-        <div class="settings-section">
-            <h2 class="section-title">🚫 False-Positive Rules Configuration</h2>
-            <p style="color: #666; margin-bottom: 1rem;">
-                Настройте правила для игнорирования ложных срабатываний при сканировании. Если строка из .yml файла находится в `context` найденного секрета - данный секрет не учитывается при сканировании, попадая в ложные срабатывания.
-            </p>
-            
-            {% if fp_rules_info %}
-            <div class="config-info">
-                <p><strong>Текущий Статус False-Positive Rules Файла:</strong></p>
-                {% if fp_rules_info.exists %}
-                <p>📁 Размер: {{ "%.1f"|format(fp_rules_info.size / 1024) }} KB</p>
-                <p>📅 Изменено: {{ fp_rules_info.modified | strftime if fp_rules_info.modified else 'Unknown' }}</p>
-                <!-- <p>📂 Путь: {{ fp_rules_info.path }}</p> -->
-                {% else %}
-                <p style="color: #ff6b6b;">❌ No false-positive rules file exists yet</p>
-                {% endif %}
-            </div>
-            {% endif %}
-            
-            <form method="post" action="/settings/update-fp-rules" id="fpRulesForm">
-                <div class="form-group">
-                    <label for="fp_rules_content">False-Positive Rules Content (YAML):</label>
-                    <textarea 
-                        id="fp_rules_content" 
-                        name="fp_rules_content" 
-                        required
-                        class="config-textarea"
-                        placeholder='# Введите здесь свою конфигурацию правил определения ложных срабатываний
-# Example:
-false_positive:
-  - "token cancellationtoken"
-  - "sha512"
-  - "sha256"
-  - "password = null"'>{{ current_fp_rules_content or "" }}</textarea>
-                </div>
-                <div style="display: flex; gap: 1rem; align-items: center;">
-                    <button type="submit" class="btn btn-success" id="updateFpRulesBtn">
-                        💾 Обновить правила
-                    </button>
-                    <button type="button" class="btn btn-secondary" onclick="resetContent('fp_rules')">
-                        🔄 Сбросить до текущих
-                    </button>
-                </div>
-            </form>
-        </div>
-
-        <div class="settings-section">
-            <h2 class="section-title">🚫 Excluded Extensions Configuration</h2>
-            <p style="color: #666; margin-bottom: 1rem;">
-                Настройте расширения файлов, чтобы они исключались при сканировании.
-            </p>
-            
-            {% if excluded_extensions_info %}
-            <div class="config-info">
-                <p><strong>Current Excluded Extensions File Status:</strong></p>
-                {% if excluded_extensions_info.exists %}
-                <p>📁 Размер: {{ "%.1f"|format(excluded_extensions_info.size / 1024) }} KB</p>
-                <p>📅 Изменено: {{ excluded_extensions_info.modified | strftime if excluded_extensions_info.modified else 'Unknown' }}</p>
-                <!-- <p>📂 Путь: {{ excluded_extensions_info.path }}</p> -->
-                {% else %}
-                <p style="color: #ff6b6b;">❌ No excluded extensions file exists yet</p>
-                {% endif %}
-            </div>
-            {% endif %}
-            
-            <form method="post" action="/settings/update-excluded-extensions" id="excludedExtensionsForm">
-                <div class="form-group">
-                    <label for="excluded_extensions_content">Excluded Extensions Content (YAML):</label>
-                    <textarea 
-                        id="excluded_extensions_content" 
-                        name="excluded_extensions_content" 
-                        required
-                        class="config-textarea"
-                        placeholder="# Введите свою конфигурацию исключенных расширений здесь
-# Example:
-excluded_extensions:
-- png
-- jpg
-- jpeg">{{ current_excluded_extensions_content or "" }}</textarea>
-                </div>
-                <div style="display: flex; gap: 1rem; align-items: center;">
-                    <button type="submit" class="btn btn-success" id="updateExtensionsBtn">
-                        💾 Обновить правила
-                    </button>
-                    <button type="button" class="btn btn-secondary" onclick="resetContent('extensions')">
-                        🔄 Сбросить до текущих
-                    </button>
-                </div>
-            </form>
-        </div>
-
-        <div class="settings-section">
-            <h2 class="section-title">📁 Excluded Files Configuration</h2>
-            <p style="color: #666; margin-bottom: 1rem;">
-                Настройте файлы, чтобы они исключались при сканировании.
-            </p>
-            
-            {% if excluded_files_info %}
-            <div class="config-info">
-                <p><strong>Текущий статус Excluded Files файла:</strong></p>
-                {% if excluded_files_info.exists %}
-                <p>📁 Размер: {{ "%.1f"|format(excluded_files_info.size / 1024) }} KB</p>
-                <p>📅 Изменено: {{ excluded_files_info.modified | strftime if excluded_files_info.modified else 'Unknown' }}</p>
-                <!-- <p>📂 Путь: {{ excluded_files_info.path }}</p> -->
-                {% else %}
-                <p style="color: #ff6b6b;">❌ No excluded files file exists yet</p>
-                {% endif %}
-            </div>
-            {% endif %}
-            
-            <form method="post" action="/settings/update-excluded-files" id="excludedFilesForm">
-                <div class="form-group">
-                    <label for="excluded_files_content">Excluded Files Content (YAML):</label>
-                    <textarea 
-                        id="excluded_files_content" 
-                        name="excluded_files_content" 
-                        required
-                        class="config-textarea"
-                        placeholder="# Введите здесь свою конфигурацию файлов-исключений
-# Example:
-excluded_files:
-- yarn.lock
-- requirements.txt
-- CMakeLists.txt">{{ current_excluded_files_content or "" }}</textarea>
-                </div>
-                <div style="display: flex; gap: 1rem; align-items: center;">
-                    <button type="submit" class="btn btn-success" id="updateFilesBtn">
-                        💾 Обновить правила
-                    </button>
-                    <button type="button" class="btn btn-secondary" onclick="resetContent('files')">
-                        🔄 Сбросить до текущих
-                    </button>
-                </div>
-            </form>
-        </div>
     </div>
     
     <script>
@@ -577,6 +722,54 @@ excluded_files:
             extensions: {{ (current_excluded_extensions_content or "") | tojson | safe }},
             files: {{ (current_excluded_files_content or "") | tojson | safe }}
         };
+        
+        // Tab switching functionality
+        document.addEventListener('DOMContentLoaded', function() {
+            const tabs = document.querySelectorAll('.config-tab');
+            const contents = document.querySelectorAll('.config-content');
+            
+            tabs.forEach(tab => {
+                tab.addEventListener('click', function() {
+                    const targetTab = this.dataset.tab;
+                    
+                    // Remove active class from all tabs and contents
+                    tabs.forEach(t => t.classList.remove('active'));
+                    contents.forEach(c => c.classList.remove('active'));
+                    
+                    // Add active class to clicked tab and corresponding content
+                    this.classList.add('active');
+                    document.getElementById(targetTab + '-content').classList.add('active');
+                });
+            });
+            
+            // Load backups on page load
+            loadBackups();
+            
+            // Initialize unsaved changes tracking
+            initializeChangeTracking();
+        });
+        
+        // Change tracking for unsaved indicators
+        function initializeChangeTracking() {
+            const textareas = [
+                { element: 'rules_content', type: 'rules', indicator: 'rules-unsaved' },
+                { element: 'fp_rules_content', type: 'fp_rules', indicator: 'fp-rules-unsaved' },
+                { element: 'excluded_extensions_content', type: 'extensions', indicator: 'extensions-unsaved' },
+                { element: 'excluded_files_content', type: 'files', indicator: 'files-unsaved' }
+            ];
+            
+            textareas.forEach(({ element, type, indicator }) => {
+                const textarea = document.getElementById(element);
+                const indicatorEl = document.getElementById(indicator);
+                
+                if (textarea && indicatorEl) {
+                    textarea.addEventListener('input', function() {
+                        const hasChanges = this.value !== originalContent[type];
+                        indicatorEl.style.display = hasChanges ? 'inline-block' : 'none';
+                    });
+                }
+            });
+        }
         
         // Backup Management Functions
         async function loadBackups() {
@@ -729,23 +922,19 @@ excluded_files:
             }, 5000);
         }
         
-        // Load backups on page load
-        document.addEventListener('DOMContentLoaded', function() {
-            loadBackups();
-        });
-        
         // Form submission handling for all forms
         const forms = [
-            { form: 'rulesForm', btn: 'updateRulesBtn', content: 'rules_content' },
-            { form: 'fpRulesForm', btn: 'updateFpRulesBtn', content: 'fp_rules_content' },
-            { form: 'excludedExtensionsForm', btn: 'updateExtensionsBtn', content: 'excluded_extensions_content' },
-            { form: 'excludedFilesForm', btn: 'updateFilesBtn', content: 'excluded_files_content' }
+            { form: 'rulesForm', btn: 'updateRulesBtn', content: 'rules_content', indicator: 'rules-unsaved' },
+            { form: 'fpRulesForm', btn: 'updateFpRulesBtn', content: 'fp_rules_content', indicator: 'fp-rules-unsaved' },
+            { form: 'excludedExtensionsForm', btn: 'updateExtensionsBtn', content: 'excluded_extensions_content', indicator: 'extensions-unsaved' },
+            { form: 'excludedFilesForm', btn: 'updateFilesBtn', content: 'excluded_files_content', indicator: 'files-unsaved' }
         ];
         
-        forms.forEach(({ form, btn, content }) => {
+        forms.forEach(({ form, btn, content, indicator }) => {
             const formElement = document.getElementById(form);
             const updateBtn = document.getElementById(btn);
             const contentElement = document.getElementById(content);
+            const indicatorElement = document.getElementById(indicator);
             
             if (formElement && updateBtn && contentElement) {
                 formElement.addEventListener('submit', function(e) {
@@ -759,6 +948,11 @@ excluded_files:
                     // Show loading state
                     updateBtn.disabled = true;
                     updateBtn.innerHTML = '⏳ Updating...';
+                    
+                    // Hide unsaved indicator since we're saving
+                    if (indicatorElement) {
+                        indicatorElement.style.display = 'none';
+                    }
                     
                     // Re-enable button after some time in case of error
                     setTimeout(() => {
@@ -777,11 +971,23 @@ excluded_files:
                 'files': 'excluded_files_content'
             };
             
+            const indicatorMap = {
+                'rules': 'rules-unsaved',
+                'fp_rules': 'fp-rules-unsaved',
+                'extensions': 'extensions-unsaved',
+                'files': 'files-unsaved'
+            };
+            
             const elementId = contentMap[type];
+            const indicatorId = indicatorMap[type];
             const element = document.getElementById(elementId);
+            const indicator = document.getElementById(indicatorId);
             
             if (element && confirm('Are you sure you want to reset to the current saved content? Any unsaved changes will be lost.')) {
                 element.value = originalContent[type];
+                if (indicator) {
+                    indicator.style.display = 'none';
+                }
             }
         }
         

@@ -1407,8 +1407,8 @@ async def export_scan_results(scan_id: str, _: bool = Depends(get_current_user),
     
     # Generate filename
     commit_short = scan.repo_commit[:7] if scan.repo_commit else "unknown"
-    scan_date = scan.completed_at.strftime("%Y%m%d") if scan.completed_at else "pending"
-    filename = f"{scan.project_name}_{commit_short}_{scan_date}.json"
+    #scan_date = scan.completed_at.strftime("%Y%m%d") if scan.completed_at else "pending"
+    filename = f"{scan.project_name}_{commit_short}.json"
     
     return JSONResponse(
         content=export_data,
@@ -1440,8 +1440,8 @@ async def export_scan_results_html(scan_id: str, _: bool = Depends(get_current_u
     
     # Generate filename
     commit_short = scan.repo_commit[:7] if scan.repo_commit else "unknown"
-    scan_date = scan.completed_at.strftime("%Y%m%d") if scan.completed_at else "pending"
-    filename = f"{scan.project_name}_{commit_short}_{scan_date}_report.html"
+    #scan_date = scan.completed_at.strftime("%Y%m%d") if scan.completed_at else "pending"
+    filename = f"{scan.project_name}_{commit_short}.html"
     
     return HTMLResponse(
         content=html_content,

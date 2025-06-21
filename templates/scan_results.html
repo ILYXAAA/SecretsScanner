@@ -1010,6 +1010,10 @@
             animation: spin 1s linear infinite;
         }
 
+        #filtersToggleBtn {
+            font-weight: bold;
+        }
+
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
@@ -1046,11 +1050,11 @@
                         ⚙️ Commit: <span style="font-weight: bold; color: #3b82f6;">{{ scan.repo_commit if scan.repo_commit else 'Unknown' }}</span>
                     </div>
                     <div class="commit-info">
-                        🕒 Scanned: <span style="font-weight: bold; color: #3b82f6;">{{ scan.completed_at.strftime('%d.%m.%Y %H:%M') if scan.completed_at else scan.started_at.strftime('%d.%m.%Y %H:%M') }}</span>
+                        🕒 Завершен: <span style="font-weight: bold; color: #3b82f6;">{{ scan.completed_at.strftime('%d.%m.%Y %H:%M') if scan.completed_at else scan.started_at.strftime('%d.%m.%Y %H:%M') }}</span>
                     </div>
                     {% if scan.files_scanned %}
-                    <div class="files-scanned">
-                        📂 Files scanned: <span style="font-weight: bold; color: #3b82f6;">{{ scan.files_scanned }}</span>
+                    <div class="commit-info">
+                        📂 Файлов просканировано: <span style="font-weight: bold; color: #3b82f6;">{{ scan.files_scanned }}</span>
                     </div>
                     {% endif %}
                 </div>
@@ -1082,8 +1086,8 @@
                     </div>
                     <div class="right-actions">
                         <button class="btn btn-info" onclick="toggleFiltersPanel()" id="filtersToggleBtn">🔍 Фильтры</button>
-                        <a href="/scan/{{ scan.id }}/export" class="btn btn-success">📥 Export JSON</a>
-                        <a href="/scan/{{ scan.id }}/export-html" class="btn btn-primary">📄 Export HTML</a>
+                        <a href="/scan/{{ scan.id }}/export" class="btn btn-success">📋 Export JSON</a>
+                        <a href="/scan/{{ scan.id }}/export-html" class="btn btn-primary">💾 Export HTML</a>
                         <form method="post" action="/scan/{{ scan.id }}/delete" style="display: inline;" 
                             onsubmit="return confirm('Are you sure you want to delete this scan and all its data?')">
                             <button type="submit" class="btn btn-danger">🗑️ Удалить скан</button>
