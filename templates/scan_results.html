@@ -1046,7 +1046,7 @@
                         ⚙️ Commit: <span style="font-weight: bold; color: #3b82f6;">{{ scan.repo_commit if scan.repo_commit else 'Unknown' }}</span>
                     </div>
                     <div class="commit-info">
-                        🕒 Scanned: <span style="font-weight: bold; color: #3b82f6;">{{ scan.completed_at.strftime('%Y-%m-%d %H:%M') if scan.completed_at else scan.started_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                        🕒 Scanned: <span style="font-weight: bold; color: #3b82f6;">{{ scan.completed_at.strftime('%d.%m.%Y %H:%M') if scan.completed_at else scan.started_at.strftime('%d.%m.%Y %H:%M') }}</span>
                     </div>
                     {% if scan.files_scanned %}
                     <div class="files-scanned">

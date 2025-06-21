@@ -109,7 +109,7 @@ def tojson_filter(obj):
 
 def datetime_filter(timestamp):
     if timestamp:
-        return datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
+        return datetime.fromtimestamp(timestamp).strftime('%d.%m.%Y %H:%M:%S')
     return 'Unknown'
 
 # def basename_filter(path):

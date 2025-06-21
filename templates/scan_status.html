@@ -264,7 +264,7 @@
                 <div class="progress-fill"></div>
             </div>
             <div class="elapsed-time" id="elapsedTime">
-                Started: {{ scan.started_at.strftime('%Y-%m-%d %H:%M:%S') }}
+                Started: {{ scan.started_at.strftime('%d.%m.%Y %H:%M') }}
             </div>
             {% elif scan.status == 'completed' %}
             <div class="status-icon">✅</div>
@@ -311,12 +311,12 @@
                 </div>
                 <div class="scan-detail-item">
                     <span class="scan-detail-label">Запущен:</span>
-                    <span class="scan-detail-value">{{ scan.started_at.strftime('%Y-%m-%d %H:%M:%S') }}</span>
+                    <span class="scan-detail-value">{{ scan.started_at.strftime('%d.%m.%Y %H:%M') }}</span>
                 </div>
                 {% if scan.completed_at %}
                 <div class="scan-detail-item">
                     <span class="scan-detail-label">Завершен:</span>
-                    <span class="scan-detail-value">{{ scan.completed_at.strftime('%Y-%m-%d %H:%M:%S') }}</span>
+                    <span class="scan-detail-value">{{ scan.completed_at.strftime('%d.%m.%Y %H:%M') }}</span>
                 </div>
                 {% endif %}
             </div>
@@ -371,7 +371,7 @@
             const elapsedElement = document.getElementById('elapsedTime');
             if (elapsedElement) {
                 elapsedElement.innerHTML = `
-                    Started: {{ scan.started_at.strftime('%Y-%m-%d %H:%M:%S') }}<br>
+                    Started: {{ scan.started_at.strftime('%d.%m.%Y %H:%M') }}<br>
                     Elapsed: ${minutes}m ${seconds}s
                 `;
             }

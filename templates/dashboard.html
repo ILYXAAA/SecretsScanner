@@ -331,7 +331,7 @@
         }
         
         .secret-count.potential .number {
-            color: #f39c12;
+            color: #7d7d7d;
             text-shadow: 0 1px 2px rgba(243, 156, 18, 0.2);
         }
         
@@ -656,7 +656,7 @@
                             </span>
                         </div>
                         <div class="scan-meta">
-                            🕒 {{ scan_data.scan.started_at.strftime('%Y-%m-%d %H:%M') }}
+                            🕒 {{ scan_data.scan.started_at.strftime('%d.%m.%Y %H:%M') }}
                             {% if scan_data.scan.repo_commit %}
                             • ⚙️ {{ scan_data.scan.repo_commit[:7] }}
                             {% endif %}
@@ -757,12 +757,12 @@
                         </div>
                         <div class="project-url">{{ project_data.project.repo_url }}</div>
                         <div class="project-meta">
-                            Создан: {{ project_data.project.created_at.strftime('%Y-%m-%d %H:%M') }}
+                            Создан: {{ project_data.project.created_at.strftime('%d.%m.%Y %H:%M') }}
                         </div>
                     </div>
                     {% if project_data.latest_scan %}
                     <div class="project-scan-info">
-                        <div class="last-scan-date">{{ project_data.latest_scan.started_at.strftime('%Y-%m-%d %H:%M') }}</div>
+                        <div class="last-scan-date">{{ project_data.latest_scan.started_at.strftime('%d.%m.%Y %H:%M') }}</div>
                         {% if project_data.latest_scan.repo_commit %}
                         <div class="last-scan-commit">{{ project_data.latest_scan.repo_commit[:7] }}</div>
                         {% endif %}

@@ -618,7 +618,7 @@
                 </div>
                 <div class="scan-info-item">
                     <div class="scan-info-label">🕒 Запущен</div>
-                    <div class="scan-info-value">{{ latest_scan.started_at.strftime('%Y-%m-%d %H:%M') }}</div>
+                    <div class="scan-info-value">{{ latest_scan.started_at.strftime('%d.%m.%Y %H:%M') }}</div>
                 </div>
                 {% if latest_scan.repo_commit %}
                 <div class="scan-info-item">
@@ -657,7 +657,7 @@
                 {% for stat in scan_stats %}
                 <div class="scan-item">
                     <div class="scan-details">
-                        <div class="scan-date">{{ stat.scan.started_at.strftime('%Y-%m-%d %H:%M') }}</div>
+                        <div class="scan-date">{{ stat.scan.started_at.strftime('%d.%m.%Y %H:%M') }}</div>
                         <div class="scan-meta">
                             <span class="scan-status {{ stat.scan.status }}">
                                 {% if stat.scan.status == 'running' %}⏳ Running
