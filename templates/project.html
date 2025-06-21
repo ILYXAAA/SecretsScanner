@@ -134,7 +134,7 @@
         }
 
         .btn-success::before {
-            content: '▶️';
+            content: '🚀';
             font-size: 1.2rem;
         }
 
@@ -161,12 +161,31 @@
             box-shadow: 0 4px 12px rgba(108, 117, 125, 0.4);
         }
 
+        .btn-zip-scan {
+            background: linear-gradient(135deg, #2b3a67 0%, #3d4a8c 100%);
+            color: #f0f3ff;
+            border: none;
+            border-radius: 6px;
+            padding: 10px 20px;
+            font-weight: 600;
+            box-shadow: 0 3px 8px rgba(45, 58, 103, 0.6);
+            transition: background 0.3s ease, box-shadow 0.3s ease;
+            cursor: pointer;
+        }
+
+        .btn-zip-scan:hover {
+            background: linear-gradient(135deg, #3d4a8c 0%, #2b3a67 100%);
+            box-shadow: 0 6px 14px rgba(45, 58, 103, 0.9);
+        }
+
         .btn-danger {
             background-color: #cd3838; /* Tailwind red-600 */
             color: white;
             border-radius: 6px;
             box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
             transition: background-color 0.2s ease, box-shadow 0.2s ease;
+            padding: 0.75rem 1.5rem; /* Увеличиваем padding до стандартного размера */
+            font-size: 1rem; /* Увеличиваем размер шрифта */
         }
 
         .btn-danger:hover {
@@ -175,18 +194,20 @@
         }
 
         .btn-warning {
-            background-color: #edac3c; /* Tailwind amber-500 */
-            color: #1f2937; /* Tailwind gray-800 for better contrast */
+            background-color: #9f9891; /* Tailwind amber-500 */
+            color: #ffffff; /* Tailwind gray-800 for better contrast */
             border-radius: 6px;
             box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
             transition: background-color 0.2s ease, box-shadow 0.2s ease;
+            padding: 0.75rem 1.5rem; /* Увеличиваем padding до стандартного размера */
+            font-size: 1rem; /* Увеличиваем размер шрифта */
         }
 
         .btn-warning:hover {
-            background-color: #d97706; /* Tailwind amber-600 */
+            background-color: #726d68; /* Tailwind amber-600 */
             box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
         }
-        
+                
         .scan-form {
             background: white;
             border-radius: 12px;
@@ -525,13 +546,13 @@
                 <button class="btn btn-success" onclick="toggleScanForm()">
                     Запустить сканирование
                 </button>
-                <button class="btn btn-secondary" onclick="toggleLocalScanForm()">
-                    📦 Локальное сканирование
+                <button class="btn btn-zip-scan" onclick="toggleLocalScanForm()">
+                    🗂️ Сканирование ZIP
                 </button>
-                <button class="btn btn-warning btn-sm" onclick="toggleEditForm()">
+                <button class="btn btn-warning" onclick="toggleEditForm()">
                     ✏️ Редактировать
                 </button>
-                <button class="btn btn-danger btn-sm" onclick="deleteProject({{ project.id }})">
+                <button class="btn btn-danger" onclick="deleteProject({{ project.id }})">
                     🗑️ Удалить проект
                 </button>
             </div>
@@ -598,7 +619,7 @@
         </div>
         
         <div class="scan-form" id="scanForm">
-            <h2 class="section-title">🚀 Запустить новый скан</h2>
+            <h2 class="section-title">🆕 Запуск нового сканирования</h2>
             <form method="post" action="/project/{{ project.name }}/scan">
                 <div class="form-group">
                     <label for="ref_type">Reference Type:</label>
@@ -623,7 +644,7 @@
             <h2 class="section-title">📦 Локальное сканирование ZIP-архива</h2>
             <form method="post" action="/project/{{ project.name }}/local-scan" enctype="multipart/form-data">
                 <div class="form-group">
-                    <label for="commit">Коммит (обязательно):</label>
+                    <label for="commit">Коммит (<span style="color: #dc3545;">required</span>):</label>
                     <input type="text" id="commit" name="commit" placeholder="a1b2c3d4..." required>
                     <small style="color: #666; font-size: 0.85rem;">
                         SHA коммита, соответствующего содержимому ZIP-архива
@@ -650,7 +671,7 @@
                     </small>
                 </div>
                 <div class="form-actions">
-                    <button type="submit" class="btn btn-success">Запустить локальное сканирование</button>
+                    <button type="submit" class="btn btn-success">Запустить скан</button>
                     <button type="button" class="btn btn-secondary" onclick="toggleLocalScanForm()">Отмена</button>
                 </div>
             </form>

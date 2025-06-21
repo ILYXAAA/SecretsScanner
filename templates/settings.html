@@ -511,6 +511,10 @@
                             <p style="color: #666; margin-bottom: 1rem;">
                                 Настройте правила для игнорирования ложных срабатываний при сканировании. Если строка из .yml файла находится в 'context' найденного секрета - данный секрет не учитывается при сканировании.
                             </p>
+                            <p style="color: #666; margin-bottom: 1rem;">
+                                Если хотите добавить строку, в которой содержится двойная кавычка (<span style="color: #43a93c; font-size:medium; font-weight: bold;">"</span>), то необходимо записывать строку в одинарных: <br>
+                                <b>- 'tes<span style="color: #43a93c; font-weight: bolder;">"</span>t'</b>
+                            </p>
                         </div>
                         <div class="config-stats">
                             {% if fp_rules_info %}
