@@ -181,28 +181,47 @@
         .scan-list {
             display: flex;
             flex-direction: column;
-            gap: 1rem;
+            gap: 0.8rem;
             margin-bottom: 2rem;
         }
         
         .scan-item {
-            background: white;
-            border-radius: 12px;
-            padding: 1.5rem;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-            border: 1px solid #e1e5e9;
-            transition: transform 0.2s, box-shadow 0.2s;
+            background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+            border-radius: 8px;
+            padding: 1rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            border: 1px solid #e9ecef;
+            transition: all 0.3s ease;
             cursor: pointer;
             text-decoration: none;
             color: inherit;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .scan-item::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: linear-gradient(135deg, #28a745, #20c997);
+            transform: scaleY(0);
+            transition: transform 0.3s ease;
         }
         
         .scan-item:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 15px rgba(0,0,0,0.1);
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(40, 167, 69, 0.15);
+            border-color: #28a745;
+        }
+        
+        .scan-item:hover::before {
+            transform: scaleY(1);
         }
         
         .scan-main {
@@ -210,46 +229,64 @@
         }
         
         .scan-project {
-            font-size: 1.25rem;
+            font-size: 1.1rem;
             font-weight: 600;
-            color: #333;
-            margin-bottom: 0.5rem;
+            color: #2c3e50;
+            margin-bottom: 0.3rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .scan-project::before {
+            content: '📂';
+            font-size: 0.9rem;
         }
         
         .scan-meta {
-            color: #666;
-            font-size: 0.9rem;
-            margin-bottom: 0.5rem;
+            color: #6c757d;
+            font-size: 0.8rem;
+            margin-bottom: 0.2rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
         }
         
         .scan-status {
             display: inline-flex;
             align-items: center;
-            gap: 0.5rem;
-            padding: 0.25rem 0.75rem;
-            border-radius: 20px;
-            font-size: 0.85rem;
+            gap: 0.3rem;
+            padding: 0.2rem 0.6rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
             font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
         
         .scan-status.running {
-            background: #fff3cd;
+            background: linear-gradient(135deg, #fff3cd, #ffeaa7);
             color: #856404;
+            border: 1px solid #ffd93d;
         }
         
         .scan-status.completed {
-            background: #d4edda;
+            background: linear-gradient(135deg, #d4edda, #a7f3d0);
             color: #155724;
+            border: 1px solid #28a745;
         }
         
         .scan-status.failed {
-            background: #f8d7da;
+            background: linear-gradient(135deg, #f8d7da, #fecaca);
             color: #721c24;
+            border: 1px solid #dc3545;
         }
         
         .scan-status.timeout {
-            background: #fff3cd;
+            background: linear-gradient(135deg, #fff3cd, #ffeaa7);
             color: #856404;
+            border: 1px solid #ffd93d;
         }
         
         .scan-stats {
@@ -257,12 +294,12 @@
             display: flex;
             flex-direction: column;
             align-items: flex-end;
-            gap: 0.25rem;
+            gap: 0.3rem;
         }
         
         .secrets-summary {
             display: flex;
-            gap: 1rem;
+            gap: 0.8rem;
             align-items: center;
         }
         
@@ -271,51 +308,77 @@
             flex-direction: column;
             align-items: center;
             text-align: center;
+            min-width: 50px;
         }
         
         .secret-count .number {
-            font-size: 1.5rem;
-            font-weight: 600;
+            font-size: 1.2rem;
+            font-weight: 700;
+            line-height: 1;
         }
         
         .secret-count .label {
-            font-size: 0.8rem;
-            color: #666;
+            font-size: 0.7rem;
+            color: #6c757d;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-top: 0.1rem;
         }
         
         .secret-count.high .number {
-            color: #dc3545;
+            color: #e74c3c;
+            text-shadow: 0 1px 2px rgba(231, 76, 60, 0.2);
         }
         
         .secret-count.potential .number {
-            color: #aba9a3;
+            color: #f39c12;
+            text-shadow: 0 1px 2px rgba(243, 156, 18, 0.2);
         }
         
         .projects-list {
             display: flex;
             flex-direction: column;
-            gap: 1rem;
+            gap: 0.8rem;
             margin-bottom: 2rem;
         }
         
         .project-card {
-            background: white;
-            border-radius: 12px;
-            padding: 1.5rem;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-            border: 1px solid #e1e5e9;
-            transition: transform 0.2s, box-shadow 0.2s;
+            background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+            border-radius: 8px;
+            padding: 1rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            border: 1px solid #e9ecef;
+            transition: all 0.3s ease;
             cursor: pointer;
             text-decoration: none;
             color: inherit;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .project-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: linear-gradient(135deg, #007bff, #0056b3);
+            transform: scaleY(0);
+            transition: transform 0.3s ease;
         }
         
         .project-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 15px rgba(0,0,0,0.1);
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(0, 123, 255, 0.15);
+            border-color: #007bff;
+        }
+        
+        .project-card:hover::before {
+            transform: scaleY(1);
         }
         
         .project-main {
@@ -323,29 +386,34 @@
         }
         
         .project-name {
-            font-size: 1.25rem;
+            font-size: 1.1rem;
             font-weight: 600;
-            color: #333;
-            margin-bottom: 0.5rem;
+            color: #2c3e50;
+            margin-bottom: 0.3rem;
             display: flex;
             align-items: center;
             gap: 0.5rem;
         }
         
         .project-icon {
-            font-size: 1rem;
+            font-size: 0.9rem;
+            filter: grayscale(0.3);
         }
         
         .project-url {
-            color: #666;
-            font-size: 0.9rem;
-            margin-bottom: 0.5rem;
+            color: #6c757d;
+            font-size: 0.8rem;
+            margin-bottom: 0.2rem;
             word-break: break-all;
+            display: -webkit-box;
+            -webkit-line-clamp: 1;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
         }
         
         .project-meta {
-            color: #888;
-            font-size: 0.85rem;
+            color: #8e9aaf;
+            font-size: 0.75rem;
         }
         
         .project-scan-info {
@@ -354,26 +422,28 @@
             display: flex;
             flex-direction: column;
             align-items: flex-end;
-            gap: 0.25rem;
+            gap: 0.3rem;
         }
         
         .last-scan-date {
-            font-size: 0.85rem;
-            color: #666;
+            font-size: 0.75rem;
+            color: #6c757d;
+            font-weight: 500;
         }
         
         .last-scan-commit {
-            font-family: monospace;
-            font-size: 0.8rem;
-            color: #666;
-            background: #f8f9fa;
-            padding: 0.2rem 0.5rem;
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
+            font-size: 0.7rem;
+            color: #495057;
+            background: linear-gradient(135deg, #e9ecef, #dee2e6);
+            padding: 0.2rem 0.4rem;
             border-radius: 4px;
+            border: 1px solid #ced4da;
         }
         
         .project-actions {
             display: flex;
-            gap: 0.5rem;
+            gap: 0.3rem;
             align-items: center;
         }
         
@@ -383,13 +453,21 @@
         }
         
         .btn-icon {
-            padding: 0.5rem;
+            padding: 0.4rem;
             min-width: auto;
+            border-radius: 6px;
+            transition: all 0.2s ease;
         }
         
         .btn-danger {
-            background: #dc3545;
+            background: linear-gradient(135deg, #dc3545, #c82333);
             color: white;
+            border: 1px solid #dc3545;
+        }
+        
+        .btn-danger:hover {
+            background: linear-gradient(135deg, #c82333, #bd2130);
+            transform: scale(1.05);
         }
         
         .pagination {
@@ -489,6 +567,29 @@
         .empty-state h3 {
             margin-bottom: 1rem;
             font-size: 1.5rem;
+        }
+        
+        /* Медиа-запросы для адаптивности */
+        @media (max-width: 768px) {
+            .scan-item, .project-card {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 0.8rem;
+            }
+            
+            .scan-stats, .project-scan-info {
+                align-self: stretch;
+                text-align: left;
+                margin-right: 0;
+            }
+            
+            .secrets-summary {
+                justify-content: flex-start;
+            }
+            
+            .project-actions {
+                align-self: flex-end;
+            }
         }
     </style>
 </head>

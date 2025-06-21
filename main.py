@@ -169,6 +169,9 @@ class Secret(Base):
     exception_comment = Column(Text)
     refuted_at = Column(DateTime)  # Field for tracking when secret was refuted
 
+class AuthenticationException(Exception):
+    pass
+
 def create_indexes():
     """Создание индексов для оптимизации производительности"""
     try:
@@ -219,14 +222,20 @@ def verify_token(token: str):
     except JWTError:
         return None
 
+# Добавьте обработчик исключений после создания app
+@app.exception_handler(AuthenticationException)
+async def auth_exception_handler(request: Request, exc: AuthenticationException):
+    return RedirectResponse(url="/", status_code=302)
+
+# Измените функцию get_current_user
 async def get_current_user(request: Request):
     token = request.cookies.get("auth_token")
     if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+        raise AuthenticationException()
     
     username = verify_token(token)
     if not username:
-        raise HTTPException(status_code=401, detail="Invalid token")
+        raise AuthenticationException()
     
     return username
 
@@ -259,12 +268,6 @@ def verify_credentials(username: str, password: str):
     if creds and creds[0] == username and creds[1] == password:
         return True
     return False
-
-async def get_current_user(request: Request):
-    auth_cookie = request.cookies.get("auth_token")
-    if not auth_cookie:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    return True
 
 async def check_scan_timeouts():
     while True:
