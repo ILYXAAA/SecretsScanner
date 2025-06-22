@@ -539,11 +539,12 @@
                     <label for="repoUrls">Ссылки на репозитории</label>
                     <div class="form-description">
                         Введите ссылки на репозитории Azure DevOps, по одной на строку.<br>
+                        Если для репозитория не будет найден проект - будет предложено автоматически его создать.<br><br>
                         Поддерживаемые форматы:<br>
-                        • <strong>Ветка:</strong> http://server/collection/project/_git/repo?version=GBmain<br>
-                        • <strong>Тег:</strong> http://server/collection/project/_git/repo?version=GTv1.0.0<br>
-                        • <strong>Коммит:</strong> http://server/collection/project/_git/repo?version=GCabc123def456<br>
-                        • <strong>Коммит (альтернативный формат):</strong> http://server/collection/project/_git/repo/commit/abc123def456
+                        • <strong>Ветка:</strong> http://server/collection/project/_git/repo<span style="color: #3b82f6;">?version=GBmain</span><br>
+                        • <strong>Тег:</strong> http://server/collection/project/_git/repo<span style="color: #3b82f6;">?version=GTv1.0.0</span><br>
+                        • <strong>Коммит:</strong> http://server/collection/project/_git/repo<span style="color: #3b82f6;">?version=GCabc123def456</span><br>
+                        • <strong>Коммит (альтернативный формат):</strong> http://server/collection/project/_git/repo<span style="color: #3b82f6;">/commit/abc123def456</span>
                     </div>
                     <textarea 
                         id="repoUrls" 

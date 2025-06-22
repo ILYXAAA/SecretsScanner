@@ -21,7 +21,7 @@ from typing import Optional, List
 import os
 from pathlib import Path
 import shutil
-from dotenv import load_dotenv
+from dotenv import load_dotenv, set_key
 from jose import JWTError, jwt
 import secrets
 import html
@@ -587,155 +587,215 @@ async def dashboard(request: Request, page: int = 1, search: str = "", _: bool =
 
 @app.get("/settings", response_class=HTMLResponse)
 async def settings(request: Request, _: bool = Depends(get_current_user)):
-    # Get current PAT token
-    current_token = "Not set"
-    microservice_available = True
-    
+   # Get current API key
+   current_api_key = get_current_api_key()
+   if current_api_key != "Not set":
+       current_api_key = current_api_key[:4] + "*" * (len(current_api_key) - 4)
+   # Get current PAT token
+   current_token = "Not set"
+   microservice_available = True
+   
+   try:
+       async with httpx.AsyncClient() as client:
+           response = await client.get(f"{MICROSERVICE_URL}/get-pat", headers=get_auth_headers(), timeout=5.0)
+           if response.status_code == 200:
+               data = response.json()
+               if data.get("status") == "success":
+                   current_token = data.get("token", "Not set")
+   except:
+       current_token = "Error: microservice unavailable"
+       microservice_available = False
+   
+   # Get rules info and content
+   rules_info = None
+   current_rules_content = ""
+   
+   if microservice_available:
+       try:
+           async with httpx.AsyncClient() as client:
+               # Get rules info
+               info_response = await client.get(f"{MICROSERVICE_URL}/rules-info", headers=get_auth_headers(), timeout=5.0)
+               
+               if info_response.status_code == 200:
+                   rules_info = info_response.json()
+                   
+                   # If rules exist, get their content
+                   if rules_info and rules_info.get("exists", False):
+                       rules_response = await client.get(f"{MICROSERVICE_URL}/get-rules", timeout=5.0, headers=get_auth_headers())
+                       
+                       if rules_response.status_code == 200:
+                           rules_data = rules_response.json()
+                           if rules_data.get("status") == "success":
+                               current_rules_content = rules_data.get("rules", "")
+               else:
+                   rules_info = {"error": "microservice_unavailable"}
+       except Exception as e:
+           logger.error(f"Error fetching rules: {e}")
+           rules_info = {"error": "microservice_unavailable"}
+   else:
+       rules_info = {"error": "microservice_unavailable"}
+   
+   # Get False-Positive rules info and content
+   fp_rules_info = None
+   current_fp_rules_content = ""
+   
+   if microservice_available:
+       try:
+           async with httpx.AsyncClient() as client:
+               # Get FP rules info
+               info_response = await client.get(f"{MICROSERVICE_URL}/rules-fp-info", timeout=5.0, headers=get_auth_headers())
+               
+               if info_response.status_code == 200:
+                   fp_rules_info = info_response.json()
+                   
+                   # If FP rules exist, get their content
+                   if fp_rules_info and fp_rules_info.get("exists", False):
+                       fp_rules_response = await client.get(f"{MICROSERVICE_URL}/get-fp-rules", timeout=5.0, headers=get_auth_headers())
+                       
+                       if fp_rules_response.status_code == 200:
+                           fp_rules_data = fp_rules_response.json()
+                           if fp_rules_data.get("status") == "success":
+                               current_fp_rules_content = fp_rules_data.get("fp_rules", "")
+       except Exception as e:
+           logger.error(f"Error fetching FP rules: {e}")
+           fp_rules_info = {"error": "microservice_unavailable"}
+   else:
+       fp_rules_info = {"error": "microservice_unavailable"}
+   
+   # Get excluded extensions info and content
+   excluded_extensions_info = None
+   current_excluded_extensions_content = ""
+   
+   if microservice_available:
+       try:
+           async with httpx.AsyncClient() as client:
+               # Get excluded extensions info
+               info_response = await client.get(f"{MICROSERVICE_URL}/excluded-extensions-info", timeout=5.0, headers=get_auth_headers())
+               
+               if info_response.status_code == 200:
+                   excluded_extensions_info = info_response.json()
+                   
+                   # If file exists, get content
+                   if excluded_extensions_info and excluded_extensions_info.get("exists", False):
+                       content_response = await client.get(f"{MICROSERVICE_URL}/get-excluded-extensions", timeout=5.0, headers=get_auth_headers())
+                       
+                       if content_response.status_code == 200:
+                           content_data = content_response.json()
+                           if content_data.get("status") == "success":
+                               current_excluded_extensions_content = content_data.get("excluded_extensions", "")
+       except Exception as e:
+           logger.error(f"Error fetching excluded extensions: {e}")
+           excluded_extensions_info = {"error": "microservice_unavailable"}
+   else:
+       excluded_extensions_info = {"error": "microservice_unavailable"}
+   
+   # Get excluded files info and content
+   excluded_files_info = None
+   current_excluded_files_content = ""
+   
+   if microservice_available:
+       try:
+           async with httpx.AsyncClient() as client:
+               # Get excluded files info
+               info_response = await client.get(f"{MICROSERVICE_URL}/excluded-files-info", timeout=5.0, headers=get_auth_headers())
+               
+               if info_response.status_code == 200:
+                   excluded_files_info = info_response.json()
+                   
+                   # If file exists, get content
+                   if excluded_files_info and excluded_files_info.get("exists", False):
+                       content_response = await client.get(f"{MICROSERVICE_URL}/get-excluded-files", timeout=5.0, headers=get_auth_headers())
+                       
+                       if content_response.status_code == 200:
+                           content_data = content_response.json()
+                           if content_data.get("status") == "success":
+                               current_excluded_files_content = content_data.get("excluded_files", "")
+       except Exception as e:
+           logger.error(f"Error fetching excluded files: {e}")
+           excluded_files_info = {"error": "microservice_unavailable"}
+   else:
+       excluded_files_info = {"error": "microservice_unavailable"}
+   
+   # Ensure all content variables are strings
+   if current_rules_content is None:
+       current_rules_content = ""
+   if current_fp_rules_content is None:
+       current_fp_rules_content = ""
+   if current_excluded_extensions_content is None:
+       current_excluded_extensions_content = ""
+   if current_excluded_files_content is None:
+       current_excluded_files_content = ""
+   
+   return templates.TemplateResponse("settings.html", {
+       "request": request,
+       "current_api_key": current_api_key or "Not set",
+       "current_token": current_token or "Not set",
+       "rules_info": rules_info,
+       "current_rules_content": current_rules_content,
+       "fp_rules_info": fp_rules_info,
+       "current_fp_rules_content": current_fp_rules_content,
+       "excluded_extensions_info": excluded_extensions_info,
+       "current_excluded_extensions_content": current_excluded_extensions_content,
+       "excluded_files_info": excluded_files_info,
+       "current_excluded_files_content": current_excluded_files_content,
+       "BACKUP_RETENTION_DAYS": BACKUP_RETENTION_DAYS,
+       "microservice_available": microservice_available
+   })
+
+@app.post("/settings/change-password")
+async def change_password(request: Request, current_password: str = Form(...), 
+                         new_password: str = Form(...), confirm_password: str = Form(...),
+                         current_user: str = Depends(get_current_user), user_db: Session = Depends(get_user_db)):
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(f"{MICROSERVICE_URL}/get-pat", headers=get_auth_headers(), timeout=5.0)
-            if response.status_code == 200:
-                data = response.json()
-                if data.get("status") == "success":
-                    current_token = data.get("token", "Not set")
-    except:
-        current_token = "Error: microservice unavailable"
-        microservice_available = False
-    
-    # Get rules info and content
-    rules_info = None
-    current_rules_content = ""
-    
-    if microservice_available:
-        try:
-            async with httpx.AsyncClient() as client:
-                # Get rules info
-                info_response = await client.get(f"{MICROSERVICE_URL}/rules-info", headers=get_auth_headers(), timeout=5.0)
-                
-                if info_response.status_code == 200:
-                    rules_info = info_response.json()
-                    
-                    # If rules exist, get their content
-                    if rules_info and rules_info.get("exists", False):
-                        rules_response = await client.get(f"{MICROSERVICE_URL}/get-rules", timeout=5.0, headers=get_auth_headers())
-                        
-                        if rules_response.status_code == 200:
-                            rules_data = rules_response.json()
-                            if rules_data.get("status") == "success":
-                                current_rules_content = rules_data.get("rules", "")
-                else:
-                    rules_info = {"error": "microservice_unavailable"}
-        except Exception as e:
-            logger.error(f"Error fetching rules: {e}")
-            rules_info = {"error": "microservice_unavailable"}
-    else:
-        rules_info = {"error": "microservice_unavailable"}
-    
-    # Get False-Positive rules info and content
-    fp_rules_info = None
-    current_fp_rules_content = ""
-    
-    if microservice_available:
-        try:
-            async with httpx.AsyncClient() as client:
-                # Get FP rules info
-                info_response = await client.get(f"{MICROSERVICE_URL}/rules-fp-info", timeout=5.0, headers=get_auth_headers())
-                
-                if info_response.status_code == 200:
-                    fp_rules_info = info_response.json()
-                    
-                    # If FP rules exist, get their content
-                    if fp_rules_info and fp_rules_info.get("exists", False):
-                        fp_rules_response = await client.get(f"{MICROSERVICE_URL}/get-fp-rules", timeout=5.0, headers=get_auth_headers())
-                        
-                        if fp_rules_response.status_code == 200:
-                            fp_rules_data = fp_rules_response.json()
-                            if fp_rules_data.get("status") == "success":
-                                current_fp_rules_content = fp_rules_data.get("fp_rules", "")
-        except Exception as e:
-            logger.error(f"Error fetching FP rules: {e}")
-            fp_rules_info = {"error": "microservice_unavailable"}
-    else:
-        fp_rules_info = {"error": "microservice_unavailable"}
-    
-    # Get excluded extensions info and content
-    excluded_extensions_info = None
-    current_excluded_extensions_content = ""
-    
-    if microservice_available:
-        try:
-            async with httpx.AsyncClient() as client:
-                # Get excluded extensions info
-                info_response = await client.get(f"{MICROSERVICE_URL}/excluded-extensions-info", timeout=5.0, headers=get_auth_headers())
-                
-                if info_response.status_code == 200:
-                    excluded_extensions_info = info_response.json()
-                    
-                    # If file exists, get content
-                    if excluded_extensions_info and excluded_extensions_info.get("exists", False):
-                        content_response = await client.get(f"{MICROSERVICE_URL}/get-excluded-extensions", timeout=5.0, headers=get_auth_headers())
-                        
-                        if content_response.status_code == 200:
-                            content_data = content_response.json()
-                            if content_data.get("status") == "success":
-                                current_excluded_extensions_content = content_data.get("excluded_extensions", "")
-        except Exception as e:
-            logger.error(f"Error fetching excluded extensions: {e}")
-            excluded_extensions_info = {"error": "microservice_unavailable"}
-    else:
-        excluded_extensions_info = {"error": "microservice_unavailable"}
-    
-    # Get excluded files info and content
-    excluded_files_info = None
-    current_excluded_files_content = ""
-    
-    if microservice_available:
-        try:
-            async with httpx.AsyncClient() as client:
-                # Get excluded files info
-                info_response = await client.get(f"{MICROSERVICE_URL}/excluded-files-info", timeout=5.0, headers=get_auth_headers())
-                
-                if info_response.status_code == 200:
-                    excluded_files_info = info_response.json()
-                    
-                    # If file exists, get content
-                    if excluded_files_info and excluded_files_info.get("exists", False):
-                        content_response = await client.get(f"{MICROSERVICE_URL}/get-excluded-files", timeout=5.0, headers=get_auth_headers())
-                        
-                        if content_response.status_code == 200:
-                            content_data = content_response.json()
-                            if content_data.get("status") == "success":
-                                current_excluded_files_content = content_data.get("excluded_files", "")
-        except Exception as e:
-            logger.error(f"Error fetching excluded files: {e}")
-            excluded_files_info = {"error": "microservice_unavailable"}
-    else:
-        excluded_files_info = {"error": "microservice_unavailable"}
-    
-    # Ensure all content variables are strings
-    if current_rules_content is None:
-        current_rules_content = ""
-    if current_fp_rules_content is None:
-        current_fp_rules_content = ""
-    if current_excluded_extensions_content is None:
-        current_excluded_extensions_content = ""
-    if current_excluded_files_content is None:
-        current_excluded_files_content = ""
-    
-    return templates.TemplateResponse("settings.html", {
-        "request": request,
-        "current_token": current_token or "Not set",
-        "rules_info": rules_info,
-        "current_rules_content": current_rules_content,
-        "fp_rules_info": fp_rules_info,
-        "current_fp_rules_content": current_fp_rules_content,
-        "excluded_extensions_info": excluded_extensions_info,
-        "current_excluded_extensions_content": current_excluded_extensions_content,
-        "excluded_files_info": excluded_files_info,
-        "current_excluded_files_content": current_excluded_files_content,
-        "BACKUP_RETENTION_DAYS": BACKUP_RETENTION_DAYS,
-        "microservice_available": microservice_available
-    })
+        # Validate passwords match
+        if new_password != confirm_password:
+            return RedirectResponse(url="/settings?error=password_mismatch", status_code=302)
+        
+        # Get current user from database
+        user = user_db.query(User).filter(User.username == current_user).first()
+        if not user:
+            return RedirectResponse(url="/settings?error=user_not_found", status_code=302)
+        
+        # Verify current password
+        if not verify_password(current_password, user.password_hash):
+            return RedirectResponse(url="/settings?error=password_change_failed", status_code=302)
+        
+        # Update password
+        user.password_hash = get_password_hash(new_password)
+        user_db.commit()
+        
+        return RedirectResponse(url="/settings?success=password_changed", status_code=302)
+        
+    except Exception as e:
+        logger.error(f"Password change error: {e}")
+        return RedirectResponse(url="/settings?error=password_change_failed", status_code=302)
+
+@app.post("/settings/update-api-key")
+async def update_api_key(request: Request, api_key: str = Form(...), _: bool = Depends(get_current_user)):
+    try:
+        if update_api_key_in_env(api_key):
+            return RedirectResponse(url="/settings?success=api_key_updated", status_code=302)
+        else:
+            return RedirectResponse(url="/settings?error=api_key_update_failed", status_code=302)
+    except Exception as e:
+        logger.error(f"API key update error: {e}")
+        return RedirectResponse(url="/settings?error=api_key_update_failed", status_code=302)
+
+def get_current_api_key():
+    """Get current API key from environment"""
+    load_dotenv()
+    return os.getenv("API_KEY", "Not set")
+
+def update_api_key_in_env(new_api_key: str):
+    """Update API key in .env file"""
+    try:
+        env_file = ".env"
+        set_key(env_file, "API_KEY", new_api_key)
+        load_dotenv(override=True)
+        return True
+    except Exception as e:
+        logger.error(f"Error updating API key in .env: {e}")
+        return False
 
 @app.post("/settings/update-fp-rules")
 async def update_fp_rules(request: Request, fp_rules_content: str = Form(...), _: bool = Depends(get_current_user)):
@@ -1316,7 +1376,9 @@ async def receive_scan_results(project_name: str, scan_id: str, request: Request
                 is_exception=is_exception,
                 exception_comment=exception_comment,
                 status=status,
-                refuted_at=refuted_at
+                refuted_at=refuted_at,
+                confirmed_by=most_recent_secret.confirmed_by if most_recent_secret else None,
+                refuted_by=most_recent_secret.refuted_by if most_recent_secret else None
             )
             db.add(secret)
         
@@ -1427,8 +1489,8 @@ async def scan_results(request: Request, scan_id: str, severity_filter: str = ""
             "is_exception": bool(secret.is_exception),
             "exception_comment": html.escape(secret.exception_comment or "", quote=True),
             "refuted_at": secret.refuted_at.strftime('%Y-%m-%d %H:%M') if secret.refuted_at else None,
-            "confirmed_by": html.escape(secret.confirmed_by or "", quote=True) if secret.confirmed_by else None,
-            "refuted_by": html.escape(secret.refuted_by or "", quote=True) if secret.refuted_by else None,
+            "confirmed_by": secret.confirmed_by if secret.confirmed_by else None,
+            "refuted_by": secret.refuted_by if secret.refuted_by else None,
             "previous_status": html.escape(previous_status or "", quote=True) if previous_status else None,
             "previous_scan_date": previous_scan_date
         }
@@ -1650,23 +1712,34 @@ def cleanup_old_backups():
         backup_logger.error(f"Backup cleanup failed: {str(e)}")
 
 async def backup_scheduler():
-    """Background task to handle regular backups"""
-    while True:
-        try:
-            # Create backup
-            backup_path = create_database_backup()
-            
-            if backup_path:
-                # Cleanup old backups after successful backup
-                cleanup_old_backups()
-            
-            # Wait for next backup interval
-            await asyncio.sleep(BACKUP_INTERVAL_HOURS * 3600)
-            
-        except Exception as e:
-            backup_logger.error(f"Backup scheduler error: {str(e)}")
-            # Wait 1 hour before retrying on error
-            await asyncio.sleep(3600)
+   """Background task to handle regular backups"""
+   # Create initial backup only if none exist
+   backup_dir = Path(BACKUP_DIR)
+   existing_backups = list(backup_dir.glob("secrets_scanner_backup_*.db"))
+   
+   if not existing_backups:
+       backup_logger.info("No existing backups found, creating initial backup")
+       backup_path = create_database_backup()
+       if backup_path:
+           cleanup_old_backups()
+   else:
+       backup_logger.info(f"Found {len(existing_backups)} existing backups, skipping initial backup")
+   
+   while True:
+       try:
+           # Wait for backup interval
+           await asyncio.sleep(BACKUP_INTERVAL_HOURS * 3600)
+           
+           # Create backup after waiting
+           backup_path = create_database_backup()
+           
+           if backup_path:
+               cleanup_old_backups()
+           
+       except Exception as e:
+           backup_logger.error(f"Backup scheduler error: {str(e)}")
+           # Wait 1 hour before retrying on error
+           await asyncio.sleep(3600)
 
 @app.get("/admin/backup-status")
 async def backup_status(_: bool = Depends(get_current_user)):

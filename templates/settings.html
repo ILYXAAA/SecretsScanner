@@ -426,6 +426,16 @@
             {% elif 'error=' in request.url.query %}
             <div class="alert alert-error">{{ request.url.query.split('error=')[1].split('&')[0] | urldecode }}</div>
             {% endif %}
+            {% elif 'success=password_changed' in request.url.query %}
+            <div class="alert alert-success">Пароль успешно изменен!</div>
+            {% elif 'error=password_change_failed' in request.url.query %}
+            <div class="alert alert-error">Не удалось изменить пароль. Проверьте текущий пароль.</div>
+            {% elif 'error=password_mismatch' in request.url.query %}
+            <div class="alert alert-error">Новые пароли не совпадают.</div>
+            {% elif 'success=api_key_updated' in request.url.query %}
+            <div class="alert alert-success">API ключ успешно обновлен!</div>
+            {% elif 'error=api_key_update_failed' in request.url.query %}
+            <div class="alert alert-error">Не удалось обновить API ключ.</div>
         {% endif %}
         
         <!-- Combined Configuration Section with Tabs -->
@@ -461,6 +471,12 @@
                         <div class="config-description">
                             <p style="color: #666; margin-bottom: 1rem;">
                                 Отредактируйте конфигурацию правил YAML для определения паттернов секретов.
+                            </p>
+                            <p style="color: #666; margin-bottom: 1rem;">
+                                🛑 Параметр <span style="color: #a73b28;">severity</span> можно выставлять любой, т.к. его переопределяет модель-классификатор на микросервисе.
+                            </p>
+                            <p style="color: #666; margin-bottom: 1rem;">
+                                🏷️ Параметр <span style="color: #28a745;">message</span> - это тип секрета (Type), отображается рядом с секретом в отчетах.
                             </p>
                         </div>
                         <div class="config-stats">
@@ -509,11 +525,14 @@
                     <div class="config-header">
                         <div class="config-description">
                             <p style="color: #666; margin-bottom: 1rem;">
-                                Настройте правила для игнорирования ложных срабатываний при сканировании. Если строка из .yml файла находится в 'context' найденного секрета - данный секрет не учитывается при сканировании.
+                                Настройте правила для игнорирования ложных срабатываний при сканировании. 
                             </p>
                             <p style="color: #666; margin-bottom: 1rem;">
-                                Если хотите добавить строку, в которой содержится двойная кавычка (<span style="color: #43a93c; font-size:medium; font-weight: bold;">"</span>), то необходимо записывать строку в одинарных: <br>
-                                <b>- 'tes<span style="color: #43a93c; font-weight: bolder;">"</span>t'</b>
+                                📄 Если строка из .yml файла находится в <span style="color: #28a745;">context</span> найденного секрета - данный секрет не учитывается при сканировании.
+                            </p>
+                            <p style="color: #666; margin-bottom: 1rem;">
+                                ⚠️ Если хотите добавить строку, в которой содержится двойная кавычка (<span style="color: #43a93c; font-size:medium; font-weight: bold;">"</span>), то необходимо записывать строку в одинарных: <br>
+                                Пример: <b>- 'tes<span style="color: #43a93c; font-weight: bolder;">"</span>t'</b>
                             </p>
                         </div>
                         <div class="config-stats">
@@ -563,7 +582,16 @@ false_positive:
                     <div class="config-header">
                         <div class="config-description">
                             <p style="color: #666; margin-bottom: 1rem;">
-                                Настройте расширения файлов, чтобы они исключались при сканировании.
+                                🚫 Файлы исключаются из сканирования, если их расширение совпадает с одним из шаблонов в <span style="color: #df224e;">excluded_extensions.yml</span>
+                            </p>
+                            <p style="color: #666; margin-bottom: 1rem;">
+                                1) Поддерживаются точные расширения:<br><b><span style="color: #28a745;">- png</span></b><br><b><span style="color: #28a745;">- jpg</span></b>
+                            </p>
+                            <p style="color: #666; margin-bottom: 1rem;">
+                                2) И шаблоны с <b><span style="color: #28a745;">*</span></b>, например:<br><b><span style="color: #28a745;">*gz</span></b> — исключит backup.tar.gz, log.gz<br><b><span style="color: #28a745;">*min.js</span></b> — исключит app.min.js
+                            </p>
+                            <p style="color: #666; margin-bottom: 1rem;">
+                                ⚠️ Шаблоны со звездочками необходимо записывать в кавычках:<br><b><span style="color: #28a745;">- '*gz'</span></b> 
                             </p>
                         </div>
                         <div class="config-stats">
@@ -658,6 +686,114 @@ excluded_files:
             </div>
         </div>
         
+        <div class="settings-section">
+            <h2 class="section-title">🔑 API Configuration & Security</h2>
+            <p style="color: #666; margin-bottom: 2rem;">
+                Настройка токенов, ключей и безопасности аккаунта.
+            </p>
+            
+            <div class="config-tabs">
+                <button class="config-tab active" data-tab="api-key">
+                    🔐 API Key
+                </button>
+                <button class="config-tab" data-tab="password-change">
+                    🔒 Смена пароля
+                </button>
+                <button class="config-tab" data-tab="pat-token">
+                    🔑 PAT Token
+                </button>
+            </div>
+
+            <div class="tab-content-wrapper">
+                <!-- API Key Tab -->
+                <div class="config-content active" id="api-key-content">
+                    <div class="config-header">
+                        <div class="config-description">
+                            <p style="color: #666; margin-bottom: 1rem;">
+                                API ключ для аутентификации при обращении к микросервису сканирования.
+                            </p>
+                            <p style="color: #666; margin-bottom: 1rem;">
+                                ⚠️ Изменение ключа потребует перезапуска микросервиса с новым ключом.
+                            </p>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Текущий API ключ:</label>
+                        <div class="current-token">{{ current_api_key }}</div>
+                    </div>
+                    
+                    <form method="post" action="/settings/update-api-key">
+                        <div class="form-group">
+                            <label for="api_key">Новый API ключ:</label>
+                            <input type="password" id="api_key" name="api_key" placeholder="your_new_api_key_here" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary">
+                            💾 Обновить API ключ
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Password Change Tab -->
+                <div class="config-content" id="password-change-content">
+                    <div class="config-header">
+                        <div class="config-description">
+                            <p style="color: #666; margin-bottom: 1rem;">
+                                Измените пароль для вашего аккаунта. Пароль должен быть не менее 8 символов.
+                            </p>
+                        </div>
+                    </div>
+                    
+                    <form method="post" action="/settings/change-password" id="passwordChangeForm">
+                        <div class="form-group">
+                            <label for="current_password">Текущий пароль:</label>
+                            <input type="password" id="current_password" name="current_password" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="new_password">Новый пароль:</label>
+                            <input type="password" id="new_password" name="new_password" minlength="8" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="confirm_password">Подтвердите новый пароль:</label>
+                            <input type="password" id="confirm_password" name="confirm_password" minlength="8" required>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary" id="changePasswordBtn">
+                            🔐 Изменить пароль
+                        </button>
+                    </form>
+                </div>
+
+                <!-- PAT Token Tab -->
+                <div class="config-content" id="pat-token-content">
+                    <div class="config-header">
+                        <div class="config-description">
+                            <p style="color: #666; margin-bottom: 1rem;">
+                                PAT-токен для доступа к Azure, используемый микросервисом для резолва коммитов и скачивания репозиториев.
+                            </p>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Текущий токен:</label>
+                        <div class="current-token">{{ current_token }}</div>
+                    </div>
+                    
+                    <form method="post" action="/settings/update-token">
+                        <div class="form-group">
+                            <label for="token">Новый PAT Токен:</label>
+                            <input type="password" id="token" name="token" placeholder="aboba_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary">
+                            💾 Обновить токен
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        
         <!-- Database Backup Section -->
         <div class="settings-section">
             <h2 class="section-title">💾 Database Backup Management</h2>
@@ -695,28 +831,6 @@ excluded_files:
                 </div>
             </div>
         </div>
-        
-        <div class="settings-section">
-            <h2 class="section-title">🔑 Personal Access Token (PAT)</h2>
-            <p style="color: #666; margin-bottom: 1rem;">
-                Настройте личный токен доступа к GitHub/Azure, используемый микросервисом сканирования.
-            </p>
-            
-            <div class="form-group">
-                <label>Текущий токен:</label>
-                <div class="current-token">{{ current_token }}</div>
-            </div>
-            
-            <form method="post" action="/settings/update-token">
-                <div class="form-group">
-                    <label for="token">Новый PAT Токен:</label>
-                    <input type="password" id="token" name="token" placeholder="aboba_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" required>
-                </div>
-                <button type="submit" class="btn btn-primary">
-                    💾 Обновить токен
-                </button>
-            </form>
-        </div>
     </div>
     
     <script>
@@ -732,19 +846,20 @@ excluded_files:
             const tabs = document.querySelectorAll('.config-tab');
             const contents = document.querySelectorAll('.config-content');
             
-            tabs.forEach(tab => {
-                tab.addEventListener('click', function() {
-                    const targetTab = this.dataset.tab;
-                    
-                    // Remove active class from all tabs and contents
-                    tabs.forEach(t => t.classList.remove('active'));
-                    contents.forEach(c => c.classList.remove('active'));
-                    
-                    // Add active class to clicked tab and corresponding content
-                    this.classList.add('active');
-                    document.getElementById(targetTab + '-content').classList.add('active');
-                });
+        tabs.forEach(tab => {
+            tab.addEventListener('click', function(e) {
+                e.preventDefault(); // Предотвращаем скролл
+                const targetTab = this.dataset.tab;
+                
+                // Remove active class from all tabs and contents
+                tabs.forEach(t => t.classList.remove('active'));
+                contents.forEach(c => c.classList.remove('active'));
+                
+                // Add active class to clicked tab and corresponding content
+                this.classList.add('active');
+                document.getElementById(targetTab + '-content').classList.add('active');
             });
+        });
             
             // Load backups on page load
             loadBackups();
@@ -752,6 +867,55 @@ excluded_files:
             // Initialize unsaved changes tracking
             initializeChangeTracking();
         });
+
+        document.getElementById('passwordChangeForm')?.addEventListener('submit', function(e) {
+            const newPassword = document.getElementById('new_password').value;
+            const confirmPassword = document.getElementById('confirm_password').value;
+            const btn = document.getElementById('changePasswordBtn');
+            
+            if (newPassword !== confirmPassword) {
+                e.preventDefault();
+                alert('Новые пароли не совпадают');
+                return false;
+            }
+            
+            if (newPassword.length < 8) {
+                e.preventDefault();
+                alert('Пароль должен содержать минимум 8 символов');
+                return false;
+            }
+            
+            // Show loading state
+            btn.disabled = true;
+            btn.innerHTML = '⏳ Изменение пароля...';
+            
+            // Re-enable button after timeout
+            setTimeout(() => {
+                btn.disabled = false;
+                btn.innerHTML = '🔐 Изменить пароль';
+            }, 30000);
+        });
+
+        const apiKeyInput = document.getElementById('api_key');
+        if (apiKeyInput) {
+            apiKeyInput.addEventListener('focus', () => {
+                apiKeyInput.type = 'text';
+            });
+            apiKeyInput.addEventListener('blur', () => {
+                apiKeyInput.type = 'password';
+            });
+        }
+
+        // Show/hide password for token input (уже существует, но для ясности)
+        const tokenInput = document.getElementById('token');
+        if (tokenInput) {
+            tokenInput.addEventListener('focus', () => {
+                tokenInput.type = 'text';
+            });
+            tokenInput.addEventListener('blur', () => {
+                tokenInput.type = 'password';
+            });
+        }
         
         // Change tracking for unsaved indicators
         function initializeChangeTracking() {
@@ -1001,17 +1165,6 @@ excluded_files:
                 this.style.backgroundColor = this.value.trim() ? '#f8f9fa' : '#fff3cd';
             });
         });
-        
-        // Show/hide password for token input
-        const tokenInput = document.getElementById('token');
-        if (tokenInput) {
-            tokenInput.addEventListener('focus', () => {
-                tokenInput.type = 'text';
-            });
-            tokenInput.addEventListener('blur', () => {
-                tokenInput.type = 'password';
-            });
-        }
         
         // Auto-save warning
         let hasUnsavedChanges = false;
