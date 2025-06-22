@@ -37,6 +37,11 @@ SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_urlsafe(32))
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 480  # 8 часов
 
+API_KEY = os.getenv("API_KEY")
+if not API_KEY:
+    raise ValueError("API_KEY must be set in .env file")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
@@ -73,9 +78,9 @@ templates = Jinja2Templates(directory="templates")
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./database/secrets_scanner.db")
 if "database/" in DATABASE_URL:
     Path("database").mkdir(exist_ok=True)
-MICROSERVICE_URL = os.getenv("MICROSERVICE_URL", "http://127.0.0.1:8001")
-APP_HOST = os.getenv("APP_HOST", "127.0.0.1")
-APP_PORT = int(os.getenv("APP_PORT", "8000"))
+MICROSERVICE_URL = os.getenv("MICROSERVICE_URL")
+APP_HOST = os.getenv("APP_HOST")
+APP_PORT = int(os.getenv("APP_PORT"))
 HUB_TYPE = os.getenv("HUB_TYPE", "Azure")  # Git or Azure
 
 # Backup configuration
@@ -222,7 +227,7 @@ def verify_token(token: str):
     except JWTError:
         return None
 
-# Добавьте обработчик исключений после создания app
+# Обработчик исключений
 @app.exception_handler(AuthenticationException)
 async def auth_exception_handler(request: Request, exc: AuthenticationException):
     return RedirectResponse(url="/", status_code=302)
@@ -296,13 +301,18 @@ async def check_scan_timeouts():
         # Check every minute
         await asyncio.sleep(60)
 
+def get_auth_headers():
+    """Get headers with API key for microservice requests"""
+    return {"X-API-Key": API_KEY}
+
 async def check_microservice_health():
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.get(f"{MICROSERVICE_URL}/health", timeout=5.0)
+            response = await client.get(f"{MICROSERVICE_URL}/health", timeout=5.0, headers=get_auth_headers())
             return response.status_code == 200
     except:
         return False
+
 
 def get_scan_statistics(db: Session, scan_id: str):
     """Get high and potential secret counts for a scan"""
@@ -327,14 +337,23 @@ async def favicon():
     if favicon_path.exists():
         return FileResponse("ico/favicon.ico")
     else:
-        # Return a simple 204 No Content if favicon doesn't exist
         raise HTTPException(status_code=404, detail="Favicon not found")
 
 # Routes
 @app.get("/", response_class=HTMLResponse)
 async def login_page(request: Request):
-    if request.cookies.get("auth_token"):
-        return RedirectResponse(url="/dashboard", status_code=302)
+    token = request.cookies.get("auth_token")
+    if token:
+        # Проверяем валидность токена перед редиректом
+        username = verify_token(token)
+        if username:
+            return RedirectResponse(url="/dashboard", status_code=302)
+        else:
+            # Токен невалиден - удаляем его и показываем страницу входа
+            response = templates.TemplateResponse("login.html", {"request": request})
+            response.delete_cookie(key="auth_token")
+            return response
+    
     return templates.TemplateResponse("login.html", {"request": request})
 
 @app.post("/login")
@@ -464,7 +483,7 @@ async def settings(request: Request, _: bool = Depends(get_current_user)):
     
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.get(f"{MICROSERVICE_URL}/get-pat", timeout=5.0)
+            response = await client.get(f"{MICROSERVICE_URL}/get-pat", headers=get_auth_headers(), timeout=5.0)
             if response.status_code == 200:
                 data = response.json()
                 if data.get("status") == "success":
@@ -481,14 +500,14 @@ async def settings(request: Request, _: bool = Depends(get_current_user)):
         try:
             async with httpx.AsyncClient() as client:
                 # Get rules info
-                info_response = await client.get(f"{MICROSERVICE_URL}/rules-info", timeout=5.0)
+                info_response = await client.get(f"{MICROSERVICE_URL}/rules-info", headers=get_auth_headers(), timeout=5.0)
                 
                 if info_response.status_code == 200:
                     rules_info = info_response.json()
                     
                     # If rules exist, get their content
                     if rules_info and rules_info.get("exists", False):
-                        rules_response = await client.get(f"{MICROSERVICE_URL}/get-rules", timeout=5.0)
+                        rules_response = await client.get(f"{MICROSERVICE_URL}/get-rules", timeout=5.0, headers=get_auth_headers())
                         
                         if rules_response.status_code == 200:
                             rules_data = rules_response.json()
@@ -510,14 +529,14 @@ async def settings(request: Request, _: bool = Depends(get_current_user)):
         try:
             async with httpx.AsyncClient() as client:
                 # Get FP rules info
-                info_response = await client.get(f"{MICROSERVICE_URL}/rules-fp-info", timeout=5.0)
+                info_response = await client.get(f"{MICROSERVICE_URL}/rules-fp-info", timeout=5.0, headers=get_auth_headers())
                 
                 if info_response.status_code == 200:
                     fp_rules_info = info_response.json()
                     
                     # If FP rules exist, get their content
                     if fp_rules_info and fp_rules_info.get("exists", False):
-                        fp_rules_response = await client.get(f"{MICROSERVICE_URL}/get-fp-rules", timeout=5.0)
+                        fp_rules_response = await client.get(f"{MICROSERVICE_URL}/get-fp-rules", timeout=5.0, headers=get_auth_headers())
                         
                         if fp_rules_response.status_code == 200:
                             fp_rules_data = fp_rules_response.json()
@@ -537,14 +556,14 @@ async def settings(request: Request, _: bool = Depends(get_current_user)):
         try:
             async with httpx.AsyncClient() as client:
                 # Get excluded extensions info
-                info_response = await client.get(f"{MICROSERVICE_URL}/excluded-extensions-info", timeout=5.0)
+                info_response = await client.get(f"{MICROSERVICE_URL}/excluded-extensions-info", timeout=5.0, headers=get_auth_headers())
                 
                 if info_response.status_code == 200:
                     excluded_extensions_info = info_response.json()
                     
                     # If file exists, get content
                     if excluded_extensions_info and excluded_extensions_info.get("exists", False):
-                        content_response = await client.get(f"{MICROSERVICE_URL}/get-excluded-extensions", timeout=5.0)
+                        content_response = await client.get(f"{MICROSERVICE_URL}/get-excluded-extensions", timeout=5.0, headers=get_auth_headers())
                         
                         if content_response.status_code == 200:
                             content_data = content_response.json()
@@ -564,14 +583,14 @@ async def settings(request: Request, _: bool = Depends(get_current_user)):
         try:
             async with httpx.AsyncClient() as client:
                 # Get excluded files info
-                info_response = await client.get(f"{MICROSERVICE_URL}/excluded-files-info", timeout=5.0)
+                info_response = await client.get(f"{MICROSERVICE_URL}/excluded-files-info", timeout=5.0, headers=get_auth_headers())
                 
                 if info_response.status_code == 200:
                     excluded_files_info = info_response.json()
                     
                     # If file exists, get content
                     if excluded_files_info and excluded_files_info.get("exists", False):
-                        content_response = await client.get(f"{MICROSERVICE_URL}/get-excluded-files", timeout=5.0)
+                        content_response = await client.get(f"{MICROSERVICE_URL}/get-excluded-files", timeout=5.0, headers=get_auth_headers())
                         
                         if content_response.status_code == 200:
                             content_data = content_response.json()
@@ -622,7 +641,7 @@ async def update_fp_rules(request: Request, fp_rules_content: str = Form(...), _
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
                 f"{MICROSERVICE_URL}/update-fp-rules",
-                json=payload
+                json=payload, headers=get_auth_headers()
             )
             
             if response.status_code == 200:
@@ -650,7 +669,7 @@ async def update_token(request: Request, token: str = Form(...), _: bool = Depen
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(f"{MICROSERVICE_URL}/set-pat", 
-                                       json={"token": token}, timeout=10.0)
+                                       json={"token": token}, headers=get_auth_headers(), timeout=10.0)
             if response.status_code == 200:
                 return RedirectResponse(url="/settings?success=token_updated", status_code=302)
             else:
@@ -671,7 +690,7 @@ async def update_rules(request: Request, rules_content: str = Form(...), _: bool
         
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
-                f"{MICROSERVICE_URL}/update-rules",
+                f"{MICROSERVICE_URL}/update-rules", headers=get_auth_headers(),
                 json=payload
             )
             
@@ -709,7 +728,7 @@ async def update_excluded_extensions(request: Request, excluded_extensions_conte
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
                 f"{MICROSERVICE_URL}/update-excluded-extensions",
-                json=payload
+                json=payload, headers=get_auth_headers()
             )
             
             if response.status_code == 200:
@@ -746,7 +765,7 @@ async def update_excluded_files(request: Request, excluded_files_content: str = 
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
                 f"{MICROSERVICE_URL}/update-excluded-files",
-                json=payload
+                json=payload, headers=get_auth_headers()
             )
             
             if response.status_code == 200:
@@ -949,7 +968,7 @@ async def start_scan(request: Request, project_name: str, ref_type: str = Form(.
                 "RefType": ref_type,
                 "Ref": ref,
                 "CallbackUrl": callback_url
-            }, timeout=30.0)
+            }, headers=get_auth_headers(), timeout=30.0)
             
             # Parse JSON response regardless of status code
             try:
@@ -1040,7 +1059,7 @@ async def start_local_scan(request: Request, project_name: str,
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
                 f"{MICROSERVICE_URL}/local_scan",
-                files=files,
+                files=files, headers=get_auth_headers(),
                 data=data
             )
             
@@ -1690,7 +1709,7 @@ async def multi_scan(request: Request, _: bool = Depends(get_current_user), db: 
                 
                 response = await client.post(
                     f"{MICROSERVICE_URL}/multi_scan",
-                    json=microservice_payload
+                    json=microservice_payload, headers=get_auth_headers()
                 )
                 
                 # Handle different response status codes

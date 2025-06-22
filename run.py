@@ -1,17 +1,17 @@
-#!/usr/bin/env python3
-"""
-Startup script for Secrets Scanner
-"""
-
+import uvicorn
 import os
 import sys
+import signal
+import multiprocessing
 import logging
-import secrets
 from pathlib import Path
-from dotenv import load_dotenv
-
+import ipaddress
+from cryptography.fernet import Fernet
+import secrets
+from dotenv import load_dotenv, set_key
 os.system("") # Для цветной консоли
 
+# Configure colored logging
 class ColoredFormatter(logging.Formatter):
     """Colored log formatter"""
     
@@ -25,25 +25,27 @@ class ColoredFormatter(logging.Formatter):
     }
     
     def format(self, record):
+        # Создаем копию записи, чтобы не изменять оригинал
+        colored_record = logging.makeLogRecord(record.__dict__)
         log_color = self.COLORS.get(record.levelname, self.COLORS['RESET'])
-        record.levelname = f"{log_color}{record.levelname}{self.COLORS['RESET']}"
-        return super().format(record)
+        colored_record.levelname = f"{log_color}{record.levelname}{self.COLORS['RESET']}"
+        return super().format(colored_record)
 
 def setup_logging():
-    """Setup colored logging"""
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
     
+    # Удаляем существующие обработчики
     for handler in logger.handlers[:]:
         logger.removeHandler(handler)
     
-    # Console handler
+    # Консольный обработчик с цветами
     console_handler = logging.StreamHandler()
     formatter = ColoredFormatter(fmt='[%(levelname)s] %(message)s')
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
     
-    # File handler
+    # Файловый обработчик БЕЗ цветов
     from logging.handlers import RotatingFileHandler
     file_handler = RotatingFileHandler(
         'secrets_scanner.log', 
@@ -57,260 +59,251 @@ def setup_logging():
     
     return logger
 
-def create_env_file():
-    """Create .env file from template and configure settings"""
-    example_file = Path('.env.example')
-    if not example_file.exists():
-        logging.error(".env.example file not found")
-        return False
-    
-    # Read template
-    with open(example_file, 'r', encoding='utf-8') as f:
-        content = f.read()
-    
-    print("\nFirst-time setup: Configure server settings")
-    print("-" * 40)
-    
-    # Get MICROSERVICE_URL
-    while True:
-        microservice_url = input("Enter microservice URL (default: http://127.0.0.1:8001): ").strip()
-        if not microservice_url:
-            microservice_url = "http://127.0.0.1:8001"
-        if microservice_url.startswith("http://") or microservice_url.startswith("https://"):
-            break
-        print("URL must start with http:// or https://")
-    
-    # Get HOST
-    host = input("Enter server host (default: 127.0.0.1): ").strip()
-    if not host:
-        host = "127.0.0.1"
-    
-    # Get PORT
-    while True:
-        port_input = input("Enter server port (default: 8000): ").strip()
-        if not port_input:
-            port = "8000"
-            break
-        try:
-            port_num = int(port_input)
-            if 1024 <= port_num <= 65535:
-                port = port_input
-                break
-            print("Port must be between 1024 and 65535")
-        except ValueError:
-            print("Invalid port number")
-    
-    # Generate SECRET_KEY
-    secret_key = secrets.token_urlsafe(32)
-    logging.info("Generated SECRET_KEY automatically")
-    
-    # Update content
-    content = content.replace("MICROSERVICE_URL=http://127.0.0.1:8001", f"MICROSERVICE_URL={microservice_url}")
-    content = content.replace("APP_HOST=127.0.0.1", f"APP_HOST={host}")
-    content = content.replace("APP_PORT=8000", f"APP_PORT={port}")
-    content = content.replace("SECRET_KEY=***", f"SECRET_KEY={secret_key}")
-    
-    # Write .env file
-    with open('.env', 'w', encoding='utf-8') as f:
-        f.write(content)
-    
-    logging.info("Configuration saved to .env")
-    
-    # Run first_setup from CredsManager
-    try:
-        from CredsManager import first_setup
-        logging.info("Running authentication setup...")
-        if first_setup():
-            logging.info("Authentication setup completed")
-            # Reload .env to get updated keys
-            load_dotenv(override=True)
-            return True
-        else:
-            logging.error("Authentication setup failed")
-            return False
-    except ImportError:
-        logging.error("Could not import first_setup from CredsManager.py")
-        logging.info("Please run: python CredsManager.py manually")
-        return False
-    except Exception as e:
-        logging.error(f"Error during authentication setup: {e}")
-        return False
-
-def check_files():
-    """Check if required files exist"""
-    required_files = {
-        'main.py': 'Main FastAPI application',
-        'requirements.txt': 'Python dependencies',
-        'CredsManager.py': 'Credentials manager script'
-    }
-    
-    missing_files = []
-    for file, description in required_files.items():
-        if not Path(file).exists():
-            missing_files.append(f"{file} ({description})")
-        else:
-            logging.info(f"{file} found")
-    
-    if missing_files:
-        logging.error("Missing required files:")
-        for file in missing_files:
-            logging.error(f"  - {file}")
-        return False
-    
-    return True
-
-def check_directories():
-    """Check and create required directories"""
-    required_dirs = ['database', 'backups', 'Auth', 'templates', 'utils']
-    
-    for dir_name in required_dirs:
-        dir_path = Path(dir_name)
-        if not dir_path.exists():
-            logging.info(f"Creating directory: {dir_name}")
-            dir_path.mkdir(parents=True, exist_ok=True)
-        else:
-            logging.info(f"Directory '{dir_name}' found")
-
-def check_env_config():
-    """Check environment configuration"""
-    env_file = Path('.env')
-    if env_file.exists():
-        load_dotenv()
-        logging.info(".env configuration file found and loaded")
+def setup_multiprocessing():
+    """Configure multiprocessing for Windows/Linux compatibility"""
+    if sys.platform.startswith('win'):
+        multiprocessing.set_start_method('spawn', force=True)
     else:
-        logging.warning(".env file not found. Creating from template...")
-        if not create_env_file():
-            return False
-        load_dotenv()
+        try:
+            multiprocessing.set_start_method('fork', force=True)
+        except RuntimeError:
+            pass
+
+def setup_host():
+    logging.info("Необходимо настроить APP_HOST")
+    while True:
+        host = input("Введите APP_HOST в (формате 127.0.0.1)\n>")
+        try:
+            ipaddress.ip_address(host) # Вызовет ValueError если хост некорректный
+            set_key(".env", "APP_HOST", host)
+            load_dotenv(override=True)
+            break
+        except ValueError as error:
+            print(str(error))
+        
+def setup_port():
+    logging.info("Необходимо настроить APP_PORT")
+    while True:
+        port = input("Введите APP_PORT (в формате 8000)\n>")
+        if port.isdigit() and 1 <= int(port) <= 65535:
+            set_key(".env", "APP_PORT", port)
+            load_dotenv(override=True)
+            break
+
+def setup_microservice_url():
+    from urllib.parse import urlparse
+    import ipaddress
+    logging.info("Необходимо настроить MICROSERVICE_URL")
+    while True:
+        url = input("Введите MICROSERVICE_URL (в формате http://127.0.0.1:8001)\n>").strip()
+        try:
+            p = urlparse(url)
+            assert p.scheme in ("http", "https")
+            assert ipaddress.ip_address(p.hostname)
+            assert p.port and 1 <= p.port <= 65535
+        except:
+            logging.error("Невалидный MICROSERVICE_URL")
+        else:
+            set_key(".env", "MICROSERVICE_URL", url)
+            load_dotenv(override=True)
+            break
+
+def setup_login_key():
+    logging.info("Необходимо настроить LOGIN_KEY")
+    while True:
+        try:
+            filename = "Auth/login.dat"
+            message = input("Введите логин для учетной записи\n>")
+
+            key = Fernet.generate_key().decode()
+            fernet = Fernet(key.encode())
+            encrypted = fernet.encrypt(message.encode())
+
+            with open(filename, "wb") as file:
+                file.write(encrypted)
+
+            input("Нажмите Enter для подтверждения (Консоль будет очищена)")
+            set_key(".env", "LOGIN_KEY", key)
+            load_dotenv(override=True)
+            os.system('cls' if os.name == 'nt' else 'clear')
+            break
+        except Exception as error:
+            print(str(error))
+
+def setup_password_key():
+    logging.info("Необходимо настроить PASSWORD_KEY")
+    while True:
+        try:
+            filename = "Auth/password.dat"
+            message = input("Введите пароль для учетной записи\n>")
+
+            key = Fernet.generate_key().decode()
+            fernet = Fernet(key.encode())
+            encrypted = fernet.encrypt(message.encode())
+
+            with open(filename, "wb") as file:
+                file.write(encrypted)
+
+            input("Нажмите Enter для подтверждения (Консоль будет очищена)")
+            set_key(".env", "PASSWORD_KEY", key)
+            load_dotenv(override=True)
+            os.system('cls' if os.name == 'nt' else 'clear')
+            break
+        except Exception as error:
+            print(str(error))
+
+def setup_secret_key():
+    logging.info("Необходимо настроить SECRET_KEY (используется для сессий)")
+    answer = input("Хотите сгенерировать токен автоматически? (Y/N)\n>")
+    if answer.lower() in ["y", "ye", "yes"]:
+        apiKey = secrets.token_urlsafe(32)
+        print(f"Сгенерирован SECRET_KEY. Скопируйте его и используйте для сессий")
+        print(f"> {apiKey}")
+        input("Нажмите Enter для подтверждения (Консоль будет очищена)")
+        set_key(".env", "SECRET_KEY", apiKey)
+        load_dotenv(override=True)
+        os.system('cls' if os.name == 'nt' else 'clear')
+    else:
+        print("Введите SECRET_KEY")
+        apiKey = input(">")
+        input("Нажмите Enter для подтверждения (Консоль будет очищена)")
+        set_key(".env", "SECRET_KEY", apiKey)
+        load_dotenv(override=True)
+        os.system('cls' if os.name == 'nt' else 'clear')
+
+def setup_api_key():
+    logging.info("Необходимо настроить API_KEY (используется для доступа к микросервису)")
+    print("Введите API_TOKEN")
+    apiKey = input(">")
+    input("Нажмите Enter для подтверждения (Консоль будет очищена)")
+    set_key(".env", "API_KEY", apiKey)
+    load_dotenv(override=True)
+    os.system('cls' if os.name == 'nt' else 'clear')
+
+def create_default_env_file():
+    """Создает .env файл с базовыми настройками"""
+    if not os.path.exists(".env"):
+        with open('.env', 'w') as f:
+            f.write("")
     
-    # Check required variables
-    required_vars = ["SECRET_KEY", "LOGIN_KEY", "PASSWORD_KEY"]
-    missing_vars = []
+    set_key(".env", "DATABASE_URL", "sqlite:///./database/secrets_scanner.db")
+    set_key(".env", "HUB_TYPE", "Azure")
+    set_key(".env", "BACKUP_DIR", "./backups")
+    set_key(".env", "BACKUP_RETENTION_DAYS", "7")
+    set_key(".env", "BACKUP_INTERVAL_HOURS", "24")
+
+    load_dotenv(override=True)
+
+    logging.info(".env обновлен базовыми настройками")
+
+def is_first_run():
+    """Проверяет, является ли это первым запуском"""
+    env_file = Path('.env')
+    if not env_file.exists():
+        return True
+    
+    # Проверяем содержимое .env файла
+    load_dotenv()
+    required_vars = ['HUB_TYPE', 'DATABASE_URL', 'BACKUP_DIR', 'BACKUP_RETENTION_DAYS', 
+                     'BACKUP_INTERVAL_HOURS', 'LOGIN_KEY', 'PASSWORD_KEY', 'API_KEY', 
+                     'APP_HOST', 'APP_PORT', 'MICROSERVICE_URL', 'SECRET_KEY']
     
     for var in required_vars:
         value = os.getenv(var)
-        if not value or value == "***":
-            missing_vars.append(var)
-        else:
-            logging.info(f"{var} is configured")
+        if not value:
+            return True
     
-    if missing_vars:
-        logging.error(f"Missing required variables: {missing_vars}")
-        logging.info("Run: python CredsManager.py")
-        return False
-    
-    # Set defaults for optional variables
-    defaults = {
-        "DATABASE_URL": "sqlite:///./database/secrets_scanner.db",
-        "HUB_TYPE": "Azure",
-        "BACKUP_DIR": "./backups",
-        "BACKUP_RETENTION_DAYS": "7",
-        "BACKUP_INTERVAL_HOURS": "24"
-    }
-    
-    for var, default in defaults.items():
-        if not os.getenv(var):
-            os.environ[var] = default
-            logging.info(f"{var} set to default: {default}")
-    
-    return True
+    return False
 
-def check_credentials():
-    """Check credentials files"""
-    creds_files = ["Auth/login.dat", "Auth/password.dat"]
+def validate_environment():
+    logging.info("Валидация настроек окружения...")
+    if is_first_run():
+        logging.info("Обнаружен первый запуск. Настройка окружения...")
+        create_default_env_file()
     
-    for creds_file in creds_files:
-        if not Path(creds_file).exists():
-            logging.error(f"Credentials file '{creds_file}' not found")
-            logging.info("Run: python CredsManager.py")
-            return False
-        else:
-            logging.info(f"Credentials file '{creds_file}' found")
+    if not os.getenv("APP_HOST"):
+        setup_host()
+    if not os.getenv("APP_PORT"):
+        setup_port()
+    if not os.getenv("MICROSERVICE_URL"):
+        setup_microservice_url()
+    if not os.getenv("SECRET_KEY") or os.getenv("SECRET_KEY") == "***":
+        setup_secret_key()
+    if not os.getenv("LOGIN_KEY") or os.getenv("LOGIN_KEY") == "***":
+        setup_login_key()
+    if not os.getenv("PASSWORD_KEY") or os.getenv("PASSWORD_KEY") == "***":
+        setup_password_key()
+    if not os.getenv("API_KEY") or os.getenv("API_KEY") == "***":
+        setup_api_key()
+
+    required_files = ["Auth/login.dat", "Auth/password.dat", "templates/dashboard.html", "templates/login.html",
+                      "templates/multi_scan.html", "templates/project.html", "templates/scan_results.html", 
+                      "templates/scan_status.html", "templates/settings.html", "utils/html_report_generator.py", "CredsManager.py", "main.py"]
     
-    return True
+    validation_result = True
+    for file in required_files:
+        if not os.path.exists(file):
+            logging.error(f"Required файл не найден: {file}")
+            validation_result = False
+
+    return validation_result
 
 def check_dependencies():
     """Check if required Python packages are installed"""
     try:
-        import uvicorn, fastapi
-        logging.info("Required packages installed")
-        return True
+        import uvicorn
+        logging.info("uvicorn is installed")
     except ImportError:
-        logging.error("Missing packages")
+        logging.error("uvicorn is not installed")
         return False
-
-def display_startup_info():
-    """Display startup information"""
-    app_host = os.getenv('APP_HOST', '127.0.0.1')
-    app_port = os.getenv('APP_PORT', '8000')
-    hub_type = os.getenv('HUB_TYPE', 'Azure')
-    microservice_url = os.getenv('MICROSERVICE_URL', 'http://127.0.0.1:8001')
     
-    print(f"\nStarting Secrets Scanner...")
-    print(f"Application URL: http://{app_host}:{app_port}")
-    print(f"Microservice URL: {microservice_url}")
-    print(f"Repository hub type: {hub_type}")
-    print(f"Database: {os.getenv('DATABASE_URL', 'sqlite:///./database/secrets_scanner.db')}")
+    try:
+        import fastapi
+        logging.info("fastapi is installed")
+    except ImportError:
+        logging.error("fastapi is not installed")
+        return False
+    
+    return True
 
 def main():
-    logger = setup_logging()
+    """Main startup function"""
+    setup_logging()
     
-    print("Secrets Scanner Startup Check")
-    print("=" * 50)
+    print("Secret Scanner Startup")
+    print("=" * 40)
     
-    # Check files
-    print("\nChecking required files...")
-    if not check_files():
-        logging.error("Missing required files")
-        sys.exit(1)
-    
-    # Check directories
-    print("\nChecking directories...")
-    check_directories()
-    
-    # Check dependencies
-    print("\nChecking Python dependencies...")
-    if not check_dependencies():
-        logging.error("Required dependencies not installed")
-        logging.info("Run: pip install -r requirements.txt")
-        sys.exit(1)
-    
-    # Check environment
-    print("\nChecking environment configuration...")
-    if not check_env_config():
-        logging.error("Environment configuration incomplete")
-        sys.exit(1)
-    
-    # Check credentials
-    print("\nChecking authentication credentials...")
-    if not check_credentials():
-        logging.error("Authentication credentials not configured")
-        sys.exit(1)
-    
-    print("\n" + "=" * 50)
-    logging.info("All startup checks passed!")
-    
-    display_startup_info()
-    print("\n" + "=" * 50)
-    
-    # Start application
     try:
-        app_host = os.getenv('APP_HOST', '127.0.0.1')
-        app_port = int(os.getenv('APP_PORT', '8000'))
+        # Check dependencies
+        print("\nChecking Python dependencies...")
+        if not check_dependencies():
+            logging.error("Required dependencies not installed")
+            logging.info("Please run: pip install -r requirements.txt")
+            sys.exit(1)
         
-        import uvicorn
+        if not validate_environment():
+            print("Произошла ошибка валидации переменных окружения. Завершение программы")
+            sys.exit(1)
+        logging.info("Валидация переменных окружения прошла успешно")
+        
         from main import app
         
-        print("Starting application server...")
-        uvicorn.run(app, host=app_host, port=app_port, log_level="info", access_log=True)
+        print("Starting SecretsScanner server...")
+        host = os.getenv("APP_HOST")
+        port = int(os.getenv("APP_PORT"))
+        uvicorn.run(app, host=host, port=port, log_level="info", access_log=True)
         
+    except KeyboardInterrupt:
+        print("\nReceived interrupt signal")
     except ImportError as e:
         logging.error(f"Import error: {e}")
-        logging.info("Run: pip install -r requirements.txt")
+        logging.info("Please run: pip install -r requirements.txt")
         sys.exit(1)
     except Exception as e:
-        logging.error(f"Error starting application: {e}")
+        logging.error(f"Critical startup error: {e}")
         sys.exit(1)
+    finally:
+        print("Service stopped")
 
 if __name__ == "__main__":
     main()
