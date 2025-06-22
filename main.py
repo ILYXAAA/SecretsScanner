@@ -7,7 +7,6 @@ from sqlalchemy import create_engine, Column, String, DateTime, Integer, Text, B
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from datetime import datetime, timedelta, timezone
-from CredsManager import decrypt_from_file
 from urllib.parse import urlparse
 from contextlib import asynccontextmanager
 import uuid
