@@ -90,9 +90,6 @@ BACKUP_INTERVAL_HOURS = int(os.getenv("BACKUP_INTERVAL_HOURS", "24"))
 # Create backup directory
 Path(BACKUP_DIR).mkdir(exist_ok=True)
 # Setup logging for backups
-logging.basicConfig(level=logging.INFO)
-backup_logger = logging.getLogger("backup")
-
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -101,6 +98,7 @@ logging.basicConfig(
         logging.StreamHandler()  # Также выводить в консоль
     ]
 )
+backup_logger = logging.getLogger("backup")
 logger = logging.getLogger("main")
 
 # Add JSON filter to Jinja2
