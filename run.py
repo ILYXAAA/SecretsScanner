@@ -192,12 +192,13 @@ def check_and_setup_user_database():
     db = SessionLocal()
     try:
         if db.query(User).count() == 0:
-            logging.warning("В БД users.db не найдено ни одного пользователя. Необходимо создать первого пользователя.")
-            logging.warning("Дальнейшее управление пользователями доступно в UsersManager.py")
+            logging.warning("В БД users.db не найдено ни одного пользователя. Необходимо создать пользователя-администратора.")
+            logging.warning("Дальнейшее управление пользователями будет доступно в UsersManager.py, либо в панели Администратора на сайте")
             
             while True:
-                username = input("Введите имя пользователя: ").strip()
-                password = getpass("Введите пароль для пользователя: ").strip()
+                username = "admin"
+                print(f"Имя пользователя: admin")
+                password = getpass("Введите пароль для администратора: ").strip()
 
                 # Простейшая валидация пароля
                 if len(password) < 8:

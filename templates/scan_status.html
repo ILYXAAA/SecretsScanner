@@ -235,9 +235,13 @@
             🔍 Secrets Scanner
         </a>
         <nav class="nav-links">
-            <a href="/dashboard">Dashboard</a>
-            <a href="/settings">⚙️ Settings</a>
-            <a href="/logout">Logout</a>
+            <a href="/dashboard">🌐 Главная</a>
+            <a href="/multi-scan">🔄 Мультискан</a>
+            {% if current_user == "admin" %}
+            <a href="/admin">👑 Админ панель</a>
+            {% endif %}
+            <a href="/settings">⚙️ Настройки</a>
+            <a href="/logout">🔚 Выйти</a>
         </nav>
     </header>
     

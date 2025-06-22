@@ -210,7 +210,7 @@ def get_user_db():
     USERS_DATABASE_URL = os.getenv("USERS_DATABASE_URL", "sqlite:///./Auth/users.db")
     user_engine = create_engine(USERS_DATABASE_URL, connect_args={"check_same_thread": False} if "sqlite" in USERS_DATABASE_URL else {})
     
-    Base.metadata.create_all(bind=user_engine)
+    UserBase.metadata.create_all(bind=user_engine)
     
     UserSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=user_engine)
     db = UserSessionLocal()
@@ -322,7 +322,7 @@ async def get_current_user(request: Request):
     if not username:
         raise AuthenticationException()
     
-    # Проверяем, что пользователь еще существует в БД
+    # Check if user exists in database
     auth_dir = Path("Auth")
     auth_dir.mkdir(exist_ok=True)
     
@@ -334,7 +334,7 @@ async def get_current_user(request: Request):
     try:
         user = user_db.query(User).filter(User.username == username).first()
         if not user:
-            raise AuthenticationException()  # Пользователь удален
+            raise AuthenticationException()
     finally:
         user_db.close()
     
@@ -492,7 +492,7 @@ async def logout():
     return response
 
 @app.get("/dashboard", response_class=HTMLResponse)
-async def dashboard(request: Request, page: int = 1, search: str = "", _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
+async def dashboard(request: Request, page: int = 1, search: str = "", current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     per_page = 10
     offset = (page - 1) * per_page
     
@@ -572,7 +572,7 @@ async def dashboard(request: Request, page: int = 1, search: str = "", _: bool =
     
     projects_data.sort(key=lambda x: x["latest_scan_date"], reverse=True)
     total_pages = (total_projects + per_page - 1) // per_page
-    
+
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
         "recent_scans": recent_scans_data,
@@ -582,11 +582,12 @@ async def dashboard(request: Request, page: int = 1, search: str = "", _: bool =
         "search": search,
         "has_prev": page > 1,
         "has_next": page < total_pages,
-        "HUB_TYPE": HUB_TYPE
+        "HUB_TYPE": HUB_TYPE,
+        "current_user": current_user
     })
 
 @app.get("/settings", response_class=HTMLResponse)
-async def settings(request: Request, _: bool = Depends(get_current_user)):
+async def settings(request: Request, current_user: str = Depends(get_current_user)):
    # Get current API key
    current_api_key = get_current_api_key()
    if current_api_key != "Not set":
@@ -739,7 +740,8 @@ async def settings(request: Request, _: bool = Depends(get_current_user)):
        "excluded_files_info": excluded_files_info,
        "current_excluded_files_content": current_excluded_files_content,
        "BACKUP_RETENTION_DAYS": BACKUP_RETENTION_DAYS,
-       "microservice_available": microservice_available
+       "microservice_available": microservice_available,
+       "current_user": current_user
    })
 
 @app.post("/settings/change-password")
@@ -1077,7 +1079,7 @@ async def delete_project(project_id: int, _: bool = Depends(get_current_user), d
     return RedirectResponse(url="/dashboard?success=project_deleted", status_code=302)
 
 @app.get("/project/{project_name}", response_class=HTMLResponse)
-async def project_page(request: Request, project_name: str, _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
+async def project_page(request: Request, project_name: str, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     project = db.query(Project).filter(Project.name == project_name).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -1105,7 +1107,8 @@ async def project_page(request: Request, project_name: str, _: bool = Depends(ge
         "project": project,
         "latest_scan": latest_scan,
         "scan_stats": scan_stats,
-        "HUB_TYPE": HUB_TYPE
+        "HUB_TYPE": HUB_TYPE,
+        "current_user": current_user
     })
 
 @app.post("/project/{project_name}/scan")
@@ -1270,14 +1273,15 @@ async def start_local_scan(request: Request, project_name: str,
         return RedirectResponse(url=f"/project/{project_name}?error=local_scan_failed", status_code=302)
 
 @app.get("/scan/{scan_id}", response_class=HTMLResponse)
-async def scan_status(request: Request, scan_id: str, _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
+async def scan_status(request: Request, scan_id: str, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     scan = db.query(Scan).filter(Scan.id == scan_id).first()
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
     
     return templates.TemplateResponse("scan_status.html", {
         "request": request,
-        "scan": scan
+        "scan": scan,
+        "current_user": current_user
     })
 
 @app.post("/get_results/{project_name}/{scan_id}")
@@ -1391,7 +1395,7 @@ async def receive_scan_results(project_name: str, scan_id: str, request: Request
 @app.get("/scan/{scan_id}/results", response_class=HTMLResponse)
 async def scan_results(request: Request, scan_id: str, severity_filter: str = "", 
                      type_filter: str = "", show_exceptions: bool = False,
-                     _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
+                     current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     scan = db.query(Scan).filter(Scan.id == scan_id).first()
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
@@ -1514,7 +1518,8 @@ async def scan_results(request: Request, scan_id: str, severity_filter: str = ""
             "severity": severity_filter,
             "type": type_filter,
             "show_exceptions": show_exceptions
-        }
+        },
+        "current_user": current_user
     })
 
 @app.post("/secrets/{secret_id}/update-status")
@@ -1829,9 +1834,10 @@ async def list_backups(_: bool = Depends(get_current_user)):
         return {"status": "error", "message": str(e)}
 
 @app.get("/multi-scan", response_class=HTMLResponse)
-async def multi_scan_page(request: Request, _: bool = Depends(get_current_user)):
+async def multi_scan_page(request: Request, current_user: str = Depends(get_current_user)):
     return templates.TemplateResponse("multi_scan.html", {
-        "request": request
+        "request": request,
+        "current_user": current_user
     })
 
 @app.get("/api/project/check")
@@ -2109,6 +2115,145 @@ async def multi_scan(request: Request, current_user: str = Depends(get_current_u
             status_code=500,
             content={"status": "error", "message": "Внутренняя ошибка сервера"}
         )
+
+def is_admin(username: str) -> bool:
+    """Check if user is admin"""
+    return username == "admin"
+
+async def get_admin_user(request: Request):
+    """Dependency to check if current user is admin"""
+    current_user = await get_current_user(request)
+    if not is_admin(current_user):
+        raise HTTPException(status_code=403, detail="Access denied")
+    return current_user
+
+def get_current_secret_key():
+    """Get current SECRET_KEY from environment"""
+    load_dotenv()
+    return os.getenv("SECRET_KEY", "Not set")
+
+def update_secret_key_in_env(new_secret_key: str = None):
+    """Update SECRET_KEY in .env file"""
+    try:
+        if not new_secret_key:
+            new_secret_key = secrets.token_urlsafe(32)
+        
+        env_file = ".env"
+        set_key(env_file, "SECRET_KEY", new_secret_key)
+        load_dotenv(override=True)
+        
+        # Update global SECRET_KEY variable
+        global SECRET_KEY
+        SECRET_KEY = new_secret_key
+        
+        return True
+    except Exception as e:
+        logger.error(f"Error updating SECRET_KEY in .env: {e}")
+        return False
+
+# Admin Panel Routes
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_panel(request: Request, _: str = Depends(get_admin_user)):
+    """Admin panel - only accessible by admin user"""
+    current_secret_key = get_current_secret_key()
+    
+    return templates.TemplateResponse("admin.html", {
+        "request": request,
+        "current_secret_key": current_secret_key
+    })
+
+@app.get("/admin/users")
+async def list_users(_: str = Depends(get_admin_user), user_db: Session = Depends(get_user_db)):
+    """Get list of all users"""
+    try:
+        users = user_db.query(User).order_by(User.created_at.desc()).all()
+        
+        users_data = []
+        for user in users:
+            users_data.append({
+                "username": user.username,
+                "created_at": user.created_at.strftime("%d.%m.%Y %H:%M") if user.created_at else "Unknown"
+            })
+        
+        return {"status": "success", "users": users_data}
+    except Exception as e:
+        logger.error(f"Error listing users: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.post("/admin/create-user")
+async def create_user(request: Request, username: str = Form(...), password: str = Form(...),
+                     _: str = Depends(get_admin_user), user_db: Session = Depends(get_user_db)):
+    """Create new user - admin only"""
+    try:
+        # Check if user already exists
+        existing_user = user_db.query(User).filter(User.username == username).first()
+        if existing_user:
+            return RedirectResponse(url="/admin?error=user_exists", status_code=302)
+        
+        # Create new user
+        password_hash = get_password_hash(password)
+        new_user = User(username=username, password_hash=password_hash)
+        user_db.add(new_user)
+        user_db.commit()
+        
+        logger.info(f"New user created: {username}")
+        return RedirectResponse(url="/admin?success=user_created", status_code=302)
+        
+    except Exception as e:
+        logger.error(f"Error creating user: {e}")
+        return RedirectResponse(url="/admin?error=user_creation_failed", status_code=302)
+
+@app.post("/admin/delete-user/{username}")
+async def delete_user(username: str, _: str = Depends(get_admin_user), 
+                     user_db: Session = Depends(get_user_db)):
+    """Delete user - admin only"""
+    try:
+        # Prevent admin deletion
+        if username == "admin":
+            return JSONResponse(
+                status_code=400,
+                content={"status": "error", "message": "Cannot delete admin user"}
+            )
+        
+        # Find and delete user
+        user = user_db.query(User).filter(User.username == username).first()
+        if not user:
+            return JSONResponse(
+                status_code=404,
+                content={"status": "error", "message": "User not found"}
+            )
+        
+        user_db.delete(user)
+        user_db.commit()
+        
+        logger.info(f"User deleted: {username}")
+        return {"status": "success", "message": "User deleted successfully"}
+        
+    except Exception as e:
+        logger.error(f"Error deleting user: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": str(e)}
+        )
+
+@app.post("/admin/update-secret-key")
+async def update_secret_key(request: Request, secret_key: str = Form(""),
+                           _: str = Depends(get_admin_user)):
+    """Update SECRET_KEY - admin only"""
+    try:
+        # Use provided key or generate new one
+        new_key = secret_key.strip() if secret_key.strip() else None
+        
+        if update_secret_key_in_env(new_key):
+            logger.info("SECRET_KEY updated by admin")
+            return RedirectResponse(url="/admin?success=secret_key_updated", status_code=302)
+        else:
+            return RedirectResponse(url="/admin?error=secret_key_update_failed", status_code=302)
+            
+    except Exception as e:
+        logger.error(f"Error updating SECRET_KEY: {e}")
+        return RedirectResponse(url="/admin?error=secret_key_update_failed", status_code=302)
 
 if __name__ == "__main__":
     import uvicorn

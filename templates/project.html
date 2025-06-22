@@ -528,6 +528,9 @@
         <nav class="nav-links">
             <a href="/dashboard">🌐 Главная</a>
             <a href="/multi-scan">🔄 Мультискан</a>
+            {% if current_user == "admin" %}
+            <a href="/admin">👑 Админ панель</a>
+            {% endif %}
             <a href="/settings">⚙️ Настройки</a>
             <a href="/logout">🔚 Выйти</a>
         </nav>
@@ -754,7 +757,7 @@
                             </span>
                             <div>
                                 • ℹ️ Запущено по: {{ stat.scan.ref_type }}: {{ stat.scan.ref }}<br>
-                                {% if stat.scan.started_by %}• 👮 <span style="color: #28a745;">{{ stat.scan.started_by }}</span>{% endif %}
+                                {% if stat.scan.started_by %}• 👮 <b><span style="color: #3b82f6;">{{ stat.scan.started_by }}</span></b>{% endif %}
                             </div>
                             <div>
                                 {% if stat.scan.repo_commit %}

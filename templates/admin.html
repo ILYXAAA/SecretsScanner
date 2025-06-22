@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel - Secrets Scanner</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f8f9fa;
+            color: #333;
+        }
+        
+        .header {
+            background: white;
+            padding: 1rem 2rem;
+            border-bottom: 1px solid #e1e5e9;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #333;
+            text-decoration: none;
+        }
+        
+        .nav-links {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+        
+        .nav-links a {
+            color: #666;
+            text-decoration: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            transition: background-color 0.2s;
+        }
+        
+        .nav-links a:hover {
+            background: #f1f3f4;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        .admin-header {
+            background: white;
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            border: 1px solid #e1e5e9;
+        }
+        
+        .admin-title {
+            font-size: 2rem;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .admin-description {
+            color: #666;
+            margin-bottom: 1rem;
+        }
+        
+        .section {
+            background: white;
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            border: 1px solid #e1e5e9;
+        }
+        
+        .section-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: all 0.2s ease;
+            font-size: 1rem;
+        }
+        
+        .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+        
+        .btn-primary {
+            background-color: #4d7ee8;
+            color: white;
+            border-radius: 6px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+        
+        .btn-primary:hover {
+            background-color: #4571ce;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+        }
+        
+        .btn-success {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: white;
+            box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
+        }
+        
+        .btn-success:hover {
+            box-shadow: 0 6px 16px rgba(40, 167, 69, 0.4);
+        }
+        
+        .btn-danger {
+            background-color: #cd3838;
+            color: white;
+            border-radius: 6px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+        
+        .btn-danger:hover {
+            background-color: #b91c1c;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+        }
+        
+        .btn-warning {
+            background-color: #9f9891;
+            color: #ffffff;
+            border-radius: 6px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+        }
+        
+        .btn-warning:hover {
+            background-color: #726d68;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+        }
+        
+        .form-group {
+            margin-bottom: 1rem;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            color: #333;
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 0.75rem;
+            border: 2px solid #e1e5e9;
+            border-radius: 8px;
+            font-size: 1rem;
+        }
+        
+        .form-group input:focus {
+            outline: none;
+            border-color: #28a745;
+        }
+        
+        .form-actions {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1.5rem;
+        }
+        
+        .alert {
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+        
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border-left: 4px solid #dc3545;
+        }
+        
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border-left: 4px solid #28a745;
+        }
+        
+        .users-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+        
+        .users-table th,
+        .users-table td {
+            padding: 1rem;
+            text-align: left;
+            border-bottom: 1px solid #e1e5e9;
+        }
+        
+        .users-table th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .users-table tr:hover {
+            background: #f8f9fa;
+        }
+        
+        .form-container {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-top: 1rem;
+        }
+        
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+        
+        .current-key {
+            background: #e8f5e8;
+            border: 1px solid #28a745;
+            border-radius: 6px;
+            padding: 0.75rem;
+            margin-bottom: 1rem;
+            font-family: monospace;
+            word-break: break-all;
+        }
+        
+        .warning-text {
+            color: #dc3545;
+            font-size: 0.9rem;
+            margin-top: 0.5rem;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 2rem;
+            color: #666;
+        }
+        
+        .user-avatar {
+            width: 40px;
+            height: 40px;
+            background: #28a745;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 600;
+            font-size: 1.2rem;
+        }
+        
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        
+        .user-details {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .username {
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .user-date {
+            font-size: 0.85rem;
+            color: #666;
+        }
+        
+        .loading {
+            display: none;
+            color: #666;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <a href="/dashboard" class="logo">
+            🔍 Secrets Scanner
+        </a>
+        <nav class="nav-links">
+            <a href="/dashboard">🌐 Главная</a>
+            <a href="/multi-scan">🔄 Мультискан</a>
+            <a href="/admin">👑 Админ панель</a>
+            <a href="/settings">⚙️ Настройки</a>
+            <a href="/logout">🔚 Выйти</a>
+        </nav>
+    </header>
+    
+    <div class="container">
+        <div class="admin-header">
+            <h1 class="admin-title">
+                <span>👑</span>
+                Админ панель
+            </h1>
+            <div class="admin-description">
+                Управление пользователями и системными настройками
+            </div>
+        </div>
+        
+        {% if request.url.query %}
+            {% if 'error=access_denied' in request.url.query %}
+            <div class="alert alert-error">Доступ запрещен. Только администратор может получить доступ к этой странице.</div>
+            {% elif 'error=user_exists' in request.url.query %}
+            <div class="alert alert-error">Пользователь с таким именем уже существует.</div>
+            {% elif 'error=user_creation_failed' in request.url.query %}
+            <div class="alert alert-error">Не удалось создать пользователя.</div>
+            {% elif 'error=user_not_found' in request.url.query %}
+            <div class="alert alert-error">Пользователь не найден.</div>
+            {% elif 'error=cannot_delete_admin' in request.url.query %}
+            <div class="alert alert-error">Нельзя удалить администратора.</div>
+            {% elif 'error=user_deletion_failed' in request.url.query %}
+            <div class="alert alert-error">Не удалось удалить пользователя.</div>
+            {% elif 'error=secret_key_update_failed' in request.url.query %}
+            <div class="alert alert-error">Не удалось обновить SECRET_KEY.</div>
+            {% elif 'success=user_created' in request.url.query %}
+            <div class="alert alert-success">Пользователь успешно создан.</div>
+            {% elif 'success=user_deleted' in request.url.query %}
+            <div class="alert alert-success">Пользователь успешно удален.</div>
+            {% elif 'success=secret_key_updated' in request.url.query %}
+            <div class="alert alert-success">SECRET_KEY успешно обновлен. Все пользователи будут выходить из системы.</div>
+            {% endif %}
+        {% endif %}
+        
+        <!-- Users Management Section -->
+        <div class="section">
+            <h2 class="section-title">
+                <span>👮</span>
+                Управление пользователями
+            </h2>
+            
+            <div class="form-container">
+                <h3 style="margin-bottom: 1rem;">➕ Добавить нового пользователя</h3>
+                <form method="post" action="/admin/create-user">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="username">Имя пользователя</label>
+                            <input type="text" id="username" name="username" required 
+                                   pattern="[a-zA-Z0-9._-]+" 
+                                   title="Допустимы только буквы, цифры, точки, подчеркивания и дефисы">
+                        </div>
+                        <div class="form-group">
+                            <label for="password">Пароль</label>
+                            <input type="password" id="password" name="password" required minlength="6">
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-success">Создать пользователя</button>
+                    </div>
+                </form>
+            </div>
+            
+            <div style="margin-top: 2rem;">
+                <h3 style="margin-bottom: 1rem;">📋 Список пользователей</h3>
+                <div class="loading" id="usersLoading">Загрузка пользователей...</div>
+                <table class="users-table" id="usersTable">
+                    <thead>
+                        <tr>
+                            <th>Пользователь</th>
+                            <th>Дата создания</th>
+                            <th>Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody id="usersTableBody">
+                        <!-- Users will be loaded here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- Secret Key Management Section -->
+        <div class="section">
+            <h2 class="section-title">
+                <span>🔑</span>
+                Управление SECRET_KEY
+            </h2>
+            
+            <div>
+                <h3 style="margin-bottom: 1rem;">🔐 Текущий SECRET_KEY</h3>
+                <div class="current-key">
+                    {{ current_secret_key[:8] }}***
+                </div>
+                <p style="color: #666; font-size: 0.9rem; margin-bottom: 2rem;">
+                    Показаны только первые 8 символов для безопасности
+                </p>
+            </div>
+            
+            <div class="form-container">
+                <h3 style="margin-bottom: 1rem;">🔄 Обновить SECRET_KEY</h3>
+                <form method="post" action="/admin/update-secret-key" 
+                      onsubmit="return confirm('Вы уверены? Все пользователи будут выходить из системы и потребуется повторная авторизация.')">
+                    <div class="form-group">
+                        <label for="secret_key">Новый SECRET_KEY (оставьте пустым для автогенерации)</label>
+                        <input type="text" id="secret_key" name="secret_key" 
+                               placeholder="Будет сгенерирован автоматически, если оставить пустым">
+                        <div class="warning-text">
+                            ⚠️ Внимание: Изменение SECRET_KEY приведет к выходу всех пользователей из системы
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-warning">Обновить SECRET_KEY</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Load users on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadUsers();
+        });
+        
+        async function loadUsers() {
+            const loading = document.getElementById('usersLoading');
+            const table = document.getElementById('usersTable');
+            const tbody = document.getElementById('usersTableBody');
+            
+            loading.style.display = 'block';
+            table.style.display = 'none';
+            
+            try {
+                const response = await fetch('/admin/users');
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    tbody.innerHTML = '';
+                    
+                    if (data.users.length === 0) {
+                        tbody.innerHTML = `
+                            <tr>
+                                <td colspan="3" class="empty-state">
+                                    <div>Пользователи не найдены</div>
+                                </td>
+                            </tr>
+                        `;
+                    } else {
+                        data.users.forEach(user => {
+                            const row = document.createElement('tr');
+                            row.innerHTML = `
+                                <td>
+                                    <div class="user-info">
+                                        <div class="user-avatar">
+                                            ${user.username.charAt(0).toUpperCase()}
+                                        </div>
+                                        <div class="user-details">
+                                            <div class="username">${user.username}</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="user-date">${user.created_at}</div>
+                                </td>
+                                <td>
+                                    ${user.username === 'admin' ? 
+                                        '<span style="color: #666; font-style: italic;">Администратор</span>' :
+                                        `<button type="button" class="btn btn-danger" onclick="deleteUser('${user.username}')">Удалить</button>`
+                                    }
+                                </td>
+                            `;
+                            tbody.appendChild(row);
+                        });
+                    }
+                    
+                    table.style.display = 'table';
+                } else {
+                    tbody.innerHTML = `
+                        <tr>
+                            <td colspan="3" class="empty-state">
+                                <div style="color: #dc3545;">Ошибка загрузки пользователей</div>
+                            </td>
+                        </tr>
+                    `;
+                    table.style.display = 'table';
+                }
+            } catch (error) {
+                console.error('Error loading users:', error);
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="3" class="empty-state">
+                            <div style="color: #dc3545;">Ошибка соединения</div>
+                        </td>
+                    </tr>
+                `;
+                table.style.display = 'table';
+            } finally {
+                loading.style.display = 'none';
+            }
+        }
+        
+        async function deleteUser(username) {
+            if (!confirm(`Вы уверены, что хотите удалить пользователя "${username}"?`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/admin/delete-user/${username}`, {
+                    method: 'POST'
+                });
+                
+                if (response.ok) {
+                    loadUsers(); // Reload users list
+                    // Show success message
+                    window.location.href = '/admin?success=user_deleted';
+                } else {
+                    alert('Ошибка при удалении пользователя');
+                }
+            } catch (error) {
+                console.error('Error deleting user:', error);
+                alert('Ошибка соединения');
+            }
+        }
+    </script>
+</body>
+</html>
