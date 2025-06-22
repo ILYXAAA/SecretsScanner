@@ -540,7 +540,12 @@
                 {{ project.name }}
             </h1>
             <div class="project-url">
-                <a href="{{ project.repo_url }}" target="_blank">{{ project.repo_url }}</a>
+                <a href="{{ project.repo_url }}" target="_blank">🔗 {{ project.repo_url }}</a>
+                {% if project.created_by %}
+                <div style="font-size: 0.85rem; color: #666; margin-top: 0.25rem;">
+                    👮 Создан пользователем: <b><span style="color: #28a745;">{{ project.created_by }}</span></b>
+                </div>
+                {% endif %}
             </div>
             <div class="project-actions">
                 <button class="btn btn-success" onclick="toggleScanForm()">
@@ -748,7 +753,8 @@
                                 {% endif %}
                             </span>
                             <div>
-                                • ℹ️ Запущено по: {{ stat.scan.ref_type }}: {{ stat.scan.ref }}
+                                • ℹ️ Запущено по: {{ stat.scan.ref_type }}: {{ stat.scan.ref }}<br>
+                                {% if stat.scan.started_by %}• 👮 <span style="color: #28a745;">{{ stat.scan.started_by }}</span>{% endif %}
                             </div>
                             <div>
                                 {% if stat.scan.repo_commit %}

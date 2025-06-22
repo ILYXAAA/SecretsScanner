@@ -456,25 +456,27 @@
         .table-header th:hover {
             background: #f1f5f9;
         }
-        
+
         .table-header th.sortable::after {
             content: '↕️';
             margin-left: 0.5rem;
             opacity: 0.5;
             font-size: 0.75rem;
         }
-        
-        .table-header th.sort-asc::after {
-            content: '↑';
-            opacity: 1;
-            color: #3b82f6;
+
+        /* .table-header th.sortable.sort-asc::after {
+            content: '↑' !important;
+            opacity: 1 !important;
+            color: #3b82f6 !important;
+            font-weight: bold !important;
         }
-        
-        .table-header th.sort-desc::after {
-            content: '↓';
-            opacity: 1;
-            color: #3b82f6;
-        }
+
+        .table-header th.sortable.sort-desc::after {
+            content: '↓' !important;
+            opacity: 1 !important;
+            color: #3b82f6 !important;
+            font-weight: bold !important;
+        } */
         
         .table-header th:nth-child(1) { width: 25%; } /* Secret */
         .table-header th:nth-child(2) { width: 8%; } /* Line */
@@ -1049,6 +1051,11 @@
                     <div class="commit-info">
                         ⚙️ Commit: <span style="font-weight: bold; color: #3b82f6;">{{ scan.repo_commit if scan.repo_commit else 'Unknown' }}</span>
                     </div>
+                    {% if scan.started_by %}
+                    <div class="commit-info">
+                        👮 Запущен пользователем: <span style="font-weight: bold; color: #3b82f6;">{{ scan.started_by }}</span>
+                    </div>
+                    {% endif %}
                     <div class="commit-info">
                         🕒 Завершен: <span style="font-weight: bold; color: #3b82f6;">{{ scan.completed_at.strftime('%d.%m.%Y %H:%M') if scan.completed_at else scan.started_at.strftime('%d.%m.%Y %H:%M') }}</span>
                     </div>
@@ -1181,6 +1188,13 @@
             </div>
 
             <div class="filter-group">
+                <h4>🔍 Поиск по секрету</h4>
+                <input type="text" id="secretValueFilter" placeholder="Введите часть секрета..." 
+                    style="width: 100%; padding: 0.5rem; border: 1px solid #e5e7eb; border-radius: 6px; font-size: 0.875rem;"
+                    oninput="applyFilters()">
+            </div>
+
+            <div class="filter-group">
                 <h4>🏷️ Тип</h4>
                 <div id="typeFilters">
                     <!-- Type filters will be populated by JavaScript -->
@@ -1211,7 +1225,8 @@
         let activeFilters = {
             status: [],
             severity: [],
-            type: []
+            type: [],
+            secretValue: ''
         };
 
         // Server-side data - БЕЗОПАСНАЯ загрузка через скрытый элемент
@@ -1418,12 +1433,11 @@
         }
 
         function applyFiltersSync() {
-            // console.log('Applying filters synchronously...');
-            
             // Update active filters from checkboxes
             activeFilters.status = [];
             activeFilters.severity = [];
             activeFilters.type = [];
+            activeFilters.secretValue = document.getElementById('secretValueFilter')?.value || '';
             
             // Get status filters
             document.querySelectorAll('#filtersPanel input[type="checkbox"]:checked').forEach(cb => {
@@ -1440,8 +1454,6 @@
                 activeFilters.type.push(cb.value);
             });
 
-            // console.log('Active filters:', activeFilters);
-
             // Filter logic
             if (activeFilters.status.length === 0 || activeFilters.severity.length === 0 || activeFilters.type.length === 0) {
                 filteredSecrets = [];
@@ -1453,16 +1465,18 @@
                         secretStatus = 'No status';
                     }
                     
-                    // ALL three conditions must be true
+                    // ALL conditions must be true
                     const statusMatch = activeFilters.status.includes(secretStatus);
                     const severityMatch = activeFilters.severity.includes(secret.severity);
                     const typeMatch = activeFilters.type.includes(secret.type);
                     
-                    return statusMatch && severityMatch && typeMatch;
+                    // Secret value filter
+                    const secretValueMatch = !activeFilters.secretValue || 
+                        (secret.secret && secret.secret.toLowerCase().includes(activeFilters.secretValue.toLowerCase()));
+                    
+                    return statusMatch && severityMatch && typeMatch && secretValueMatch;
                 });
             }
-
-            // console.log(`Filtered ${filteredSecrets.length} secrets from ${allSecrets.length} total`);
 
             // Reset to first page and clear selections
             currentPage = 1;
@@ -1486,8 +1500,14 @@
                 cb.checked = false;
             });
             
+            // Clear text input
+            const secretValueFilter = document.getElementById('secretValueFilter');
+            if (secretValueFilter) {
+                secretValueFilter.value = '';
+            }
+            
             // Clear active filters
-            activeFilters = { status: [], severity: [], type: [] };
+            activeFilters = { status: [], severity: [], type: [], secretValue: '' };
             
             // Apply filters
             applyFilters();
@@ -1547,7 +1567,7 @@
                 <table class="secrets-table">
                     <thead class="table-header">
                         <tr>
-                            <th>🔑 Secret</th>
+                            <th class="sortable" data-sort="secret">🔑 Secret</th>
                             <th>📍 Line</th>
                             <th class="sortable" data-sort="file">📁 File</th>
                             <th class="sortable" data-sort="type">🏷️ Type</th>
@@ -1907,54 +1927,51 @@
         }
 
         function handleSort(column) {
-            // Find existing sort for this column
-            const existingSortIndex = sortColumns.findIndex(sort => sort.column === column);
+            // Простая сортировка - только одна колонка
+            const existingSort = sortColumns.find(sort => sort.column === column);
             
-            if (existingSortIndex !== -1) {
-                // Column exists, cycle: asc -> desc -> remove
-                const currentSort = sortColumns[existingSortIndex];
-                if (currentSort.direction === 'asc') {
-                    currentSort.direction = 'desc';
+            if (existingSort) {
+                // Переключаем направление: asc -> desc -> none
+                if (existingSort.direction === 'asc') {
+                    existingSort.direction = 'desc';
                 } else {
-                    // Remove this column from sorting
-                    sortColumns.splice(existingSortIndex, 1);
+                    // Убираем сортировку
+                    sortColumns = [];
                 }
             } else {
-                // New column, add as ascending
-                sortColumns.push({ column: column, direction: 'asc' });
+                // Новая сортировка, заменяем предыдущую
+                sortColumns = [{ column: column, direction: 'asc' }];
             }
             
-            // Update visual indicators
-            updateSortIndicators();
-            
-            // Apply sort and re-render
+            // Применяем сортировку
             sortSecrets();
             renderTable();
             renderPagination();
+            
+            // Обновляем индикаторы после рендера таблицы
+            setTimeout(updateSortIndicators, 0);
         }
 
         function updateSortIndicators() {
-            const headers = document.querySelectorAll('.sortable');
-            headers.forEach(header => {
+            // Сначала очищаем все
+            document.querySelectorAll('.sortable').forEach(header => {
                 header.classList.remove('sort-asc', 'sort-desc');
-                const existingNumber = header.querySelector('.sort-number');
-                if (existingNumber) existingNumber.remove();
+                const indicator = header.querySelector('.sort-indicator');
+                if (indicator) indicator.remove();
             });
             
-            sortColumns.forEach((sort, index) => {
+            // Добавляем индикатор для активной сортировки
+            if (sortColumns.length > 0) {
+                const sort = sortColumns[0];
                 const header = document.querySelector(`[data-sort="${sort.column}"]`);
                 if (header) {
-                    header.classList.add(`sort-${sort.direction}`);
-                    
-                    if (sortColumns.length > 1) {
-                        const sortNumber = document.createElement('span');
-                        sortNumber.className = 'sort-number';
-                        sortNumber.textContent = index + 1;
-                        sortNumber.style.cssText = 'font-size: 0.7rem; background: #3b82f6; color: white; border-radius: 50%; width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; margin-left: 4px;';
-                        header.appendChild(sortNumber);
-                    }
+                    const indicator = document.createElement('span');
+                    indicator.className = 'sort-indicator';
+                    indicator.textContent = sort.direction === 'asc' ? '↑' : '↓';
+                    indicator.style.cssText = 'margin-left: 0.5rem; color: #3b82f6; font-weight: bold; font-size: 0.9rem;';
+                    header.appendChild(indicator);
                 }
-            });
+            }
         }
 
         function sortSecrets() {
@@ -1967,13 +1984,17 @@
                     let valueA, valueB;
                     
                     switch (sort.column) {
+                        case 'secret':
+                            valueA = (a.secret || '').toLowerCase();
+                            valueB = (b.secret || '').toLowerCase();
+                            break;
                         case 'file':
-                            valueA = a.path.toLowerCase();
-                            valueB = b.path.toLowerCase();
+                            valueA = (a.path || '').toLowerCase();
+                            valueB = (b.path || '').toLowerCase();
                             break;
                         case 'type':
-                            valueA = a.type.toLowerCase();
-                            valueB = b.type.toLowerCase();
+                            valueA = (a.type || '').toLowerCase();
+                            valueB = (b.type || '').toLowerCase();
                             break;
                         case 'status':
                             const statusOrder = { 'Confirmed': 3, 'No status': 2, 'Refuted': 1 };
@@ -2041,7 +2062,22 @@
             const safeContext = safeHtml(secretData.context || '');
             const safeType = safeHtml(secretData.type || '');
             const safeComment = safeHtml(secretData.exception_comment || '');
-            
+            // Добавить информацию о пользователях
+            let userInfoHtml = '';
+            if ((secretData.confirmed_by && secretData.confirmed_by.trim() !== '') || 
+                (secretData.refuted_by && secretData.refuted_by.trim() !== '')) {
+                userInfoHtml = `
+                    <div class="detail-section">
+                        <h4>👮 Информация об изменениях</h4>
+                        <div class="detail-field" style="background: #f0f9ff; border-left: 3px solid #3b82f6;">
+                            ${secretData.confirmed_by ? `✅ Подтвержден пользователем: <strong>${escapeHtml(secretData.confirmed_by)}</strong>` : ''}
+                            ${secretData.refuted_by ? `❌ Опровергнут пользователем: <strong>${escapeHtml(secretData.refuted_by)}</strong>` : ''}
+                            ${secretData.refuted_at ? `<br><small>Дата: ${escapeHtml(secretData.refuted_at)}</small>` : ''}
+                        </div>
+                    </div>
+                `;
+            }
+
             let previousStatusHtml = '';
             if (secretData.previous_status || secretData.previous_severity) {
                 let statusPart = '';
@@ -2175,7 +2211,7 @@
                     </div>
 
                     ${previousStatusHtml}
-                    
+                    ${userInfoHtml}
                     ${restoreHtml}
                 </div>
             `;

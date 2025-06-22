@@ -2,9 +2,9 @@ from fastapi import FastAPI, Request, Form, Depends, HTTPException, File, Upload
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.security import HTTPBearer
+# from fastapi.security import HTTPBearer
 from sqlalchemy import create_engine, Column, String, DateTime, Integer, Text, Boolean, func, text
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from datetime import datetime, timedelta, timezone
 from CredsManager import decrypt_from_file
@@ -26,6 +26,10 @@ from jose import JWTError, jwt
 import secrets
 import html
 from utils.html_report_generator import generate_html_report
+from passlib.context import CryptContext
+# Password hashing
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
 os.system("") # Для цветной консоли
 # Load environment variables
 load_dotenv()
@@ -36,11 +40,6 @@ os.environ["no_proxy"] = "127.0.0.1,localhost"
 SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_urlsafe(32))
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 480  # 8 часов
-
-API_KEY = os.getenv("API_KEY")
-if not API_KEY:
-    raise ValueError("API_KEY must be set in .env file")
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -143,6 +142,7 @@ class Project(Base):
     name = Column(String, unique=True, index=True)
     repo_url = Column(String)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_by = Column(String, nullable=True)
 
 class Scan(Base):
     __tablename__ = "scans"
@@ -156,6 +156,7 @@ class Scan(Base):
     completed_at = Column(DateTime)
     files_scanned = Column(Integer)  # New field for tracking scanned files
     error_message = Column(Text, default="No message")  # Add default value
+    started_by = Column(String, nullable=True)
 
 class Secret(Base):
     __tablename__ = "secrets"
@@ -171,9 +172,52 @@ class Secret(Base):
     is_exception = Column(Boolean, default=False)
     exception_comment = Column(Text)
     refuted_at = Column(DateTime)  # Field for tracking when secret was refuted
+    confirmed_by = Column(String, nullable=True)
+    refuted_by = Column(String, nullable=True)
 
 class AuthenticationException(Exception):
     pass
+
+# Отдельный Base для пользователей
+UserBase = declarative_base()
+class User(UserBase):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True, nullable=False)
+    password_hash = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+def ensure_user_database():
+    auth_dir = Path("Auth")
+    auth_dir.mkdir(exist_ok=True)
+    
+    USERS_DATABASE_URL = os.getenv("USERS_DATABASE_URL", "sqlite:///./Auth/users.db")
+    user_engine = create_engine(USERS_DATABASE_URL, connect_args={"check_same_thread": False} if "sqlite" in USERS_DATABASE_URL else {})
+    UserBase.metadata.create_all(bind=user_engine)
+    logger.info("User database initialized")
+ensure_user_database()
+
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
+
+def get_password_hash(password):
+    return pwd_context.hash(password)
+
+def get_user_db():
+    auth_dir = Path("Auth")
+    auth_dir.mkdir(exist_ok=True)
+    
+    USERS_DATABASE_URL = os.getenv("USERS_DATABASE_URL", "sqlite:///./Auth/users.db")
+    user_engine = create_engine(USERS_DATABASE_URL, connect_args={"check_same_thread": False} if "sqlite" in USERS_DATABASE_URL else {})
+    
+    Base.metadata.create_all(bind=user_engine)
+    
+    UserSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=user_engine)
+    db = UserSessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 def create_indexes():
     """Создание индексов для оптимизации производительности"""
@@ -202,7 +246,44 @@ def create_indexes():
     except Exception as e:
         logger.error(f"Error creating indexes: {e}")
 
+
+# Функция миграции БД т.к. добавлен новый функционал
+def migrate_database():
+    """Add new columns for user tracking"""
+    try:
+        with engine.connect() as conn:
+            # Check if columns exist before adding them
+            try:
+                conn.execute(text("SELECT started_by FROM scans LIMIT 1"))
+            except:
+                conn.execute(text("ALTER TABLE scans ADD COLUMN started_by TEXT"))
+                logger.info("Added started_by column to scans table")
+            
+            try:
+                conn.execute(text("SELECT created_by FROM projects LIMIT 1"))
+            except:
+                conn.execute(text("ALTER TABLE projects ADD COLUMN created_by TEXT"))
+                logger.info("Added created_by column to projects table")
+            
+            try:
+                conn.execute(text("SELECT confirmed_by FROM secrets LIMIT 1"))
+            except:
+                conn.execute(text("ALTER TABLE secrets ADD COLUMN confirmed_by TEXT"))
+                logger.info("Added confirmed_by column to secrets table")
+            
+            try:
+                conn.execute(text("SELECT refuted_by FROM secrets LIMIT 1"))
+            except:
+                conn.execute(text("ALTER TABLE secrets ADD COLUMN refuted_by TEXT"))
+                logger.info("Added refuted_by column to secrets table")
+            
+            conn.commit()
+            logger.info("Database migration completed successfully")
+    except Exception as e:
+        logger.error(f"Error during database migration: {e}")
+
 Base.metadata.create_all(bind=engine)
+migrate_database()  # Миграция БД новый функционал
 create_indexes()
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
@@ -228,9 +309,10 @@ def verify_token(token: str):
 # Обработчик исключений
 @app.exception_handler(AuthenticationException)
 async def auth_exception_handler(request: Request, exc: AuthenticationException):
-    return RedirectResponse(url="/", status_code=302)
+    response = RedirectResponse(url="/", status_code=302)
+    response.delete_cookie(key="auth_token")  # Удаляем невалидный токен
+    return response
 
-# Измените функцию get_current_user
 async def get_current_user(request: Request):
     token = request.cookies.get("auth_token")
     if not token:
@@ -239,6 +321,22 @@ async def get_current_user(request: Request):
     username = verify_token(token)
     if not username:
         raise AuthenticationException()
+    
+    # Проверяем, что пользователь еще существует в БД
+    auth_dir = Path("Auth")
+    auth_dir.mkdir(exist_ok=True)
+    
+    USERS_DATABASE_URL = os.getenv("USERS_DATABASE_URL", "sqlite:///./Auth/users.db")
+    user_engine = create_engine(USERS_DATABASE_URL, connect_args={"check_same_thread": False} if "sqlite" in USERS_DATABASE_URL else {})
+    UserSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=user_engine)
+    user_db = UserSessionLocal()
+    
+    try:
+        user = user_db.query(User).filter(User.username == username).first()
+        if not user:
+            raise AuthenticationException()  # Пользователь удален
+    finally:
+        user_db.close()
     
     return username
 
@@ -251,24 +349,24 @@ def get_db():
         db.close()
 
 # Authentication
-security = HTTPBearer()
+# security = HTTPBearer()
 
-def load_credentials():
-    try:
-        LOGIN_FILE = "Auth/login.dat"
-        PASSWORD_FILE = "Auth/password.dat"
-        username = decrypt_from_file(LOGIN_FILE, key_name="LOGIN_KEY")
-        password = decrypt_from_file(PASSWORD_FILE, key_name="PASSWORD_KEY")
-        return [username, password]
-    except Exception as error:
-        logger.error(f"Error: {str(error)}")
-        logger.error("Если это первый запуск - необходимо запустить мастер настройки Auth данных `python CredsManager.py`")
+# def load_credentials():
+#     try:
+#         LOGIN_FILE = "Auth/login.dat"
+#         PASSWORD_FILE = "Auth/password.dat"
+#         username = decrypt_from_file(LOGIN_FILE, key_name="LOGIN_KEY")
+#         password = decrypt_from_file(PASSWORD_FILE, key_name="PASSWORD_KEY")
+#         return [username, password]
+#     except Exception as error:
+#         logger.error(f"Error: {str(error)}")
+#         logger.error("Если это первый запуск - необходимо запустить мастер настройки Auth данных `python CredsManager.py`")
 
-    return None
+#     return None
 
-def verify_credentials(username: str, password: str):
-    creds = load_credentials()
-    if creds and creds[0] == username and creds[1] == password:
+def verify_credentials(username: str, password: str, user_db: Session):
+    user = user_db.query(User).filter(User.username == username).first()
+    if user and verify_password(password, user.password_hash):
         return True
     return False
 
@@ -300,6 +398,10 @@ async def check_scan_timeouts():
         await asyncio.sleep(60)
 
 def get_auth_headers():
+    load_dotenv(override=True)
+    API_KEY = os.getenv("API_KEY")
+    if not API_KEY:
+        raise ValueError("API_KEY must be set in .env file")
     """Get headers with API key for microservice requests"""
     return {"X-API-Key": API_KEY}
 
@@ -342,21 +444,31 @@ async def favicon():
 async def login_page(request: Request):
     token = request.cookies.get("auth_token")
     if token:
-        # Проверяем валидность токена перед редиректом
         username = verify_token(token)
         if username:
-            return RedirectResponse(url="/dashboard", status_code=302)
-        else:
-            # Токен невалиден - удаляем его и показываем страницу входа
-            response = templates.TemplateResponse("login.html", {"request": request})
-            response.delete_cookie(key="auth_token")
-            return response
+            # Проверяем существование пользователя
+            USERS_DATABASE_URL = os.getenv("USERS_DATABASE_URL", "sqlite:///./Auth/users.db")
+            user_engine = create_engine(USERS_DATABASE_URL, connect_args={"check_same_thread": False} if "sqlite" in USERS_DATABASE_URL else {})
+            UserSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=user_engine)
+            user_db = UserSessionLocal()
+            
+            try:
+                user = user_db.query(User).filter(User.username == username).first()
+                if user:
+                    return RedirectResponse(url="/dashboard", status_code=302)
+            finally:
+                user_db.close()
+        
+        # Токен невалиден или пользователь не существует - удаляем cookie
+        response = templates.TemplateResponse("login.html", {"request": request})
+        response.delete_cookie(key="auth_token")
+        return response
     
     return templates.TemplateResponse("login.html", {"request": request})
 
 @app.post("/login")
-async def login(request: Request, username: str = Form(...), password: str = Form(...)):
-    if verify_credentials(username, password):
+async def login(request: Request, username: str = Form(...), password: str = Form(...), user_db: Session = Depends(get_user_db)):
+    if verify_credentials(username, password, user_db):
         access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
         access_token = create_access_token(
             data={"sub": username}, expires_delta=access_token_expires
@@ -827,21 +939,18 @@ def validate_repo_url(repo_url: str, hub_type: str) -> None:
 
 @app.post("/projects/add")
 async def add_project(request: Request, project_name: str = Form(...), repo_url: str = Form(...), 
-                     _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
+                     current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     try:
-        # Validate repository URL based on hub type
         validate_repo_url(repo_url, HUB_TYPE)
         
-        # Check if project already exists
         existing = db.query(Project).filter(Project.name == project_name).first()
         if existing:
             return RedirectResponse(url="/dashboard?error=project_exists", status_code=302)
         
-        project = Project(name=project_name, repo_url=repo_url)
+        project = Project(name=project_name, repo_url=repo_url, created_by=current_user)  # Добавлен created_by
         db.add(project)
         db.commit()
         
-        # Redirect to the project page instead of dashboard
         return RedirectResponse(url=f"/project/{project_name}", status_code=302)
     
     except ValueError as e:
@@ -941,7 +1050,7 @@ async def project_page(request: Request, project_name: str, _: bool = Depends(ge
 
 @app.post("/project/{project_name}/scan")
 async def start_scan(request: Request, project_name: str, ref_type: str = Form(...), 
-                    ref: str = Form(...), _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
+                    ref: str = Form(...), current_user: str = Depends(get_current_user), _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
     project = db.query(Project).filter(Project.name == project_name).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -952,7 +1061,14 @@ async def start_scan(request: Request, project_name: str, ref_type: str = Form(.
     
     # Create scan record with 'pending' status
     scan_id = str(uuid.uuid4())
-    scan = Scan(id=scan_id, project_name=project_name, ref_type=ref_type, ref=ref, status="pending")
+    scan = Scan(
+        id=scan_id, 
+        project_name=project_name, 
+        ref_type=ref_type, 
+        ref=ref, 
+        status="pending",
+        started_by=current_user
+    )
     db.add(scan)
     db.commit()
     
@@ -1005,7 +1121,7 @@ async def start_scan(request: Request, project_name: str, ref_type: str = Form(.
 @app.post("/project/{project_name}/local-scan")
 async def start_local_scan(request: Request, project_name: str, 
                           commit: str = Form(...), zip_file: UploadFile = File(...),
-                          _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
+                          _: bool = Depends(get_current_user), current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     project = db.query(Project).filter(Project.name == project_name).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -1026,7 +1142,8 @@ async def start_local_scan(request: Request, project_name: str,
         ref_type="Commit", 
         ref=commit, 
         repo_commit=commit,
-        status="pending"
+        status="pending",
+        started_by=current_user
     )
     db.add(scan)
     db.commit()
@@ -1310,6 +1427,8 @@ async def scan_results(request: Request, scan_id: str, severity_filter: str = ""
             "is_exception": bool(secret.is_exception),
             "exception_comment": html.escape(secret.exception_comment or "", quote=True),
             "refuted_at": secret.refuted_at.strftime('%Y-%m-%d %H:%M') if secret.refuted_at else None,
+            "confirmed_by": html.escape(secret.confirmed_by or "", quote=True) if secret.confirmed_by else None,
+            "refuted_by": html.escape(secret.refuted_by or "", quote=True) if secret.refuted_by else None,
             "previous_status": html.escape(previous_status or "", quote=True) if previous_status else None,
             "previous_scan_date": previous_scan_date
         }
@@ -1338,7 +1457,7 @@ async def scan_results(request: Request, scan_id: str, severity_filter: str = ""
 
 @app.post("/secrets/{secret_id}/update-status")
 async def update_secret_status(secret_id: int, status: str = Form(...), 
-                              comment: str = Form(""), _: bool = Depends(get_current_user), 
+                              comment: str = Form(""), current_user: str = Depends(get_current_user), 
                               db: Session = Depends(get_db)):
     secret = db.query(Secret).filter(Secret.id == secret_id).first()
     if not secret:
@@ -1349,16 +1468,26 @@ async def update_secret_status(secret_id: int, status: str = Form(...),
         secret.is_exception = True
         secret.exception_comment = comment
         secret.refuted_at = datetime.now(timezone.utc)
+        secret.refuted_by = current_user
+        secret.confirmed_by = None
+    elif status == "Confirmed":
+        secret.is_exception = False
+        secret.exception_comment = None
+        secret.refuted_at = None
+        secret.confirmed_by = current_user
+        secret.refuted_by = None
     else:
         secret.is_exception = False
         secret.exception_comment = None
         secret.refuted_at = None
+        secret.confirmed_by = None
+        secret.refuted_by = None
     
     db.commit()
     return {"status": "success"}
 
 @app.post("/secrets/bulk-action")
-async def bulk_secret_action(request: Request, _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
+async def bulk_secret_action(request: Request, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     data = await request.json()
     secret_ids = data.get("secret_ids", [])
     action = data.get("action")
@@ -1374,10 +1503,20 @@ async def bulk_secret_action(request: Request, _: bool = Depends(get_current_use
                 secret.is_exception = True
                 secret.exception_comment = comment
                 secret.refuted_at = datetime.now(timezone.utc)
+                secret.refuted_by = current_user
+                secret.confirmed_by = None
+            elif value == "Confirmed":
+                secret.is_exception = False
+                secret.exception_comment = None
+                secret.refuted_at = None
+                secret.confirmed_by = current_user
+                secret.refuted_by = None
             else:
                 secret.is_exception = False
                 secret.exception_comment = None
                 secret.refuted_at = None
+                secret.confirmed_by = None
+                secret.refuted_by = None
         elif action == "severity":
             secret.severity = value
     
@@ -1660,7 +1799,7 @@ async def get_scan_status(scan_id: str, _: bool = Depends(get_current_user), db:
     }
 
 @app.post("/multi_scan")
-async def multi_scan(request: Request, _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
+async def multi_scan(request: Request, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     """Handle multi-scan requests"""
     try:
         scan_requests = await request.json()
@@ -1691,7 +1830,8 @@ async def multi_scan(request: Request, _: bool = Depends(get_current_user), db: 
                 project_name=scan_request["ProjectName"],
                 ref_type=scan_request["RefType"],
                 ref=scan_request["Ref"],
-                status="pending"
+                status="pending",
+                started_by=current_user
             )
             db.add(scan)
             scan_records.append(scan)

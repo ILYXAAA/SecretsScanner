@@ -698,6 +698,11 @@
                             </span>
                         </div>
                         <div class="scan-meta">
+                            {% if scan_data.scan.started_by %}
+                            <span style="color: #3b82f6;">👮 {{ scan_data.scan.started_by }}</span>
+                            {% endif %}
+                        </div>
+                        <div class="scan-meta">
                             🕒 Создан : {{ scan_data.scan.started_at.strftime('%d.%m.%Y %H:%M') }}
                         </div>
                         <div class="scan-meta">
@@ -813,6 +818,12 @@
                         <div class="project-meta">
                             🕒 Создан: {{ project_data.project.created_at.strftime('%d.%m.%Y %H:%M') }}
                         </div>
+                        <div class="project-meta">
+                            {% if project_data.project.created_by %}
+                            <span style="color: #3b82f6;">👮 {{ project_data.project.created_by }}</span>
+                            {% endif %}
+                        </div>
+
                     </div>
                     {% if project_data.latest_scan %}
                     <div class="project-scan-info">

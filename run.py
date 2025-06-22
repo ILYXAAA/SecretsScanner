@@ -108,50 +108,6 @@ def setup_microservice_url():
             load_dotenv(override=True)
             break
 
-def setup_login_key():
-    logging.info("Необходимо настроить LOGIN_KEY")
-    while True:
-        try:
-            filename = "Auth/login.dat"
-            message = input("Введите логин для учетной записи\n>")
-
-            key = Fernet.generate_key().decode()
-            fernet = Fernet(key.encode())
-            encrypted = fernet.encrypt(message.encode())
-
-            with open(filename, "wb") as file:
-                file.write(encrypted)
-
-            input("Нажмите Enter для подтверждения (Консоль будет очищена)")
-            set_key(".env", "LOGIN_KEY", key)
-            load_dotenv(override=True)
-            os.system('cls' if os.name == 'nt' else 'clear')
-            break
-        except Exception as error:
-            print(str(error))
-
-def setup_password_key():
-    logging.info("Необходимо настроить PASSWORD_KEY")
-    while True:
-        try:
-            filename = "Auth/password.dat"
-            message = input("Введите пароль для учетной записи\n>")
-
-            key = Fernet.generate_key().decode()
-            fernet = Fernet(key.encode())
-            encrypted = fernet.encrypt(message.encode())
-
-            with open(filename, "wb") as file:
-                file.write(encrypted)
-
-            input("Нажмите Enter для подтверждения (Консоль будет очищена)")
-            set_key(".env", "PASSWORD_KEY", key)
-            load_dotenv(override=True)
-            os.system('cls' if os.name == 'nt' else 'clear')
-            break
-        except Exception as error:
-            print(str(error))
-
 def setup_secret_key():
     logging.info("Необходимо настроить SECRET_KEY (используется для сессий)")
     answer = input("Хотите сгенерировать токен автоматически? (Y/N)\n>")
@@ -181,20 +137,89 @@ def setup_api_key():
     os.system('cls' if os.name == 'nt' else 'clear')
 
 def create_default_env_file():
-    """Создает .env файл с базовыми настройками"""
+    """Создает .env файл с базовыми настройками, если переменные ещё не заданы"""
     if not os.path.exists(".env"):
-        with open('.env', 'w') as f:
-            f.write("")
-    
-    set_key(".env", "DATABASE_URL", "sqlite:///./database/secrets_scanner.db")
-    set_key(".env", "HUB_TYPE", "Azure")
-    set_key(".env", "BACKUP_DIR", "./backups")
-    set_key(".env", "BACKUP_RETENTION_DAYS", "7")
-    set_key(".env", "BACKUP_INTERVAL_HOURS", "24")
+        with open('.env', 'w'):
+            pass  # просто создаём пустой файл
 
-    load_dotenv(override=True)
+    load_dotenv()  # загружаем переменные перед проверками
 
-    logging.info(".env обновлен базовыми настройками")
+    defaults = {
+        "DATABASE_URL": "sqlite:///./database/secrets_scanner.db",
+        "USERS_DATABASE_URL": "sqlite:///./Auth/users.db",
+        "HUB_TYPE": "Azure",
+        "BACKUP_DIR": "./backups",
+        "BACKUP_RETENTION_DAYS": "7",
+        "BACKUP_INTERVAL_HOURS": "24"
+    }
+
+    for key, value in defaults.items():
+        if not os.getenv(key):
+            set_key(".env", key, value)
+
+    logging.info(".env дополнен базовыми настройками")
+
+def check_and_setup_user_database():
+    """Setup user database and create first user if needed"""
+    from pathlib import Path
+    from getpass import getpass
+    from sqlalchemy import create_engine, Column, String, DateTime, Integer
+    from sqlalchemy.orm import declarative_base
+    from sqlalchemy.orm import sessionmaker
+    from passlib.context import CryptContext
+    from datetime import datetime, timezone
+    import os
+
+    # Setup
+    Path("Auth").mkdir(exist_ok=True)
+    USERS_DATABASE_URL = os.getenv("USERS_DATABASE_URL", "sqlite:///./Auth/users.db")
+
+    UserBase = declarative_base()
+    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+    class User(UserBase):
+        __tablename__ = "users"
+        id = Column(Integer, primary_key=True, index=True)
+        username = Column(String, unique=True, index=True, nullable=False)
+        password_hash = Column(String, nullable=False)
+        created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    # Create DB and check users
+    engine = create_engine(USERS_DATABASE_URL, connect_args={"check_same_thread": False} if "sqlite" in USERS_DATABASE_URL else {})
+    UserBase.metadata.create_all(bind=engine)
+
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    db = SessionLocal()
+    try:
+        if db.query(User).count() == 0:
+            logging.warning("В БД users.db не найдено ни одного пользователя. Необходимо создать первого пользователя.")
+            logging.warning("Дальнейшее управление пользователями доступно в UsersManager.py")
+            
+            while True:
+                username = input("Введите имя пользователя: ").strip()
+                password = getpass("Введите пароль для пользователя: ").strip()
+
+                # Простейшая валидация пароля
+                if len(password) < 8:
+                    logging.warning("Пароль должен быть не менее 8 символов. Повторите ввод.")
+                    continue
+                if username == "":
+                    logging.warning("Имя пользователя не может быть пустым.")
+                    continue
+
+                try:
+                    hashed_password = pwd_context.hash(password)
+                    user = User(username=username, password_hash=hashed_password)
+                    db.add(user)
+                    db.commit()
+                    logging.info(f"Пользователь '{username}' успешно создан.")
+                    break  # выходим из цикла после успешной регистрации
+                except Exception as e:
+                    db.rollback()
+                    logging.error(f"Ошибка при создании пользователя: {e}")
+    finally:
+        db.close()
+    logging.info("Проведена валидация БД users.db")
 
 def is_first_run():
     """Проверяет, является ли это первым запуском"""
@@ -206,7 +231,7 @@ def is_first_run():
     load_dotenv()
     required_vars = ['HUB_TYPE', 'DATABASE_URL', 'BACKUP_DIR', 'BACKUP_RETENTION_DAYS', 
                      'BACKUP_INTERVAL_HOURS', 'LOGIN_KEY', 'PASSWORD_KEY', 'API_KEY', 
-                     'APP_HOST', 'APP_PORT', 'MICROSERVICE_URL', 'SECRET_KEY']
+                     'APP_HOST', 'APP_PORT', 'MICROSERVICE_URL', 'SECRET_KEY', 'USERS_DATABASE_URL']
     
     for var in required_vars:
         value = os.getenv(var)
@@ -229,14 +254,12 @@ def validate_environment():
         setup_microservice_url()
     if not os.getenv("SECRET_KEY") or os.getenv("SECRET_KEY") == "***":
         setup_secret_key()
-    if not os.getenv("LOGIN_KEY") or os.getenv("LOGIN_KEY") == "***":
-        setup_login_key()
-    if not os.getenv("PASSWORD_KEY") or os.getenv("PASSWORD_KEY") == "***":
-        setup_password_key()
     if not os.getenv("API_KEY") or os.getenv("API_KEY") == "***":
         setup_api_key()
 
-    required_files = ["Auth/login.dat", "Auth/password.dat", "templates/dashboard.html", "templates/login.html",
+    check_and_setup_user_database()
+
+    required_files = ["templates/dashboard.html", "templates/login.html",
                       "templates/multi_scan.html", "templates/project.html", "templates/scan_results.html", 
                       "templates/scan_status.html", "templates/settings.html", "utils/html_report_generator.py", "CredsManager.py", "main.py"]
     
