@@ -462,49 +462,51 @@
             box-shadow: 0 4px 6px rgba(0,0,0,0.05);
             border: 1px solid #e1e5e9;
             margin-bottom: 2rem;
+            max-width: 800px;
         }
 
         .completed-repos h3 {
             color: #333;
+            font-size: 1.1rem;
             margin-bottom: 1rem;
-            font-size: 1.25rem;
             font-weight: 600;
         }
 
         .repo-list {
             background: #f8f9fa;
-            padding: 1rem;
-            border-radius: 8px;
+            padding: 0.75rem; 
+            border-radius: 6px;
             font-family: monospace;
-            font-size: 0.9rem;
-            max-height: 300px;
+            font-size: 0.85rem; 
+            max-height: 200px; 
             overflow-y: auto;
             border: 1px solid #e1e5e9;
-            max-width: 800px; 
+            line-height: 1.4;
         }
 
         .repo-item {
-            margin-bottom: 0.5rem;
+            margin-bottom: 0.25rem;
             color: #333;
             word-break: break-all;
-            padding: 0.25rem 0; 
-            border-bottom: 1px solid #e9ecef; 
+            padding: 0.2rem 0;
+            border-bottom: 1px solid #e9ecef;
+            font-size: 0.8rem;
         }
 
         .repo-item:last-child {
             margin-bottom: 0;
-            border-bottom: none; 
+            border-bottom: none;
         }
 
         .copy-button {
             background: #6c757d;
             color: white;
             border: none;
-            padding: 0.5rem 1rem;
+            padding: 0.4rem 0.8rem;
             border-radius: 6px;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
             cursor: pointer;
-            margin-top: 1rem;
+            margin-top: 0.75rem;
             transition: background-color 0.2s;
         }
 
@@ -802,8 +804,8 @@
             
             return { existing, missing };
         }
-        
-        function displayScanResults(scans, multiScanId = null) {
+
+        function displayScanResults(scans, multiScanId = null, baseRepoUrls = null) {
             const scanResultsDiv = document.getElementById('scanResults');
             const scanListDiv = document.getElementById('scanList');
             
@@ -812,6 +814,11 @@
             // Store multi-scan ID if provided
             if (multiScanId) {
                 sessionStorage.setItem('currentMultiScanId', multiScanId);
+            }
+            
+            // Store base repo URLs for later use
+            if (baseRepoUrls) {
+                sessionStorage.setItem('baseRepoUrls', JSON.stringify(baseRepoUrls));
             }
             
             // Determine current scan position for sequential animation
@@ -924,10 +931,28 @@
                 return;
             }
             
-            // Get base repo URL - use first scan's data as template
+            // Get stored base repo URLs
+            let baseRepoUrls = {};
+            try {
+                const stored = sessionStorage.getItem('baseRepoUrls');
+                if (stored) {
+                    baseRepoUrls = JSON.parse(stored);
+                }
+            } catch (e) {
+                console.warn('Could not parse stored base repo URLs');
+            }
+            
+            // Build repo URLs with commits
             const repoUrls = scansWithCommits.map(scan => {
-                // Try to construct repo URL from project data
-                return `${scan.base_repo_url || 'Unknown'}/commit/${scan.commit}`;
+                // Try to get base repo URL from stored data first
+                let baseUrl = baseRepoUrls[scan.project_name] || scan.base_repo_url;
+                
+                // If still no base URL, try to construct from project name (fallback)
+                if (!baseUrl || baseUrl === 'Unknown') {
+                    baseUrl = `[${scan.project_name}]`;
+                }
+                
+                return `${baseUrl}/commit/${scan.commit}`;
             });
             
             repoListDiv.innerHTML = repoUrls.map(url => 
@@ -1044,7 +1069,13 @@
                     hideLoading();
                     showAlert('success', 'Сканирования успешно запущены!');
                     
-                    // Display scan results with multi-scan ID
+                    // Create base repo URLs mapping
+                    const baseRepoUrls = {};
+                    allProjects.forEach(item => {
+                        baseRepoUrls[item.projectName] = item.parsed.baseRepoUrl;
+                    });
+                    
+                    // Display scan results with multi-scan ID and base repo URLs
                     const scans = result.data.map((item, index) => ({
                         project_name: item.ProjectName,
                         ref_type: item.RefType,
@@ -1054,8 +1085,9 @@
                         base_repo_url: scanRequests[index].RepoUrl
                     }));
                     
-                    displayScanResults(scans, result.multi_scan_id);
-                } else if (result.status === 'validation_failed') {
+                    displayScanResults(scans, result.multi_scan_id, baseRepoUrls);
+                }
+                else if (result.status === 'validation_failed') {
                     hideLoading();
                     showAlert('error', result.message);
                     displayResolutionErrors(result.data);
