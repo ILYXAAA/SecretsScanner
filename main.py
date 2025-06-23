@@ -3,7 +3,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, File
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 # from fastapi.security import HTTPBearer
-from sqlalchemy import create_engine, Column, String, DateTime, Integer, Text, Boolean, func, text
+from sqlalchemy import create_engine, Column, String, DateTime, Integer, Text, Boolean, func, text, Float
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from datetime import datetime, timedelta, timezone
@@ -167,6 +167,7 @@ class Secret(Base):
     context = Column(Text)
     severity = Column(String)
     type = Column(String)
+    confidence = Column(Float, default=1.0)
     status = Column(String, default="No status")  # No status, Confirmed, Refuted
     is_exception = Column(Boolean, default=False)
     exception_comment = Column(Text)
@@ -300,6 +301,14 @@ def migrate_database():
                 conn.execute(text("CREATE INDEX IF NOT EXISTS idx_multi_scans_user ON multi_scans (user_id)"))
                 logger.info("Created multi_scans table")
             
+            try:
+                conn.execute(text("SELECT confidence FROM secrets LIMIT 1"))
+            except:
+                conn.execute(text("ALTER TABLE secrets ADD COLUMN confidence REAL DEFAULT 1.0"))
+                # Update existing records to have confidence = 1.0
+                conn.execute(text("UPDATE secrets SET confidence = 1.0 WHERE confidence IS NULL"))
+                logger.info("Added confidence column to secrets table")
+
             conn.commit()
             logger.info("Database migration completed successfully")
     except Exception as e:
@@ -1397,7 +1406,7 @@ async def receive_scan_results(project_name: str, scan_id: str, request: Request
                 status = "No status"
                 exception_comment = None
                 refuted_at = None
-                severity = result["severity"]
+                severity = result.get("severity", result.get("Severity", "High"))
 
             secret = Secret(
                 scan_id=scan_id,
@@ -1406,7 +1415,8 @@ async def receive_scan_results(project_name: str, scan_id: str, request: Request
                 secret=result["secret"],
                 context=result["context"],
                 severity=severity,
-                type=result["Type"],
+                confidence=result.get("confidence", 1.0),
+                type=result.get("Type", result.get("type", "Unknown")),
                 is_exception=is_exception,
                 exception_comment=exception_comment,
                 status=status,
@@ -1548,6 +1558,7 @@ async def scan_results(request: Request, scan_id: str, severity_filter: str = ""
             "context": html.escape(secret.context or "", quote=True),
             "severity": html.escape(secret.severity or "", quote=True),
             "type": html.escape(secret.type or "", quote=True),
+            "confidence": float(secret.confidence) if secret.confidence is not None else 1.0,
             "status": html.escape(secret.status or "No status", quote=True),
             "is_exception": bool(secret.is_exception),
             "exception_comment": html.escape(secret.exception_comment or "", quote=True),
@@ -1792,6 +1803,7 @@ async def add_custom_secret(request: Request, scan_id: str = Form(...), secret_v
             secret=modified_secret_value,
             context=full_context,
             severity="High",
+            confidence=1.0,
             type=secret_type,
             status="Confirmed",
             is_exception=False,
