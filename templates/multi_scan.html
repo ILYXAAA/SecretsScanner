@@ -1204,44 +1204,21 @@
         }
         
         function clearScanResults() {
-            const multiScanId = sessionStorage.getItem('currentMultiScanId');
-            if (multiScanId) {
-                // Ask for confirmation before deleting
-                if (confirm('Удалить результаты мультисканирования из базы данных?')) {
-                    fetch(`/api/multi-scans/${multiScanId}`, {
-                        method: 'DELETE'
-                    }).then(response => {
-                        if (response.ok) {
-                            sessionStorage.removeItem('currentMultiScanId');
-                            document.getElementById('scanResults').style.display = 'none';
-                            document.getElementById('completedRepos').style.display = 'none';
-                            document.getElementById('scanForm').style.display = 'block';
-                            showAlert('success', 'Результаты мультисканирования удалены');
-                            
-                            if (refreshTimer) {
-                                clearInterval(refreshTimer);
-                                refreshTimer = null;
-                            }
-                        } else {
-                            showAlert('error', 'Ошибка при удалении результатов');
-                        }
-                    }).catch(error => {
-                        console.error('Error deleting multi-scan:', error);
-                        showAlert('error', 'Ошибка при удалении результатов');
-                    });
-                }
-            } else {
-                // Just hide if no multi-scan ID
-                document.getElementById('scanResults').style.display = 'none';
-                document.getElementById('completedRepos').style.display = 'none';
-                document.getElementById('scanForm').style.display = 'block';
-                showAlert('success', 'Результаты мультисканирования очищены');
-                
-                if (refreshTimer) {
-                    clearInterval(refreshTimer);
-                    refreshTimer = null;
-                }
+            // Просто очищаем отображение без удаления из БД
+            sessionStorage.removeItem('currentMultiScanId');
+            document.getElementById('scanResults').style.display = 'none';
+            document.getElementById('completedRepos').style.display = 'none';
+            document.getElementById('scanForm').style.display = 'block';
+            showAlert('success', 'Результаты мультисканирования очищены с экрана');
+            
+            // Останавливаем автообновление
+            if (refreshTimer) {
+                clearInterval(refreshTimer);
+                refreshTimer = null;
             }
+            
+            // Очищаем поле ввода для нового мультискана
+            document.getElementById('repoUrls').value = '';
         }
     </script>
 </body>

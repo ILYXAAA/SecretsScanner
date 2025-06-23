@@ -2221,36 +2221,6 @@ async def get_user_multi_scans(current_user: str = Depends(get_current_user), db
         logger.error(f"Error getting multi-scans: {e}")
         return {"status": "error", "message": str(e)}
 
-@app.delete("/api/multi-scans/{multi_scan_id}")
-async def delete_multi_scan(multi_scan_id: str, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Delete multi-scan and its associated scans"""
-    try:
-        multi_scan = db.query(MultiScan).filter(
-            MultiScan.id == multi_scan_id,
-            MultiScan.user_id == current_user
-        ).first()
-        
-        if not multi_scan:
-            return {"status": "error", "message": "Multi-scan not found"}
-        
-        # Get scan IDs
-        scan_ids = json.loads(multi_scan.scan_ids)
-        
-        # Delete associated secrets and scans
-        for scan_id in scan_ids:
-            db.query(Secret).filter(Secret.scan_id == scan_id).delete()
-            db.query(Scan).filter(Scan.id == scan_id).delete()
-        
-        # Delete multi-scan record
-        db.delete(multi_scan)
-        db.commit()
-        
-        return {"status": "success", "message": "Multi-scan deleted"}
-        
-    except Exception as e:
-        logger.error(f"Error deleting multi-scan: {e}")
-        return {"status": "error", "message": str(e)}
-    
 def is_admin(username: str) -> bool:
     """Check if user is admin"""
     return username == "admin"
