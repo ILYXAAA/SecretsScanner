@@ -1694,6 +1694,83 @@ async def export_scan_results_html(scan_id: str, _: bool = Depends(get_current_u
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
 
+def normalize_file_path(file_path: str, repo_url: str) -> str:
+    """Normalize file path by removing repo URL if present"""
+    if not file_path or not repo_url:
+        return file_path
+    
+    # Remove trailing slash from repo_url
+    repo_url = repo_url.rstrip('/')
+    
+    # If file_path contains the repo_url, extract just the file path
+    if repo_url in file_path:
+        # Find the position after repo_url
+        repo_end = file_path.find(repo_url) + len(repo_url)
+        # Extract everything after repo_url, removing leading slashes
+        path_part = file_path[repo_end:].lstrip('/')
+        return '/' + path_part if path_part else file_path
+    
+    # If it doesn't start with '/', add it
+    if not file_path.startswith('/'):
+        file_path = '/' + file_path
+    
+    return file_path
+
+@app.post("/secrets/add-custom")
+async def add_custom_secret(request: Request, scan_id: str = Form(...), secret_value: str = Form(...),
+                           context: str = Form(...), line: int = Form(...), secret_type: str = Form(...),
+                           file_path: str = Form(...), current_user: str = Depends(get_current_user), 
+                           db: Session = Depends(get_db)):
+    """Add a custom secret found by user"""
+    try:
+        # Validate scan exists
+        scan = db.query(Scan).filter(Scan.id == scan_id).first()
+        if not scan:
+            return JSONResponse(status_code=404, content={"status": "error", "message": "Scan not found"})
+        
+        # Get project info for path normalization
+        project = db.query(Project).filter(Project.name == scan.project_name).first()
+        if not project:
+            return JSONResponse(status_code=404, content={"status": "error", "message": "Project not found"})
+        
+        # Normalize file path
+        normalized_path = normalize_file_path(file_path, project.repo_url)
+        
+        # Check if secret already exists
+        existing_secret = db.query(Secret).filter(
+            Secret.scan_id == scan_id,
+            Secret.path == normalized_path,
+            Secret.line == line,
+            Secret.secret == secret_value
+        ).first()
+        
+        if existing_secret:
+            return JSONResponse(status_code=400, content={"status": "error", "message": "Secret already exists"})
+        
+        # Create new secret
+        new_secret = Secret(
+            scan_id=scan_id,
+            path=normalized_path,
+            line=line,
+            secret=secret_value,
+            context=context,
+            severity="High",
+            type=secret_type,
+            status="Confirmed",
+            is_exception=False,
+            confirmed_by=current_user
+        )
+        
+        db.add(new_secret)
+        db.commit()
+        
+        logger.info(f"Custom secret added by {current_user} to scan {scan_id}")
+        return {"status": "success", "message": "Secret added successfully"}
+        
+    except Exception as e:
+        logger.error(f"Error adding custom secret: {e}")
+        return JSONResponse(status_code=500, content={"status": "error", "message": "Failed to add secret"})
+
 def create_database_backup():
     """Create a database backup with timestamp"""
     try:
