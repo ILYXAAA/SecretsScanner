@@ -1327,9 +1327,7 @@ async def receive_scan_results(project_name: str, scan_id: str, request: Request
 
     # Handle partial results
     if data.get("Status") == "partial":
-        # Update files scanned count for partial results
         scan.files_scanned = data.get("FilesScanned", 0)
-        # Keep status as "running" for partial results
         db.commit()
         return {"status": "success", "message": "Partial results received"}
 
@@ -1343,16 +1341,25 @@ async def receive_scan_results(project_name: str, scan_id: str, request: Request
         # Clear existing secrets for this scan (in case of reprocessing)
         db.query(Secret).filter(Secret.scan_id == scan_id).delete()
         
+        # Get previous scans for this project
+        previous_scans = db.query(Scan).filter(
+            Scan.project_name == project_name,
+            Scan.id != scan_id,
+            Scan.completed_at.is_not(None)
+        ).order_by(Scan.completed_at.desc()).all()
+        
+        # Get all manual secrets from previous scans
+        manual_secrets = []
+        if previous_scans:
+            most_recent_scan = previous_scans[0]  # already ordered by completed_at desc
+            manual_secrets = db.query(Secret).filter(
+                Secret.scan_id == most_recent_scan.id,
+                Secret.secret.like("% (добавлен вручную, см. context)")
+            ).all()
+        
         # Save secrets with smart exception handling
         for result in data.get("Results", []):
             # Check if this exact secret was previously handled in this project
-            previous_scans = db.query(Scan).filter(
-                Scan.project_name == project_name,
-                Scan.id != scan_id,
-                Scan.completed_at.is_not(None)
-            ).order_by(Scan.completed_at.desc()).all()
-            
-            # Find the most recent decision about this secret
             most_recent_secret = None
             for prev_scan in previous_scans:
                 similar_secret = db.query(Secret).filter(
@@ -1408,6 +1415,35 @@ async def receive_scan_results(project_name: str, scan_id: str, request: Request
                 refuted_by=most_recent_secret.refuted_by if most_recent_secret else None
             )
             db.add(secret)
+        
+        # Add manual secrets from previous scans
+        for manual_secret in manual_secrets:
+            # Check if this manual secret already exists in current scan (проверяем по всем полям)
+            existing_manual = db.query(Secret).filter(
+                Secret.scan_id == scan_id,
+                Secret.secret == manual_secret.secret,
+                Secret.path == manual_secret.path,
+                Secret.line == manual_secret.line,
+                Secret.type == manual_secret.type
+            ).first()
+            
+            if not existing_manual:
+                new_manual_secret = Secret(
+                    scan_id=scan_id,
+                    path=manual_secret.path,
+                    line=manual_secret.line,
+                    secret=manual_secret.secret,
+                    context=manual_secret.context,
+                    severity=manual_secret.severity,
+                    type=manual_secret.type,
+                    status=manual_secret.status,
+                    is_exception=manual_secret.is_exception,
+                    exception_comment=manual_secret.exception_comment,
+                    confirmed_by=manual_secret.confirmed_by,
+                    refuted_by=manual_secret.refuted_by,
+                    refuted_at=manual_secret.refuted_at
+                )
+                db.add(new_manual_secret)
         
         db.commit()
         return {"status": "success"}
@@ -1671,7 +1707,6 @@ async def export_scan_results_html(scan_id: str, _: bool = Depends(get_current_u
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    # Get only non-exception secrets from this scan (same as displayed on page)
     secrets = db.query(Secret).filter(
         Secret.scan_id == scan_id,
         Secret.is_exception == False
@@ -1681,17 +1716,17 @@ async def export_scan_results_html(scan_id: str, _: bool = Depends(get_current_u
         Secret.line
     ).all()
     
-    # Generate HTML report
     html_content = generate_html_report(scan, project, secrets, HUB_TYPE)
     
-    # Generate filename
     commit_short = scan.repo_commit[:7] if scan.repo_commit else "unknown"
-    #scan_date = scan.completed_at.strftime("%Y%m%d") if scan.completed_at else "pending"
     filename = f"{scan.project_name}_{commit_short}.html"
+    
+    # Используем только ASCII символы в заголовке
+    safe_filename = filename.encode('ascii', 'ignore').decode('ascii')
     
     return HTMLResponse(
         content=html_content,
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
+        headers={"Content-Disposition": f"attachment; filename={safe_filename}"}
     )
 
 def normalize_file_path(file_path: str, repo_url: str) -> str:
@@ -1723,37 +1758,39 @@ async def add_custom_secret(request: Request, scan_id: str = Form(...), secret_v
                            db: Session = Depends(get_db)):
     """Add a custom secret found by user"""
     try:
-        # Validate scan exists
         scan = db.query(Scan).filter(Scan.id == scan_id).first()
         if not scan:
             return JSONResponse(status_code=404, content={"status": "error", "message": "Scan not found"})
         
-        # Get project info for path normalization
         project = db.query(Project).filter(Project.name == scan.project_name).first()
         if not project:
             return JSONResponse(status_code=404, content={"status": "error", "message": "Project not found"})
         
-        # Normalize file path
         normalized_path = normalize_file_path(file_path, project.repo_url)
         
-        # Check if secret already exists
+        # Добавляем приписку к значению секрета
+        modified_secret_value = secret_value + " (добавлен вручную, см. context)"
+        
+        # Добавляем информацию в context
+        manual_context_info = "\nДанный секрет был добавлен вручную. Перед выставлением замечаний - перепроверьте существует ли данный секрет в текущей версии кода. \nЕсли данного секрета больше не существует - вы можете удалить эту запись по кнопке снизу"
+        full_context = context + manual_context_info
+        
         existing_secret = db.query(Secret).filter(
             Secret.scan_id == scan_id,
             Secret.path == normalized_path,
             Secret.line == line,
-            Secret.secret == secret_value
+            Secret.secret == modified_secret_value
         ).first()
         
         if existing_secret:
             return JSONResponse(status_code=400, content={"status": "error", "message": "Secret already exists"})
         
-        # Create new secret
         new_secret = Secret(
             scan_id=scan_id,
             path=normalized_path,
             line=line,
-            secret=secret_value,
-            context=context,
+            secret=modified_secret_value,
+            context=full_context,
             severity="High",
             type=secret_type,
             status="Confirmed",
@@ -1764,14 +1801,13 @@ async def add_custom_secret(request: Request, scan_id: str = Form(...), secret_v
         db.add(new_secret)
         db.commit()
         
-        # Get updated secrets data for frontend
+        # Get updated secrets data
         all_secrets_query = db.query(Secret).filter(Secret.scan_id == scan_id).order_by(
             Secret.severity == 'Potential',
             Secret.path,
             Secret.line
         ).all()
         
-        # Prepare updated secrets data (same logic as in scan_results route)
         secrets_data = []
         for secret in all_secrets_query:
             secret_obj = {
