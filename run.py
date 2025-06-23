@@ -197,9 +197,19 @@ def check_and_setup_user_database():
             
             while True:
                 username = "admin"
-                print(f"Имя пользователя: admin")
-                password = getpass("Введите пароль для администратора: ").strip()
-
+                print(f"Имя пользователя: {username}")
+                answer = input("Хотите сгенерироваать пароль автоматически? (Y/N)")
+                if answer.lower() in ["y", "yes"]:
+                    password = secrets.token_urlsafe(32)
+                    print(f"Пароль сгенерирован:\n    {password}\nПожалуйста сохраните его. После продолжения консоль будет очищена.")
+                    input("Нажмите Enter для продолжения..")
+                    os.system('cls' if os.name == 'nt' else 'clear')
+                else:
+                    password = getpass("Введите пароль для администратора: ").strip()
+                    password2 = getpass("Введите еще раз, для для подтверждения: ").strip()
+                    if password != password2:
+                        logging.warning("Пароли не совпадают! Повторите ввод.")
+                        continue
                 # Простейшая валидация пароля
                 if len(password) < 8:
                     logging.warning("Пароль должен быть не менее 8 символов. Повторите ввод.")

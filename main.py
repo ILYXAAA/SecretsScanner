@@ -2156,7 +2156,8 @@ def update_secret_key_in_env(new_secret_key: str = None):
 async def admin_panel(request: Request, _: str = Depends(get_admin_user)):
     """Admin panel - only accessible by admin user"""
     current_secret_key = get_current_secret_key()
-    
+    if current_secret_key != "Not set":
+        current_secret_key = f"{current_secret_key[0:8]}***"
     return templates.TemplateResponse("admin.html", {
         "request": request,
         "current_secret_key": current_secret_key
