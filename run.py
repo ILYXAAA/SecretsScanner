@@ -113,7 +113,7 @@ def setup_secret_key():
     answer = input("Хотите сгенерировать токен автоматически? (Y/N)\n>")
     if answer.lower() in ["y", "ye", "yes"]:
         apiKey = secrets.token_urlsafe(32)
-        print(f"Сгенерирован SECRET_KEY. Скопируйте его и используйте для сессий")
+        print(f"Сгенерирован SECRET_KEY. Он будет использоваться для сессий. Копировать его не нужно.")
         print(f"> {apiKey}")
         input("Нажмите Enter для подтверждения (Консоль будет очищена)")
         set_key(".env", "SECRET_KEY", apiKey)
@@ -129,7 +129,7 @@ def setup_secret_key():
 
 def setup_api_key():
     logging.info("Необходимо настроить API_KEY (используется для доступа к микросервису)")
-    print("Введите API_TOKEN")
+    print("Введите API_TOKEN, указанный на микросервисе")
     apiKey = input(">")
     input("Нажмите Enter для подтверждения (Консоль будет очищена)")
     set_key(".env", "API_KEY", apiKey)
@@ -200,7 +200,7 @@ def check_and_setup_user_database():
                 print(f"Имя пользователя: {username}")
                 answer = input("Хотите сгенерироваать пароль автоматически? (Y/N)")
                 if answer.lower() in ["y", "yes"]:
-                    password = secrets.token_urlsafe(32)
+                    password = secrets.token_urlsafe(24)
                     print(f"Пароль сгенерирован:\n    {password}\nПожалуйста сохраните его. После продолжения консоль будет очищена.")
                     input("Нажмите Enter для продолжения..")
                     os.system('cls' if os.name == 'nt' else 'clear')

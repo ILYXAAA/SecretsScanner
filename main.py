@@ -177,6 +177,14 @@ class Secret(Base):
 class AuthenticationException(Exception):
     pass
 
+class MultiScan(Base):
+    __tablename__ = "multi_scans"
+    id = Column(String, primary_key=True, index=True)
+    user_id = Column(String, index=True)
+    scan_ids = Column(Text)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    name = Column(String)
+
 # Отдельный Base для пользователей
 UserBase = declarative_base()
 class User(UserBase):
@@ -275,6 +283,22 @@ def migrate_database():
             except:
                 conn.execute(text("ALTER TABLE secrets ADD COLUMN refuted_by TEXT"))
                 logger.info("Added refuted_by column to secrets table")
+            
+            # Add multi_scans table
+            try:
+                conn.execute(text("SELECT id FROM multi_scans LIMIT 1"))
+            except:
+                conn.execute(text("""
+                    CREATE TABLE multi_scans (
+                        id TEXT PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        scan_ids TEXT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        name TEXT
+                    )
+                """))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_multi_scans_user ON multi_scans (user_id)"))
+                logger.info("Created multi_scans table")
             
             conn.commit()
             logger.info("Database migration completed successfully")
@@ -1895,12 +1919,17 @@ async def multi_scan(request: Request, current_user: str = Depends(get_current_u
                 content={"status": "error", "message": "Микросервис недоступен"}
             )
         
+        # Create multi-scan record
+        multi_scan_id = str(uuid.uuid4())
+        scan_ids = []
+        
         # Create scan records in database
         scan_records = []
         for scan_request in scan_requests:
-            # Extract scan ID from callback URL
+            # Extract scan ID from callback URL or generate new
             callback_url = scan_request.get("CallbackUrl", "")
             scan_id = callback_url.split("/")[-1] if callback_url else str(uuid.uuid4())
+            scan_ids.append(scan_id)
             
             # Create scan record
             scan = Scan(
@@ -1914,6 +1943,14 @@ async def multi_scan(request: Request, current_user: str = Depends(get_current_u
             db.add(scan)
             scan_records.append(scan)
         
+        # Create multi-scan record
+        multi_scan = MultiScan(
+            id=multi_scan_id,
+            user_id=current_user,
+            scan_ids=json.dumps(scan_ids),
+            name=f"Multi-scan {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        )
+        db.add(multi_scan)
         db.commit()
         
         # Send request to microservice
@@ -1952,12 +1989,14 @@ async def multi_scan(request: Request, current_user: str = Depends(get_current_u
                                 "status": "accepted",
                                 "message": result.get("message", "Мультисканирование добавлено в очередь"),
                                 "data": scan_data_list,
+                                "multi_scan_id": multi_scan_id,
                                 "RepoUrl": result.get("RepoUrl", "Undefined")
                             }
                         )
                     
                     else:
                         # Unexpected status in 200 response
+                        db.delete(multi_scan)
                         error_message = result.get("message", "Неизвестная ошибка")
                         for scan_record in scan_records:
                             scan_record.status = "failed"
@@ -2005,6 +2044,7 @@ async def multi_scan(request: Request, current_user: str = Depends(get_current_u
                             )
                         else:
                             # Other 400 error
+                            db.delete(multi_scan)
                             error_message = result.get("message", "Ошибка валидации")
                             for scan_record in scan_records:
                                 scan_record.status = "failed"
@@ -2020,6 +2060,7 @@ async def multi_scan(request: Request, current_user: str = Depends(get_current_u
                             )
                     except Exception as parse_error:
                         # Can't parse 400 response
+                        db.delete(multi_scan)
                         error_message = "Ошибка валидации запроса"
                         for scan_record in scan_records:
                             scan_record.status = "failed"
@@ -2043,6 +2084,7 @@ async def multi_scan(request: Request, current_user: str = Depends(get_current_u
                         error_message = "Очередь переполнена"
                     
                     # Mark scans as failed due to queue overflow
+                    db.delete(multi_scan)
                     for scan_record in scan_records:
                         scan_record.status = "failed"
                         scan_record.error_message = "Queue full"
@@ -2065,6 +2107,7 @@ async def multi_scan(request: Request, current_user: str = Depends(get_current_u
                         error_message = f"HTTP {response.status_code}"
                     
                     # Mark all scans as failed
+                    db.delete(multi_scan)
                     for scan_record in scan_records:
                         scan_record.status = "failed"
                         scan_record.error_message = f"Microservice error: {error_message}"
@@ -2081,6 +2124,7 @@ async def multi_scan(request: Request, current_user: str = Depends(get_current_u
         
         except httpx.TimeoutException:
             # Mark all scans as failed due to timeout
+            db.delete(multi_scan)
             for scan_record in scan_records:
                 scan_record.status = "failed"
                 scan_record.error_message = "Microservice timeout"
@@ -2094,6 +2138,7 @@ async def multi_scan(request: Request, current_user: str = Depends(get_current_u
         
         except Exception as e:
             # Mark all scans as failed due to connection error
+            db.delete(multi_scan)
             for scan_record in scan_records:
                 scan_record.status = "failed"
                 scan_record.error_message = f"Connection error: {str(e)}"
@@ -2115,6 +2160,86 @@ async def multi_scan(request: Request, current_user: str = Depends(get_current_u
             content={"status": "error", "message": "Внутренняя ошибка сервера"}
         )
 
+@app.get("/api/multi-scans")
+async def get_user_multi_scans(current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Get all multi-scans for current user"""
+    try:
+        multi_scans = db.query(MultiScan).filter(
+            MultiScan.user_id == current_user
+        ).order_by(MultiScan.created_at.desc()).limit(10).all()
+        
+        result = []
+        for multi_scan in multi_scans:
+            scan_ids = json.loads(multi_scan.scan_ids)
+            
+            # Get scan details
+            scans = db.query(Scan).filter(Scan.id.in_(scan_ids)).all()
+            scans_data = []
+            
+            for scan in scans:
+                high_count = 0
+                potential_count = 0
+                
+                if scan.status == 'completed':
+                    high_count, potential_count = get_scan_statistics(db, scan.id)
+                
+                scans_data.append({
+                    "scan_id": scan.id,
+                    "project_name": scan.project_name,
+                    "status": scan.status,
+                    "ref_type": scan.ref_type,
+                    "ref": scan.ref,
+                    "commit": scan.repo_commit,
+                    "started_at": scan.started_at.strftime('%Y-%m-%d %H:%M') if scan.started_at else None,
+                    "completed_at": scan.completed_at.strftime('%Y-%m-%d %H:%M') if scan.completed_at else None,
+                    "high_count": high_count,
+                    "potential_count": potential_count,
+                    "files_scanned": scan.files_scanned
+                })
+            
+            result.append({
+                "multi_scan_id": multi_scan.id,
+                "name": multi_scan.name,
+                "created_at": multi_scan.created_at.strftime('%Y-%m-%d %H:%M'),
+                "scans": scans_data
+            })
+        
+        return {"status": "success", "multi_scans": result}
+        
+    except Exception as e:
+        logger.error(f"Error getting multi-scans: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.delete("/api/multi-scans/{multi_scan_id}")
+async def delete_multi_scan(multi_scan_id: str, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Delete multi-scan and its associated scans"""
+    try:
+        multi_scan = db.query(MultiScan).filter(
+            MultiScan.id == multi_scan_id,
+            MultiScan.user_id == current_user
+        ).first()
+        
+        if not multi_scan:
+            return {"status": "error", "message": "Multi-scan not found"}
+        
+        # Get scan IDs
+        scan_ids = json.loads(multi_scan.scan_ids)
+        
+        # Delete associated secrets and scans
+        for scan_id in scan_ids:
+            db.query(Secret).filter(Secret.scan_id == scan_id).delete()
+            db.query(Scan).filter(Scan.id == scan_id).delete()
+        
+        # Delete multi-scan record
+        db.delete(multi_scan)
+        db.commit()
+        
+        return {"status": "success", "message": "Multi-scan deleted"}
+        
+    except Exception as e:
+        logger.error(f"Error deleting multi-scan: {e}")
+        return {"status": "error", "message": str(e)}
+    
 def is_admin(username: str) -> bool:
     """Check if user is admin"""
     return username == "admin"
