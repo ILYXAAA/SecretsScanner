@@ -1294,7 +1294,7 @@
         async function submitCustomSecret(event) {
             event.preventDefault();
             
-            const scanId = window.location.pathname.split('/')[2]; // Получаем scan_id из URL
+            const scanId = window.location.pathname.split('/')[2];
             const formData = new FormData();
             
             formData.append('scan_id', scanId);
@@ -1315,8 +1315,24 @@
                 if (result.status === 'success') {
                     alert('Секрет успешно добавлен!');
                     closeAddSecretModal();
-                    // Перезагрузить страницу для отображения нового секрета
-                    window.location.reload();
+                    
+                    // Обновить данные секретов с возвращенными данными
+                    secretsData = result.secrets_data || [];
+                    allSecrets = secretsData.slice();
+                    
+                    // Нормализовать статусы
+                    allSecrets.forEach(secret => {
+                        if (secret.status === null || secret.status === undefined || secret.status === '' || secret.status === 'null') {
+                            secret.status = 'No status';
+                        }
+                    });
+                    
+                    // Переинициализировать фильтры с новыми данными
+                    initializeFilters();
+                    
+                    // Применить фильтры и обновить отображение
+                    applyFiltersSync();
+                    
                 } else {
                     alert('Ошибка: ' + result.message);
                 }
@@ -1431,8 +1447,6 @@
         });
 
         function initializeFilters() {
-            // console.log('Initializing filters...');
-            
             // Get unique types
             const uniqueTypes = [...new Set(allSecrets.map(s => s.type))].sort();
             
@@ -1507,7 +1521,7 @@
                 }
             }
 
-            // Type filters - DEFAULT: All types
+            // Type filters - DEFAULT: All types (включая новые)
             const typeFilters = urlParams.getAll('type_filter');
             if (typeFilters.length > 0) {
                 typeFilters.forEach(type => {
@@ -1518,7 +1532,8 @@
                     }
                 });
             } else {
-                // Default: All types
+                // Default: All types (включая только что добавленные)
+                activeFilters.type = [];
                 uniqueTypes.forEach(type => {
                     const checkbox = document.querySelector(`#typeFilters input[value="${type}"]`);
                     if (checkbox) {
@@ -1527,8 +1542,6 @@
                     }
                 });
             }
-            
-            // console.log('Filters initialized:', activeFilters);
         }
 
         function applyFiltersSync() {
@@ -2312,6 +2325,17 @@
                     ${previousStatusHtml}
                     ${userInfoHtml}
                     ${restoreHtml}
+                    <div class="detail-section">
+                        <button 
+                            class="btn btn-danger" 
+                            onclick="deleteSecret(${secretId})"
+                            style="width: 100%; background: #dc2626; color: white; font-weight: bold; display: flex; align-items: center; justify-content: center;">
+                            🗑️ Удалить секрет из БД
+                        </button>
+                        <div style="font-size: 0.8rem; color: #666; margin-top: 0.5rem; text-align: center;">
+                            ⚠️ Это действие нельзя будет отменить
+                        </div>
+                    </div>
                 </div>
             `;
         }
@@ -2334,6 +2358,49 @@
                     console.error('Error restoring secret:', error);
                     alert('Error restoring secret');
                 }
+            }
+        }
+
+        async function deleteSecret(secretId) {
+            if (!confirm('Вы уверены, что хотите удалить этот секрет? Это действие нельзя отменить.')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/secrets/${secretId}/delete`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    // Обновить данные секретов
+                    secretsData = result.secrets_data || [];
+                    allSecrets = secretsData.slice();
+                    
+                    // Нормализовать статусы
+                    allSecrets.forEach(secret => {
+                        if (secret.status === null || secret.status === undefined || secret.status === '' || secret.status === 'null') {
+                            secret.status = 'No status';
+                        }
+                    });
+                    
+                    // Очистить выделение и показать пустую панель
+                    selectedSecrets.clear();
+                    showEmptyDetail();
+                    
+                    // Переинициализировать фильтры и применить их
+                    initializeFilters();
+                    applyFiltersSync();
+                    
+                    alert('Секрет успешно удален');
+                } else {
+                    alert('Ошибка: ' + result.message);
+                }
+            } catch (error) {
+                console.error('Error deleting secret:', error);
+                alert('Ошибка при удалении секрета');
             }
         }
         

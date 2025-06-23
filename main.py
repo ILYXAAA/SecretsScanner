@@ -1764,12 +1764,92 @@ async def add_custom_secret(request: Request, scan_id: str = Form(...), secret_v
         db.add(new_secret)
         db.commit()
         
+        # Get updated secrets data for frontend
+        all_secrets_query = db.query(Secret).filter(Secret.scan_id == scan_id).order_by(
+            Secret.severity == 'Potential',
+            Secret.path,
+            Secret.line
+        ).all()
+        
+        # Prepare updated secrets data (same logic as in scan_results route)
+        secrets_data = []
+        for secret in all_secrets_query:
+            secret_obj = {
+                "id": secret.id,
+                "path": html.escape(secret.path or "", quote=True),
+                "line": secret.line or 0,
+                "secret": html.escape(secret.secret or "", quote=True),
+                "context": html.escape(secret.context or "", quote=True),
+                "severity": html.escape(secret.severity or "", quote=True),
+                "type": html.escape(secret.type or "", quote=True),
+                "status": html.escape(secret.status or "No status", quote=True),
+                "is_exception": bool(secret.is_exception),
+                "exception_comment": html.escape(secret.exception_comment or "", quote=True),
+                "refuted_at": secret.refuted_at.strftime('%Y-%m-%d %H:%M') if secret.refuted_at else None,
+                "confirmed_by": secret.confirmed_by if secret.confirmed_by else None,
+                "refuted_by": secret.refuted_by if secret.refuted_by else None
+            }
+            secrets_data.append(secret_obj)
+        
         logger.info(f"Custom secret added by {current_user} to scan {scan_id}")
-        return {"status": "success", "message": "Secret added successfully"}
+        return {
+            "status": "success", 
+            "message": "Secret added successfully",
+            "secrets_data": secrets_data
+        }
         
     except Exception as e:
         logger.error(f"Error adding custom secret: {e}")
         return JSONResponse(status_code=500, content={"status": "error", "message": "Failed to add secret"})
+
+@app.post("/secrets/{secret_id}/delete")
+async def delete_secret(secret_id: int, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Delete a secret from database"""
+    try:
+        secret = db.query(Secret).filter(Secret.id == secret_id).first()
+        if not secret:
+            return JSONResponse(status_code=404, content={"status": "error", "message": "Secret not found"})
+        
+        scan_id = secret.scan_id
+        db.delete(secret)
+        db.commit()
+        
+        # Get updated secrets data
+        all_secrets_query = db.query(Secret).filter(Secret.scan_id == scan_id).order_by(
+            Secret.severity == 'Potential',
+            Secret.path,
+            Secret.line
+        ).all()
+        
+        secrets_data = []
+        for secret in all_secrets_query:
+            secret_obj = {
+                "id": secret.id,
+                "path": html.escape(secret.path or "", quote=True),
+                "line": secret.line or 0,
+                "secret": html.escape(secret.secret or "", quote=True),
+                "context": html.escape(secret.context or "", quote=True),
+                "severity": html.escape(secret.severity or "", quote=True),
+                "type": html.escape(secret.type or "", quote=True),
+                "status": html.escape(secret.status or "No status", quote=True),
+                "is_exception": bool(secret.is_exception),
+                "exception_comment": html.escape(secret.exception_comment or "", quote=True),
+                "refuted_at": secret.refuted_at.strftime('%Y-%m-%d %H:%M') if secret.refuted_at else None,
+                "confirmed_by": secret.confirmed_by if secret.confirmed_by else None,
+                "refuted_by": secret.refuted_by if secret.refuted_by else None
+            }
+            secrets_data.append(secret_obj)
+        
+        logger.info(f"Secret {secret_id} deleted by {current_user}")
+        return {
+            "status": "success",
+            "message": "Secret deleted successfully", 
+            "secrets_data": secrets_data
+        }
+        
+    except Exception as e:
+        logger.error(f"Error deleting secret: {e}")
+        return JSONResponse(status_code=500, content={"status": "error", "message": "Failed to delete secret"})
 
 def create_database_backup():
     """Create a database backup with timestamp"""
