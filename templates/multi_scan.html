@@ -517,17 +517,17 @@
 </head>
 <body>
     <header class="header">
-        <a href="/dashboard" class="logo">
+        <a href="/secret_scanner/dashboard" class="logo">
             🔍 Secrets Scanner
         </a>
         <nav class="nav-links">
-            <a href="/dashboard">🌐 Главная</a>
-            <a href="/multi-scan">🔄 Мультискан</a>
+            <a href="/secret_scanner/dashboard">🌐 Главная</a>
+            <a href="/secret_scanner/multi-scan">🔄 Мультискан</a>
             {% if current_user == "admin" %}
-            <a href="/admin">👑 Админ панель</a>
+            <a href="/secret_scanner/admin">👑 Админ панель</a>
             {% endif %}
-            <a href="/settings">⚙️ Настройки</a>
-            <a href="/logout">🔚 Выйти</a>
+            <a href="/secret_scanner/settings">⚙️ Настройки</a>
+            <a href="/secret_scanner/logout">🔚 Выйти</a>
         </nav>
     </header>
     
@@ -759,7 +759,7 @@
         async function createProjects(missingProjects) {
             for (const item of missingProjects) {
                 try {
-                    const response = await fetch('/projects/add', {
+                    const response = await fetch('/secret_scanner/projects/add', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/x-www-form-urlencoded',
@@ -1054,7 +1054,7 @@
                 }));
                 
                 // Send multi-scan request
-                const response = await fetch('/multi_scan', {
+                const response = await fetch('/secret_scanner/multi_scan', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1123,7 +1123,7 @@
             if (!multiScanId) return false;
             
             try {
-                const response = await fetch('/api/multi-scans');
+                const response = await fetch('/secret_scanner/api/multi-scans');
                 if (!response.ok) return false;
                 
                 const data = await response.json();
@@ -1165,7 +1165,7 @@
         // Restore scan results on page load
         window.addEventListener('DOMContentLoaded', async function() {
             try {
-                const response = await fetch('/api/multi-scans');
+                const response = await fetch('/secret_scanner/api/multi-scans');
                 if (response.ok) {
                     const data = await response.json();
                     if (data.status === 'success' && data.multi_scans.length > 0) {

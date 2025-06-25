@@ -383,17 +383,17 @@
 </head>
 <body>
     <header class="header">
-        <a href="/dashboard" class="logo">
+        <a href="/secret_scanner/dashboard" class="logo">
             🔍 Secrets Scanner
         </a>
         <nav class="nav-links">
-            <a href="/dashboard">🌐 Главная</a>
-            <a href="/multi-scan">🔄 Мультискан</a>
+            <a href="/secret_scanner/dashboard">🌐 Главная</a>
+            <a href="/secret_scanner/multi-scan">🔄 Мультискан</a>
             {% if current_user == "admin" %}
-            <a href="/admin">👑 Админ панель</a>
+            <a href="/secret_scanner/admin">👑 Админ панель</a>
             {% endif %}
-            <a href="/settings">⚙️ Настройки</a>
-            <a href="/logout">🔚 Выйти</a>
+            <a href="/secret_scanner/settings">⚙️ Настройки</a>
+            <a href="/secret_scanner/logout">🔚 Выйти</a>
         </nav>
     </header>
     
@@ -497,7 +497,7 @@
                         </div>
                     </div>
                     
-                    <form method="post" action="/settings/update-rules" id="rulesForm">
+                    <form method="post" action="/secret_scanner/settings/update-rules" id="rulesForm">
                         <div class="form-group">
                             <label for="rules_content">Содержимое файла правил (YAML):</label>
                             <textarea 
@@ -553,7 +553,7 @@
                         </div>
                     </div>
                     
-                    <form method="post" action="/settings/update-fp-rules" id="fpRulesForm">
+                    <form method="post" action="/secret_scanner/settings/update-fp-rules" id="fpRulesForm">
                         <div class="form-group">
                             <label for="fp_rules_content">False-Positive Rules Content (YAML):</label>
                             <textarea 
@@ -609,7 +609,7 @@ false_positive:
                         </div>
                     </div>
                     
-                    <form method="post" action="/settings/update-excluded-extensions" id="excludedExtensionsForm">
+                    <form method="post" action="/secret_scanner/settings/update-excluded-extensions" id="excludedExtensionsForm">
                         <div class="form-group">
                             <label for="excluded_extensions_content">Excluded Extensions Content (YAML):</label>
                             <textarea 
@@ -658,7 +658,7 @@ excluded_extensions:
                         </div>
                     </div>
                     
-                    <form method="post" action="/settings/update-excluded-files" id="excludedFilesForm">
+                    <form method="post" action="/secret_scanner/settings/update-excluded-files" id="excludedFilesForm">
                         <div class="form-group">
                             <label for="excluded_files_content">Excluded Files Content (YAML):</label>
                             <textarea 
@@ -723,7 +723,7 @@ excluded_files:
                         <div class="current-token">{{ current_api_key }}</div>
                     </div>
                     
-                    <form method="post" action="/settings/update-api-key">
+                    <form method="post" action="/secret_scanner/settings/update-api-key">
                         <div class="form-group">
                             <label for="api_key">Новый API ключ:</label>
                             <input type="password" id="api_key" name="api_key" placeholder="your_new_api_key_here" required>
@@ -744,7 +744,7 @@ excluded_files:
                         </div>
                     </div>
                     
-                    <form method="post" action="/settings/change-password" id="passwordChangeForm">
+                    <form method="post" action="/secret_scanner/settings/change-password" id="passwordChangeForm">
                         <div class="form-group">
                             <label for="current_password">Текущий пароль:</label>
                             <input type="password" id="current_password" name="current_password" required>
@@ -781,7 +781,7 @@ excluded_files:
                         <div class="current-token">{{ current_token }}</div>
                     </div>
                     
-                    <form method="post" action="/settings/update-token">
+                    <form method="post" action="/secret_scanner/settings/update-token">
                         <div class="form-group">
                             <label for="token">Новый PAT Токен:</label>
                             <input type="password" id="token" name="token" placeholder="aboba_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" required>
@@ -954,7 +954,7 @@ excluded_files:
             try {
                 // Add timestamp to prevent caching
                 const timestamp = new Date().getTime();
-                const response = await fetch(`/admin/backup-status?t=${timestamp}`, {
+                const response = await fetch(`/secret_scanner/admin/backup-status?t=${timestamp}`, {
                     method: 'GET',
                     headers: {
                         'Cache-Control': 'no-cache',
@@ -1031,7 +1031,7 @@ excluded_files:
             btn.innerHTML = '<div class="spinner"></div> Creating backup...';
             
             try {
-                const response = await fetch('/admin/backup', { method: 'POST' });
+                const response = await fetch('/secret_scanner/admin/backup', { method: 'POST' });
                 const data = await response.json();
                 
                 if (data.status === 'success') {

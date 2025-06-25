@@ -637,17 +637,17 @@
 </head>
 <body>
     <header class="header">
-        <a href="/dashboard" class="logo">
+        <a href="/secret_scanner/dashboard" class="logo">
             🔍 Secrets Scanner
         </a>
         <nav class="nav-links">
-            <a href="/dashboard">🌐 Главная</a>
-            <a href="/multi-scan">🔄 Мультискан</a>
+            <a href="/secret_scanner/dashboard">🌐 Главная</a>
+            <a href="/secret_scanner/multi-scan">🔄 Мультискан</a>
             {% if current_user == "admin" %}
-            <a href="/admin">👑 Админ панель</a>
+            <a href="/secret_scanner/admin">👑 Админ панель</a>
             {% endif %}
-            <a href="/settings">⚙️ Настройки</a>
-            <a href="/logout">🔚 Выйти</a>
+            <a href="/secret_scanner/settings">⚙️ Настройки</a>
+            <a href="/secret_scanner/logout">🔚 Выйти</a>
         </nav>
     </header>
     
@@ -766,7 +766,7 @@
             
             <div class="add-project-form" id="addProjectForm">
                 <h3>Добавить новый проект</h3>
-                <form method="post" action="/projects/add">
+                <form method="post" action="/secret_scanner/projects/add">
                     <div class="form-group">
                         <label for="project_name">Название проекта</label>
                         <input type="text" id="project_name" name="project_name" placeholder="Project_Repository" required 
@@ -811,7 +811,7 @@
             {% if projects %}
             <div class="projects-list">
                 {% for project_data in projects %}
-                <a href="/project/{{ project_data.project.name }}" class="project-card">
+                <a href="/secret_scanner/project/{{ project_data.project.name }}" class="project-card">
                     <div class="project-main">
                         <div class="project-name">
                             <span class="project-icon">📁</span>

@@ -9,6 +9,7 @@ from sqlalchemy.orm import sessionmaker, Session
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 from contextlib import asynccontextmanager
+from fastapi import APIRouter
 import uuid
 import json
 import httpx
@@ -97,6 +98,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Secrets Scanner", lifespan=lifespan)
+
+router = APIRouter(prefix='/secret_scanner')
 
 # Create directories if they don't exist
 Path("templates").mkdir(exist_ok=True)
@@ -376,7 +379,7 @@ def verify_token(token: str):
 # Обработчик исключений
 @app.exception_handler(AuthenticationException)
 async def auth_exception_handler(request: Request, exc: AuthenticationException):
-    response = RedirectResponse(url="/", status_code=302)
+    response = RedirectResponse(url="/secret_scanner/", status_code=302)
     response.delete_cookie(key="auth_token")  # Удаляем невалидный токен
     return response
 
@@ -498,7 +501,7 @@ def get_scan_statistics(db: Session, scan_id: str):
     return high_count, potential_count
 
 # Favicon route
-@app.get("/favicon.ico")
+@router.get("/favicon.ico")
 async def favicon():
     favicon_path = Path("ico/favicon.ico")
     if favicon_path.exists():
@@ -507,7 +510,7 @@ async def favicon():
         raise HTTPException(status_code=404, detail="Favicon not found")
 
 # Routes
-@app.get("/", response_class=HTMLResponse)
+@router.get("/", response_class=HTMLResponse)
 async def login_page(request: Request):
     token = request.cookies.get("auth_token")
     if token:
@@ -522,7 +525,7 @@ async def login_page(request: Request):
             try:
                 user = user_db.query(User).filter(User.username == username).first()
                 if user:
-                    return RedirectResponse(url="/dashboard", status_code=302)
+                    return RedirectResponse(url="/secret_scanner/dashboard", status_code=302)
             finally:
                 user_db.close()
         
@@ -533,14 +536,14 @@ async def login_page(request: Request):
     
     return templates.TemplateResponse("login.html", {"request": request})
 
-@app.post("/login")
+@router.post("/login")
 async def login(request: Request, username: str = Form(...), password: str = Form(...), user_db: Session = Depends(get_user_db)):
     if verify_credentials(username, password, user_db):
         access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
         access_token = create_access_token(
             data={"sub": username}, expires_delta=access_token_expires
         )
-        response = RedirectResponse(url="/dashboard", status_code=302)
+        response = RedirectResponse(url="/secret_scanner/dashboard", status_code=302)
         response.set_cookie(
             key="auth_token", 
             value=access_token, 
@@ -552,13 +555,13 @@ async def login(request: Request, username: str = Form(...), password: str = For
         return response
     return templates.TemplateResponse("login.html", {"request": request, "error": "Invalid credentials"})
 
-@app.get("/logout")
+@router.get("/logout")
 async def logout():
-    response = RedirectResponse(url="/", status_code=302)
+    response = RedirectResponse(url="/secret_scanner/", status_code=302)
     response.delete_cookie(key="auth_token")
     return response
 
-@app.get("/dashboard", response_class=HTMLResponse)
+@router.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request, page: int = 1, search: str = "", current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     per_page = 10
     offset = (page - 1) * per_page
@@ -653,7 +656,7 @@ async def dashboard(request: Request, page: int = 1, search: str = "", current_u
         "current_user": current_user
     })
 
-@app.get("/settings", response_class=HTMLResponse)
+@router.get("/settings", response_class=HTMLResponse)
 async def settings(request: Request, current_user: str = Depends(get_current_user)):
    # Get current API key
    current_api_key = get_current_api_key()
@@ -811,44 +814,44 @@ async def settings(request: Request, current_user: str = Depends(get_current_use
        "current_user": current_user
    })
 
-@app.post("/settings/change-password")
+@router.post("/settings/change-password")
 async def change_password(request: Request, current_password: str = Form(...), 
                          new_password: str = Form(...), confirm_password: str = Form(...),
                          current_user: str = Depends(get_current_user), user_db: Session = Depends(get_user_db)):
     try:
         # Validate passwords match
         if new_password != confirm_password:
-            return RedirectResponse(url="/settings?error=password_mismatch", status_code=302)
+            return RedirectResponse(url="/secret_scanner/settings?error=password_mismatch", status_code=302)
         
         # Get current user from database
         user = user_db.query(User).filter(User.username == current_user).first()
         if not user:
-            return RedirectResponse(url="/settings?error=user_not_found", status_code=302)
+            return RedirectResponse(url="/secret_scanner/settings?error=user_not_found", status_code=302)
         
         # Verify current password
         if not verify_password(current_password, user.password_hash):
-            return RedirectResponse(url="/settings?error=password_change_failed", status_code=302)
+            return RedirectResponse(url="/secret_scanner/settings?error=password_change_failed", status_code=302)
         
         # Update password
         user.password_hash = get_password_hash(new_password)
         user_db.commit()
         
-        return RedirectResponse(url="/settings?success=password_changed", status_code=302)
+        return RedirectResponse(url="/secret_scanner/settings?success=password_changed", status_code=302)
         
     except Exception as e:
         logger.error(f"Password change error: {e}")
-        return RedirectResponse(url="/settings?error=password_change_failed", status_code=302)
+        return RedirectResponse(url="/secret_scanner/settings?error=password_change_failed", status_code=302)
 
-@app.post("/settings/update-api-key")
+@router.post("/settings/update-api-key")
 async def update_api_key(request: Request, api_key: str = Form(...), _: bool = Depends(get_current_user)):
     try:
         if update_api_key_in_env(api_key):
-            return RedirectResponse(url="/settings?success=api_key_updated", status_code=302)
+            return RedirectResponse(url="/secret_scanner/settings?success=api_key_updated", status_code=302)
         else:
-            return RedirectResponse(url="/settings?error=api_key_update_failed", status_code=302)
+            return RedirectResponse(url="/secret_scanner/settings?error=api_key_update_failed", status_code=302)
     except Exception as e:
         logger.error(f"API key update error: {e}")
-        return RedirectResponse(url="/settings?error=api_key_update_failed", status_code=302)
+        return RedirectResponse(url="/secret_scanner/settings?error=api_key_update_failed", status_code=302)
 
 def get_current_api_key():
     """Get current API key from environment"""
@@ -866,11 +869,11 @@ def update_api_key_in_env(new_api_key: str):
         logger.error(f"Error updating API key in .env: {e}")
         return False
 
-@app.post("/settings/update-fp-rules")
+@router.post("/settings/update-fp-rules")
 async def update_fp_rules(request: Request, fp_rules_content: str = Form(...), _: bool = Depends(get_current_user)):
     try:
         if not fp_rules_content.strip():
-            return RedirectResponse(url="/settings?error=empty_content", status_code=302)
+            return RedirectResponse(url="/secret_scanner/settings?error=empty_content", status_code=302)
         
         # Send content to microservice
         payload = {
@@ -884,7 +887,7 @@ async def update_fp_rules(request: Request, fp_rules_content: str = Form(...), _
             )
             
             if response.status_code == 200:
-                return RedirectResponse(url="/settings?success=fp_rules_updated", status_code=302)
+                return RedirectResponse(url="/secret_scanner/settings?success=fp_rules_updated", status_code=302)
             else:
                 try:
                     error_data = response.json()
@@ -903,24 +906,24 @@ async def update_fp_rules(request: Request, fp_rules_content: str = Form(...), _
         encoded_error = urllib.parse.quote(error_message)
         return RedirectResponse(url=f"/settings?error={encoded_error}", status_code=302)
 
-@app.post("/settings/update-token")
+@router.post("/settings/update-token")
 async def update_token(request: Request, token: str = Form(...), _: bool = Depends(get_current_user)):
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(f"{MICROSERVICE_URL}/set-pat", 
                                        json={"token": token}, headers=get_auth_headers(), timeout=10.0)
             if response.status_code == 200:
-                return RedirectResponse(url="/settings?success=token_updated", status_code=302)
+                return RedirectResponse(url="/secret_scanner/settings?success=token_updated", status_code=302)
             else:
-                return RedirectResponse(url="/settings?error=token_update_failed", status_code=302)
+                return RedirectResponse(url="/secret_scanner/settings?error=token_update_failed", status_code=302)
     except:
-        return RedirectResponse(url="/settings?error=microservice_unavailable", status_code=302)
+        return RedirectResponse(url="/secret_scanner/settings?error=microservice_unavailable", status_code=302)
 
-@app.post("/settings/update-rules")
+@router.post("/settings/update-rules")
 async def update_rules(request: Request, rules_content: str = Form(...), _: bool = Depends(get_current_user)):
     try:
         if not rules_content.strip():
-            return RedirectResponse(url="/settings?error=empty_content", status_code=302)
+            return RedirectResponse(url="/secret_scanner/settings?error=empty_content", status_code=302)
         
         # Send content to microservice
         payload = {
@@ -934,7 +937,7 @@ async def update_rules(request: Request, rules_content: str = Form(...), _: bool
             )
             
             if response.status_code == 200:
-                return RedirectResponse(url="/settings?success=rules_updated", status_code=302)
+                return RedirectResponse(url="/secret_scanner/settings?success=rules_updated", status_code=302)
             else:
                 try:
                     error_data = response.json()
@@ -953,11 +956,11 @@ async def update_rules(request: Request, rules_content: str = Form(...), _: bool
         encoded_error = urllib.parse.quote(error_message)
         return RedirectResponse(url=f"/settings?error={encoded_error}", status_code=302)
 
-@app.post("/settings/update-excluded-extensions")
+@router.post("/settings/update-excluded-extensions")
 async def update_excluded_extensions(request: Request, excluded_extensions_content: str = Form(...), _: bool = Depends(get_current_user)):
     try:
         if not excluded_extensions_content.strip():
-            return RedirectResponse(url="/settings?error=empty_content", status_code=302)
+            return RedirectResponse(url="/secret_scanner/settings?error=empty_content", status_code=302)
         
         # Send content to microservice
         payload = {
@@ -971,7 +974,7 @@ async def update_excluded_extensions(request: Request, excluded_extensions_conte
             )
             
             if response.status_code == 200:
-                return RedirectResponse(url="/settings?success=excluded_extensions_updated", status_code=302)
+                return RedirectResponse(url="/secret_scanner/settings?success=excluded_extensions_updated", status_code=302)
             else:
                 try:
                     error_data = response.json()
@@ -990,11 +993,11 @@ async def update_excluded_extensions(request: Request, excluded_extensions_conte
         encoded_error = urllib.parse.quote(error_message)
         return RedirectResponse(url=f"/settings?error={encoded_error}", status_code=302)
 
-@app.post("/settings/update-excluded-files")
+@router.post("/settings/update-excluded-files")
 async def update_excluded_files(request: Request, excluded_files_content: str = Form(...), _: bool = Depends(get_current_user)):
     try:
         if not excluded_files_content.strip():
-            return RedirectResponse(url="/settings?error=empty_content", status_code=302)
+            return RedirectResponse(url="/secret_scanner/settings?error=empty_content", status_code=302)
         
         # Send content to microservice
         payload = {
@@ -1008,7 +1011,7 @@ async def update_excluded_files(request: Request, excluded_files_content: str = 
             )
             
             if response.status_code == 200:
-                return RedirectResponse(url="/settings?success=excluded_files_updated", status_code=302)
+                return RedirectResponse(url="/secret_scanner/settings?success=excluded_files_updated", status_code=302)
             else:
                 try:
                     error_data = response.json()
@@ -1066,7 +1069,7 @@ def validate_repo_url(repo_url: str, hub_type: str) -> None:
         if parsed.scheme not in ['http', 'https']:
             raise ValueError("❌ URL должен использовать HTTP или HTTPS")
 
-@app.post("/projects/add")
+@router.post("/projects/add")
 async def add_project(request: Request, project_name: str = Form(...), repo_url: str = Form(...), 
                      current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     try:
@@ -1074,7 +1077,7 @@ async def add_project(request: Request, project_name: str = Form(...), repo_url:
         
         existing = db.query(Project).filter(Project.name == project_name).first()
         if existing:
-            return RedirectResponse(url="/dashboard?error=project_exists", status_code=302)
+            return RedirectResponse(url="/secret_scanner/dashboard?error=project_exists", status_code=302)
         
         project = Project(name=project_name, repo_url=repo_url, created_by=current_user)  # Добавлен created_by
         db.add(project)
@@ -1087,9 +1090,9 @@ async def add_project(request: Request, project_name: str = Form(...), repo_url:
         return RedirectResponse(url=f"/dashboard?error={encoded_error}", status_code=302)
     except Exception as e:
         logger.error(f"Error adding project: {e}")
-        return RedirectResponse(url="/dashboard?error=unexpected_error", status_code=302)
+        return RedirectResponse(url="/secret_scanner/dashboard?error=unexpected_error", status_code=302)
 
-@app.post("/projects/update")
+@router.post("/projects/update")
 async def update_project(request: Request, project_id: int = Form(...), project_name: str = Form(...), 
                         repo_url: str = Form(...), _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
     try:
@@ -1128,11 +1131,11 @@ async def update_project(request: Request, project_id: int = Form(...), project_
         logger.error(f"Error updating project: {e}")
         return RedirectResponse(url=f"/project/{project_name}?error=project_update_failed", status_code=302)
 
-@app.post("/projects/{project_id}/delete")
+@router.post("/projects/{project_id}/delete")
 async def delete_project(project_id: int, _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
-        return RedirectResponse(url="/dashboard?error=project_not_found", status_code=302)
+        return RedirectResponse(url="/secret_scanner/dashboard?error=project_not_found", status_code=302)
     
     # Delete all related scans and secrets
     scans = db.query(Scan).filter(Scan.project_name == project.name).all()
@@ -1143,9 +1146,9 @@ async def delete_project(project_id: int, _: bool = Depends(get_current_user), d
     db.delete(project)
     db.commit()
     
-    return RedirectResponse(url="/dashboard?success=project_deleted", status_code=302)
+    return RedirectResponse(url="/secret_scanner/dashboard?success=project_deleted", status_code=302)
 
-@app.get("/project/{project_name}", response_class=HTMLResponse)
+@router.get("/project/{project_name}", response_class=HTMLResponse)
 async def project_page(request: Request, project_name: str, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     project = db.query(Project).filter(Project.name == project_name).first()
     if not project:
@@ -1178,7 +1181,7 @@ async def project_page(request: Request, project_name: str, current_user: str = 
         "current_user": current_user
     })
 
-@app.post("/project/{project_name}/scan")
+@router.post("/project/{project_name}/scan")
 async def start_scan(request: Request, project_name: str, ref_type: str = Form(...), 
                     ref: str = Form(...), current_user: str = Depends(get_current_user), _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
     project = db.query(Project).filter(Project.name == project_name).first()
@@ -1203,7 +1206,7 @@ async def start_scan(request: Request, project_name: str, ref_type: str = Form(.
     db.commit()
     
     # Start scan via microservice
-    callback_url = f"http://{APP_HOST}:{APP_PORT}/get_results/{project_name}/{scan_id}"
+    callback_url = f"http://{APP_HOST}:{APP_PORT}/secret_scanner/get_results/{project_name}/{scan_id}"
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(f"{MICROSERVICE_URL}/scan", json={
@@ -1248,7 +1251,7 @@ async def start_scan(request: Request, project_name: str, ref_type: str = Form(.
         db.commit()
         return RedirectResponse(url=f"/project/{project_name}?error=microservice_connection_error", status_code=302)
 
-@app.post("/project/{project_name}/local-scan")
+@router.post("/project/{project_name}/local-scan")
 async def start_local_scan(request: Request, project_name: str, 
                           commit: str = Form(...), zip_file: UploadFile = File(...),
                           _: bool = Depends(get_current_user), current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -1279,7 +1282,7 @@ async def start_local_scan(request: Request, project_name: str,
     db.commit()
     
     # Prepare callback URL
-    callback_url = f"http://{APP_HOST}:{APP_PORT}/get_results/{project_name}/{scan_id}"
+    callback_url = f"http://{APP_HOST}:{APP_PORT}/secret_scanner/get_results/{project_name}/{scan_id}"
     
     try:
         # Read file content BEFORE creating the request
@@ -1339,7 +1342,7 @@ async def start_local_scan(request: Request, project_name: str,
         db.commit()
         return RedirectResponse(url=f"/project/{project_name}?error=local_scan_failed", status_code=302)
 
-@app.get("/scan/{scan_id}", response_class=HTMLResponse)
+@router.get("/scan/{scan_id}", response_class=HTMLResponse)
 async def scan_status(request: Request, scan_id: str, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     scan = db.query(Scan).filter(Scan.id == scan_id).first()
     if not scan:
@@ -1351,7 +1354,7 @@ async def scan_status(request: Request, scan_id: str, current_user: str = Depend
         "current_user": current_user
     })
 
-@app.post("/get_results/{project_name}/{scan_id}")
+@router.post("/get_results/{project_name}/{scan_id}")
 async def receive_scan_results(project_name: str, scan_id: str, request: Request, db: Session = Depends(get_db)):
     try:
         # Получаем raw данные
@@ -1526,7 +1529,7 @@ async def receive_scan_results(project_name: str, scan_id: str, request: Request
 
     return {"status": "error", "message": "Unknown status received"}
 
-@app.get("/scan/{scan_id}/results", response_class=HTMLResponse)
+@router.get("/scan/{scan_id}/results", response_class=HTMLResponse)
 async def scan_results(request: Request, scan_id: str, severity_filter: str = "", 
                      type_filter: str = "", show_exceptions: bool = False,
                      current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -1657,7 +1660,7 @@ async def scan_results(request: Request, scan_id: str, severity_filter: str = ""
         "current_user": current_user
     })
 
-@app.post("/secrets/{secret_id}/update-status")
+@router.post("/secrets/{secret_id}/update-status")
 async def update_secret_status(secret_id: int, status: str = Form(...), 
                               comment: str = Form(""), current_user: str = Depends(get_current_user), 
                               db: Session = Depends(get_db)):
@@ -1688,7 +1691,7 @@ async def update_secret_status(secret_id: int, status: str = Form(...),
     db.commit()
     return {"status": "success"}
 
-@app.post("/secrets/bulk-action")
+@router.post("/secrets/bulk-action")
 async def bulk_secret_action(request: Request, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     data = await request.json()
     secret_ids = data.get("secret_ids", [])
@@ -1725,7 +1728,7 @@ async def bulk_secret_action(request: Request, current_user: str = Depends(get_c
     db.commit()
     return {"status": "success"}
 
-@app.post("/scan/{scan_id}/delete")
+@router.post("/scan/{scan_id}/delete")
 async def delete_scan(scan_id: str, _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
     scan = db.query(Scan).filter(Scan.id == scan_id).first()
     if not scan:
@@ -1742,7 +1745,7 @@ async def delete_scan(scan_id: str, _: bool = Depends(get_current_user), db: Ses
     
     return RedirectResponse(url=f"/project/{project_name}?success=scan_deleted", status_code=302)
 
-@app.get("/scan/{scan_id}/export")
+@router.get("/scan/{scan_id}/export")
 async def export_scan_results(scan_id: str, _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
     scan = db.query(Scan).filter(Scan.id == scan_id).first()
     if not scan:
@@ -1765,15 +1768,19 @@ async def export_scan_results(scan_id: str, _: bool = Depends(get_current_user),
     
     # Generate filename
     commit_short = scan.repo_commit[:7] if scan.repo_commit else "unknown"
-    #scan_date = scan.completed_at.strftime("%Y%m%d") if scan.completed_at else "pending"
     filename = f"{scan.project_name}_{commit_short}.json"
     
-    return JSONResponse(
-        content=export_data,
+    # Генерируем отформатированный JSON
+    formatted_json = json.dumps(export_data, indent=2, ensure_ascii=False)
+    
+    from fastapi.responses import Response
+    return Response(
+        content=formatted_json,
+        media_type="application/json",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
 
-@app.get("/scan/{scan_id}/export-html")
+@router.get("/scan/{scan_id}/export-html")
 async def export_scan_results_html(scan_id: str, _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
     scan = db.query(Scan).filter(Scan.id == scan_id).first()
     if not scan:
@@ -1782,6 +1789,19 @@ async def export_scan_results_html(scan_id: str, _: bool = Depends(get_current_u
     project = db.query(Project).filter(Project.name == scan.project_name).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Подсчитать количество секретов перед их загрузкой
+    secrets_count = db.query(func.count(Secret.id)).filter(
+        Secret.scan_id == scan_id,
+        Secret.is_exception == False
+    ).scalar() or 0
+    
+    # Проверить лимит
+    if secrets_count > 3000:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Cannot generate HTML report: too many secrets ({secrets_count}). Maximum allowed: 3000. Please use JSON export instead."
+        )
     
     secrets = db.query(Secret).filter(
         Secret.scan_id == scan_id,
@@ -1792,12 +1812,14 @@ async def export_scan_results_html(scan_id: str, _: bool = Depends(get_current_u
         Secret.line
     ).all()
     
-    html_content = generate_html_report(scan, project, secrets, HUB_TYPE)
+    # Выполнить генерацию отчета в отдельном потоке
+    html_content = await asyncio.to_thread(
+        generate_html_report, scan, project, secrets, HUB_TYPE
+    )
     
     commit_short = scan.repo_commit[:7] if scan.repo_commit else "unknown"
     filename = f"{scan.project_name}_{commit_short}.html"
     
-    # Используем только ASCII символы в заголовке
     safe_filename = filename.encode('ascii', 'ignore').decode('ascii')
     
     return HTMLResponse(
@@ -1827,7 +1849,7 @@ def normalize_file_path(file_path: str, repo_url: str) -> str:
     
     return file_path
 
-@app.post("/secrets/add-custom")
+@router.post("/secrets/add-custom")
 async def add_custom_secret(request: Request, scan_id: str = Form(...), secret_value: str = Form(...),
                            context: str = Form(...), line: int = Form(...), secret_type: str = Form(...),
                            file_path: str = Form(...), current_user: str = Depends(get_current_user), 
@@ -1915,7 +1937,7 @@ async def add_custom_secret(request: Request, scan_id: str = Form(...), secret_v
         logger.error(f"Error adding custom secret: {e}")
         return JSONResponse(status_code=500, content={"status": "error", "message": "Failed to add secret"})
 
-@app.post("/secrets/{secret_id}/delete")
+@router.post("/secrets/{secret_id}/delete")
 async def delete_secret(secret_id: int, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     """Delete a secret from database"""
     try:
@@ -2039,7 +2061,7 @@ async def backup_scheduler():
            # Wait 1 hour before retrying on error
            await asyncio.sleep(3600)
 
-@app.get("/admin/backup-status")
+@router.get("/admin/backup-status")
 async def backup_status(_: bool = Depends(get_current_user)):
     """Get backup configuration and status"""
     try:
@@ -2098,7 +2120,7 @@ async def backup_status(_: bool = Depends(get_current_user)):
             }
         )
 
-@app.post("/admin/backup")
+@router.post("/admin/backup")
 async def manual_backup(_: bool = Depends(get_current_user)):
     """Manually trigger a database backup"""
     backup_path = create_database_backup()
@@ -2107,7 +2129,7 @@ async def manual_backup(_: bool = Depends(get_current_user)):
     else:
         return {"status": "error", "message": "Backup failed"}
 
-@app.get("/admin/backups")
+@router.get("/admin/backups")
 async def list_backups(_: bool = Depends(get_current_user)):
     """List available backups"""
     try:
@@ -2126,14 +2148,14 @@ async def list_backups(_: bool = Depends(get_current_user)):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-@app.get("/multi-scan", response_class=HTMLResponse)
+@router.get("/multi-scan", response_class=HTMLResponse)
 async def multi_scan_page(request: Request, current_user: str = Depends(get_current_user)):
     return templates.TemplateResponse("multi_scan.html", {
         "request": request,
         "current_user": current_user
     })
 
-@app.get("/api/project/check")
+@router.get("/api/project/check")
 async def check_project_exists(repo_url: str, _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
     """Check if project exists by repo URL"""
     project = db.query(Project).filter(Project.repo_url == repo_url).first()
@@ -2142,7 +2164,7 @@ async def check_project_exists(repo_url: str, _: bool = Depends(get_current_user
     else:
         return {"exists": False}
 
-@app.get("/api/scan/{scan_id}/status")
+@router.get("/api/scan/{scan_id}/status")
 async def get_scan_status(scan_id: str, _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
     """Get current scan status with statistics"""
     scan = db.query(Scan).filter(Scan.id == scan_id).first()
@@ -2170,7 +2192,7 @@ async def get_scan_status(scan_id: str, _: bool = Depends(get_current_user), db:
         "files_scanned": scan.files_scanned
     }
 
-@app.post("/multi_scan")
+@router.post("/multi_scan")
 async def multi_scan(request: Request, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
    """Handle multi-scan requests"""
    try:
@@ -2441,7 +2463,7 @@ async def multi_scan(request: Request, current_user: str = Depends(get_current_u
            content={"status": "error", "message": "Внутренняя ошибка сервера"}
        )
 
-@app.get("/api/multi-scans")
+@router.get("/api/multi-scans")
 async def get_user_multi_scans(current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     """Get all multi-scans for current user"""
     try:
@@ -2528,7 +2550,7 @@ def update_secret_key_in_env(new_secret_key: str = None):
 
 # Admin Panel Routes
 
-@app.get("/admin", response_class=HTMLResponse)
+@router.get("/admin", response_class=HTMLResponse)
 async def admin_panel(request: Request, _: str = Depends(get_admin_user)):
     """Admin panel - only accessible by admin user"""
     current_secret_key = get_current_secret_key()
@@ -2539,7 +2561,7 @@ async def admin_panel(request: Request, _: str = Depends(get_admin_user)):
         "current_secret_key": current_secret_key
     })
 
-@app.get("/admin/users")
+@router.get("/admin/users")
 async def list_users(_: str = Depends(get_admin_user), user_db: Session = Depends(get_user_db)):
     """Get list of all users"""
     try:
@@ -2557,7 +2579,7 @@ async def list_users(_: str = Depends(get_admin_user), user_db: Session = Depend
         logger.error(f"Error listing users: {e}")
         return {"status": "error", "message": str(e)}
 
-@app.post("/admin/create-user")
+@router.post("/admin/create-user")
 async def create_user(request: Request, username: str = Form(...), password: str = Form(...),
                      _: str = Depends(get_admin_user), user_db: Session = Depends(get_user_db)):
     """Create new user - admin only"""
@@ -2565,7 +2587,7 @@ async def create_user(request: Request, username: str = Form(...), password: str
         # Check if user already exists
         existing_user = user_db.query(User).filter(User.username == username).first()
         if existing_user:
-            return RedirectResponse(url="/admin?error=user_exists", status_code=302)
+            return RedirectResponse(url="/secret_scanner/admin?error=user_exists", status_code=302)
         
         # Create new user
         password_hash = get_password_hash(password)
@@ -2574,13 +2596,13 @@ async def create_user(request: Request, username: str = Form(...), password: str
         user_db.commit()
         
         logger.info(f"New user created: {username}")
-        return RedirectResponse(url="/admin?success=user_created", status_code=302)
+        return RedirectResponse(url="/secret_scanner/admin?success=user_created", status_code=302)
         
     except Exception as e:
         logger.error(f"Error creating user: {e}")
-        return RedirectResponse(url="/admin?error=user_creation_failed", status_code=302)
+        return RedirectResponse(url="/secret_scanner/admin?error=user_creation_failed", status_code=302)
 
-@app.post("/admin/delete-user/{username}")
+@router.post("/admin/delete-user/{username}")
 async def delete_user(username: str, _: str = Depends(get_admin_user), 
                      user_db: Session = Depends(get_user_db)):
     """Delete user - admin only"""
@@ -2613,7 +2635,7 @@ async def delete_user(username: str, _: str = Depends(get_admin_user),
             content={"status": "error", "message": str(e)}
         )
 
-@app.post("/admin/update-secret-key")
+@router.post("/admin/update-secret-key")
 async def update_secret_key(request: Request, secret_key: str = Form(""),
                            _: str = Depends(get_admin_user)):
     """Update SECRET_KEY - admin only"""
@@ -2623,14 +2645,15 @@ async def update_secret_key(request: Request, secret_key: str = Form(""),
         
         if update_secret_key_in_env(new_key):
             logger.info("SECRET_KEY updated by admin")
-            return RedirectResponse(url="/admin?success=secret_key_updated", status_code=302)
+            return RedirectResponse(url="/secret_scanner/admin?success=secret_key_updated", status_code=302)
         else:
-            return RedirectResponse(url="/admin?error=secret_key_update_failed", status_code=302)
+            return RedirectResponse(url="/secret_scanner/admin?error=secret_key_update_failed", status_code=302)
             
     except Exception as e:
         logger.error(f"Error updating SECRET_KEY: {e}")
-        return RedirectResponse(url="/admin?error=secret_key_update_failed", status_code=302)
+        return RedirectResponse(url="/secret_scanner/admin?error=secret_key_update_failed", status_code=302)
 
+app.include_router(router)
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host=APP_HOST, port=APP_PORT)

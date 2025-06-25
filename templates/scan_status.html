@@ -231,17 +231,17 @@
 </head>
 <body>
     <header class="header">
-        <a href="/dashboard" class="logo">
+        <a href="/secret_scanner/dashboard" class="logo">
             🔍 Secrets Scanner
         </a>
         <nav class="nav-links">
-            <a href="/dashboard">🌐 Главная</a>
-            <a href="/multi-scan">🔄 Мультискан</a>
+            <a href="/secret_scanner/dashboard">🌐 Главная</a>
+            <a href="/secret_scanner/multi-scan">🔄 Мультискан</a>
             {% if current_user == "admin" %}
-            <a href="/admin">👑 Админ панель</a>
+            <a href="/secret_scanner/admin">👑 Админ панель</a>
             {% endif %}
-            <a href="/settings">⚙️ Настройки</a>
-            <a href="/logout">🔚 Выйти</a>
+            <a href="/secret_scanner/settings">⚙️ Настройки</a>
+            <a href="/secret_scanner/logout">🔚 Выйти</a>
         </nav>
     </header>
     
@@ -326,24 +326,24 @@
             </div>
             
             <div style="margin-top: 2rem;">
-                <a href="/project/{{ scan.project_name }}" class="btn btn-secondary">
+                <a href="/secret_scanner/project/{{ scan.project_name }}" class="btn btn-secondary">
                     ← Назад к проекту
                 </a>
                 
                 {% if scan.status == 'completed' %}
-                <a href="/scan/{{ scan.id }}/results" class="btn btn-primary">
+                <a href="/secret_scanner/scan/{{ scan.id }}/results" class="btn btn-primary">
                     📊 Посмотреть результаты
                 </a>
                 {% elif scan.status == 'running' %}
                 <button class="btn btn-danger" onclick="refreshPage()">
                     🔄 Обновить статус
                 </button>
-                <form method="post" action="/scan/{{ scan.id }}/delete" style="display: inline;" 
+                <form method="post" action="/secret_scanner/scan/{{ scan.id }}/delete" style="display: inline;" 
                       onsubmit="return confirm('Are you sure you want to delete this scan?')">
                     <button type="submit" class="btn btn-danger">🗑️ Delete Scan</button>
                 </form>
                 {% elif scan.status == 'failed' or scan.status == 'timeout' %}
-                <form method="post" action="/scan/{{ scan.id }}/delete" style="display: inline;" 
+                <form method="post" action="/secret_scanner/scan/{{ scan.id }}/delete" style="display: inline;" 
                       onsubmit="return confirm('Are you sure you want to delete this scan?')">
                     <button type="submit" class="btn btn-danger">🗑️ Delete Scan</button>
                 </form>
@@ -389,7 +389,7 @@
         {% if scan.status == 'completed' %}
         // Auto-redirect to results after 2 seconds
         setTimeout(() => {
-            window.location.href = '/scan/{{ scan.id }}/results';
+            window.location.href = '/secret_scanner/scan/{{ scan.id }}/results';
         }, 2000);
         {% endif %}
     </script>
