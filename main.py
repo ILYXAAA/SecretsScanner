@@ -18,6 +18,8 @@ from logging.handlers import RotatingFileHandler
 import urllib.parse
 from typing import Optional, List
 import os
+import gzip
+import base64
 from pathlib import Path
 import shutil
 from dotenv import load_dotenv, set_key
@@ -39,6 +41,39 @@ os.environ["no_proxy"] = "127.0.0.1,localhost"
 SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_urlsafe(32))
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 480  # 8 часов
+
+def decompress_callback_data(payload: dict) -> dict:
+    """Decompress callback data if it's compressed"""
+    try:
+        if payload.get("compressed", False):
+            # Получаем сжатые данные
+            compressed_b64 = payload.get("data", "")
+            original_size = payload.get("original_size", 0)
+            compressed_size = payload.get("compressed_size", 0)
+            
+            # Декодируем из base64
+            compressed_data = base64.b64decode(compressed_b64.encode('ascii'))
+            
+            # Распаковываем
+            decompressed_data = gzip.decompress(compressed_data)
+            
+            # Парсим JSON
+            decompressed_json = decompressed_data.decode('utf-8')
+            original_payload = json.loads(decompressed_json)
+            
+            logger.info(f"📥 Получены сжатые данные:")
+            logger.info(f"   Оригинал: {original_size / 1024:.2f} KB")
+            logger.info(f"   Сжато: {compressed_size / 1024:.2f} KB")
+            logger.info(f"   Экономия: {(1 - compressed_size / original_size) * 100:.1f}%")
+            
+            return original_payload
+        else:
+            # Данные не сжаты, возвращаем как есть
+            return payload
+            
+    except Exception as e:
+        logger.error(f"❌ Ошибка декомпрессии данных: {e}")
+        raise ValueError(f"Failed to decompress callback data: {e}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -1318,7 +1353,19 @@ async def scan_status(request: Request, scan_id: str, current_user: str = Depend
 
 @app.post("/get_results/{project_name}/{scan_id}")
 async def receive_scan_results(project_name: str, scan_id: str, request: Request, db: Session = Depends(get_db)):
-    data = await request.json()
+    try:
+        # Получаем raw данные
+        raw_data = await request.json()
+        
+        # Декомпрессируем если нужно
+        data = decompress_callback_data(raw_data)
+        
+    except ValueError as e:
+        logger.error(f"Decompression error for scan {scan_id}: {e}")
+        return {"status": "error", "message": "Data decompression failed"}
+    except Exception as e:
+        logger.error(f"Error parsing callback data for scan {scan_id}: {e}")
+        return {"status": "error", "message": "Invalid callback data format"}
 
     scan = db.query(Scan).filter(Scan.id == scan_id).first()
     if not scan:
@@ -1347,88 +1394,106 @@ async def receive_scan_results(project_name: str, scan_id: str, request: Request
         scan.completed_at = datetime.now(timezone.utc)
         scan.files_scanned = data.get("FilesScanned")
         
-        # Clear existing secrets for this scan (in case of reprocessing)
+        # Clear existing secrets for this scan
         db.query(Secret).filter(Secret.scan_id == scan_id).delete()
+        db.commit()
         
-        # Get previous scans for this project
+        results = data.get("Results", [])
+        logger.info(f"Processing {len(results)} secrets for scan {scan_id}")
+        
+        # Get previous scans for this project (ограничиваем количество)
         previous_scans = db.query(Scan).filter(
             Scan.project_name == project_name,
             Scan.id != scan_id,
             Scan.completed_at.is_not(None)
-        ).order_by(Scan.completed_at.desc()).all()
+        ).order_by(Scan.completed_at.desc()).limit(5).all()  # Только 5 последних сканов
         
-        # Get all manual secrets from previous scans
+        # Get manual secrets только из последнего скана
         manual_secrets = []
         if previous_scans:
-            most_recent_scan = previous_scans[0]  # already ordered by completed_at desc
+            most_recent_scan = previous_scans[0]
             manual_secrets = db.query(Secret).filter(
                 Secret.scan_id == most_recent_scan.id,
                 Secret.secret.like("% (добавлен вручную, см. context)")
             ).all()
         
-        # Save secrets with smart exception handling
-        for result in data.get("Results", []):
-            # Check if this exact secret was previously handled in this project
-            most_recent_secret = None
-            for prev_scan in previous_scans:
-                similar_secret = db.query(Secret).filter(
+        # Создаем мапу предыдущих секретов для быстрого поиска
+        previous_secrets_map = {}
+        if previous_scans and len(results) < 10000:  # Только для разумного количества
+            for prev_scan in previous_scans[:2]:  # Только 2 последних скана
+                prev_secrets = db.query(Secret).filter(
                     Secret.scan_id == prev_scan.id,
-                    Secret.path == result["path"],
-                    Secret.line == result["line"],
-                    Secret.secret == result["secret"],
-                    Secret.type == result["Type"]
-                ).first()
+                    Secret.status != "No status"
+                ).all()
                 
-                if similar_secret:
-                    most_recent_secret = similar_secret
-                    break
+                for prev_secret in prev_secrets:
+                    key = (prev_secret.path, prev_secret.line, prev_secret.secret, prev_secret.type)
+                    if key not in previous_secrets_map:
+                        previous_secrets_map[key] = prev_secret
+        
+        # Обрабатываем секреты батчами
+        batch_size = 1000
+        for i in range(0, len(results), batch_size):
+            batch = results[i:i + batch_size]
+            batch_secrets = []
             
-            # Apply the most recent decision
-            if most_recent_secret:
-                if most_recent_secret.status == "Refuted":
-                    is_exception = True
-                    status = "Refuted"
-                    exception_comment = most_recent_secret.exception_comment
-                    refuted_at = most_recent_secret.refuted_at
-                elif most_recent_secret.status == "Confirmed":
-                    is_exception = False
-                    status = "Confirmed"
-                    exception_comment = None
-                    refuted_at = None
-                else:  # "No status"
+            for result in batch:
+                # Быстрый поиск предыдущего статуса
+                most_recent_secret = None
+                if previous_secrets_map:
+                    key = (result["path"], result["line"], result["secret"], result["Type"])
+                    most_recent_secret = previous_secrets_map.get(key)
+                
+                # Apply the most recent decision
+                if most_recent_secret:
+                    if most_recent_secret.status == "Refuted":
+                        is_exception = True
+                        status = "Refuted"
+                        exception_comment = most_recent_secret.exception_comment
+                        refuted_at = most_recent_secret.refuted_at
+                    elif most_recent_secret.status == "Confirmed":
+                        is_exception = False
+                        status = "Confirmed"
+                        exception_comment = None
+                        refuted_at = None
+                    else:
+                        is_exception = False
+                        status = "No status"
+                        exception_comment = None
+                        refuted_at = None
+                    severity = most_recent_secret.severity
+                else:
                     is_exception = False
                     status = "No status"
                     exception_comment = None
                     refuted_at = None
-                severity = most_recent_secret.severity
-            else:
-                is_exception = False
-                status = "No status"
-                exception_comment = None
-                refuted_at = None
-                severity = result.get("severity", result.get("Severity", "High"))
+                    severity = result.get("severity", result.get("Severity", "High"))
 
-            secret = Secret(
-                scan_id=scan_id,
-                path=result["path"],
-                line=result["line"],
-                secret=result["secret"],
-                context=result["context"],
-                severity=severity,
-                confidence=result.get("confidence", 1.0),
-                type=result.get("Type", result.get("type", "Unknown")),
-                is_exception=is_exception,
-                exception_comment=exception_comment,
-                status=status,
-                refuted_at=refuted_at,
-                confirmed_by=most_recent_secret.confirmed_by if most_recent_secret else None,
-                refuted_by=most_recent_secret.refuted_by if most_recent_secret else None
-            )
-            db.add(secret)
+                secret = Secret(
+                    scan_id=scan_id,
+                    path=result["path"],
+                    line=result["line"],
+                    secret=result["secret"],
+                    context=result["context"],
+                    severity=severity,
+                    confidence=result.get("confidence", 1.0),
+                    type=result.get("Type", result.get("type", "Unknown")),
+                    is_exception=is_exception,
+                    exception_comment=exception_comment,
+                    status=status,
+                    refuted_at=refuted_at,
+                    confirmed_by=most_recent_secret.confirmed_by if most_recent_secret else None,
+                    refuted_by=most_recent_secret.refuted_by if most_recent_secret else None
+                )
+                batch_secrets.append(secret)
+            
+            # Сохраняем батч
+            db.add_all(batch_secrets)
+            db.commit()
+            logger.info(f"Processed batch {i//batch_size + 1}/{(len(results) + batch_size - 1)//batch_size}")
         
-        # Add manual secrets from previous scans
+        # Add manual secrets
         for manual_secret in manual_secrets:
-            # Check if this manual secret already exists in current scan (проверяем по всем полям)
             existing_manual = db.query(Secret).filter(
                 Secret.scan_id == scan_id,
                 Secret.secret == manual_secret.secret,
@@ -1456,9 +1521,9 @@ async def receive_scan_results(project_name: str, scan_id: str, request: Request
                 db.add(new_manual_secret)
         
         db.commit()
+        logger.info(f"Scan {scan_id} processing completed: {len(results)} secrets saved")
         return {"status": "success"}
 
-    # If status is not recognized, treat as error
     return {"status": "error", "message": "Unknown status received"}
 
 @app.get("/scan/{scan_id}/results", response_class=HTMLResponse)
