@@ -38,6 +38,13 @@ load_dotenv()
 
 os.environ["NO_PROXY"] = "127.0.0.1,localhost"
 os.environ["no_proxy"] = "127.0.0.1,localhost"
+BASE_URL = "/secret_scanner"
+
+def get_full_url(path: str) -> str:
+    """Helper to create full URLs with base prefix"""
+    if path.startswith('/'):
+        path = path[1:]
+    return f"{BASE_URL}/{path}" if path else BASE_URL
 
 SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_urlsafe(32))
 ALGORITHM = "HS256"
@@ -1077,20 +1084,20 @@ async def add_project(request: Request, project_name: str = Form(...), repo_url:
         
         existing = db.query(Project).filter(Project.name == project_name).first()
         if existing:
-            return RedirectResponse(url="/secret_scanner/dashboard?error=project_exists", status_code=302)
+            return RedirectResponse(url=get_full_url("dashboard?error=project_exists"), status_code=302)
         
-        project = Project(name=project_name, repo_url=repo_url, created_by=current_user)  # Добавлен created_by
+        project = Project(name=project_name, repo_url=repo_url, created_by=current_user)
         db.add(project)
         db.commit()
         
-        return RedirectResponse(url=f"/project/{project_name}", status_code=302)
+        return RedirectResponse(url=get_full_url(f"project/{project_name}"), status_code=302)
     
     except ValueError as e:
         encoded_error = urllib.parse.quote(str(e))
-        return RedirectResponse(url=f"/dashboard?error={encoded_error}", status_code=302)
+        return RedirectResponse(url=get_full_url(f"dashboard?error={encoded_error}"), status_code=302)
     except Exception as e:
         logger.error(f"Error adding project: {e}")
-        return RedirectResponse(url="/secret_scanner/dashboard?error=unexpected_error", status_code=302)
+        return RedirectResponse(url=get_full_url("dashboard?error=unexpected_error"), status_code=302)
 
 @router.post("/projects/update")
 async def update_project(request: Request, project_id: int = Form(...), project_name: str = Form(...), 
@@ -1190,7 +1197,7 @@ async def start_scan(request: Request, project_name: str, ref_type: str = Form(.
     
     # Check microservice health
     if not await check_microservice_health():
-        return RedirectResponse(url=f"/project/{project_name}?error=microservice_unavailable", status_code=302)
+        return RedirectResponse(url=get_full_url(f"project/{project_name}?error=microservice_unavailable"), status_code=302)
     
     # Create scan record with 'pending' status
     scan_id = str(uuid.uuid4())
@@ -1205,8 +1212,8 @@ async def start_scan(request: Request, project_name: str, ref_type: str = Form(.
     db.add(scan)
     db.commit()
     
-    # Start scan via microservice
-    callback_url = f"http://{APP_HOST}:{APP_PORT}/secret_scanner/get_results/{project_name}/{scan_id}"
+    # Start scan via microservice - ИСПРАВЛЕН callback URL
+    callback_url = f"http://{APP_HOST}:{APP_PORT}{BASE_URL}/get_results/{project_name}/{scan_id}"
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(f"{MICROSERVICE_URL}/scan", json={
@@ -1224,32 +1231,31 @@ async def start_scan(request: Request, project_name: str, ref_type: str = Form(.
                 # If JSON parsing fails, treat as generic HTTP error
                 scan.status = "failed"
                 db.commit()
-                return RedirectResponse(url=f"/project/{project_name}?error=microservice_invalid_response", status_code=302)
+                return RedirectResponse(url=get_full_url(f"project/{project_name}?error=microservice_invalid_response"), status_code=302)
             
             if response.status_code == 200 and result.get("status") == "accepted":
                 # Success - update scan status to running
                 scan.status = "running"
                 scan.ref = result.get("Ref", ref)  # Use resolved ref from microservice
                 db.commit()
-                return RedirectResponse(url=f"/scan/{scan_id}", status_code=302)
+                return RedirectResponse(url=get_full_url(f"scan/{scan_id}"), status_code=302)
             else:
                 # Microservice returned an error (could be 400, 500, etc.)
                 scan.status = "failed"
                 db.commit()
                 error_msg = result.get("message", "Unknown error from microservice")
                 # URL encode the error message to handle special characters
-                import urllib.parse
                 encoded_error = urllib.parse.quote(error_msg)
-                return RedirectResponse(url=f"/project/{project_name}?error={encoded_error}", status_code=302)
+                return RedirectResponse(url=get_full_url(f"project/{project_name}?error={encoded_error}"), status_code=302)
                 
     except httpx.TimeoutException:
         scan.status = "failed"
         db.commit()
-        return RedirectResponse(url=f"/project/{project_name}?error=microservice_timeout", status_code=302)
+        return RedirectResponse(url=get_full_url(f"project/{project_name}?error=microservice_timeout"), status_code=302)
     except Exception as e:
         scan.status = "failed"
         db.commit()
-        return RedirectResponse(url=f"/project/{project_name}?error=microservice_connection_error", status_code=302)
+        return RedirectResponse(url=get_full_url(f"project/{project_name}?error=microservice_connection_error"), status_code=302)
 
 @router.post("/project/{project_name}/local-scan")
 async def start_local_scan(request: Request, project_name: str, 
@@ -1261,11 +1267,11 @@ async def start_local_scan(request: Request, project_name: str,
     
     # Check microservice health
     if not await check_microservice_health():
-        return RedirectResponse(url=f"/project/{project_name}?error=microservice_unavailable", status_code=302)
+        return RedirectResponse(url=get_full_url(f"project/{project_name}?error=microservice_unavailable"), status_code=302)
     
     # Validate file type
     if not zip_file.filename.endswith('.zip'):
-        return RedirectResponse(url=f"/project/{project_name}?error=invalid_file_format", status_code=302)
+        return RedirectResponse(url=get_full_url(f"project/{project_name}?error=invalid_file_format"), status_code=302)
     
     # Create scan record
     scan_id = str(uuid.uuid4())
@@ -1281,8 +1287,8 @@ async def start_local_scan(request: Request, project_name: str,
     db.add(scan)
     db.commit()
     
-    # Prepare callback URL
-    callback_url = f"http://{APP_HOST}:{APP_PORT}/secret_scanner/get_results/{project_name}/{scan_id}"
+    # Prepare callback URL - ИСПРАВЛЕН
+    callback_url = f"http://{APP_HOST}:{APP_PORT}{BASE_URL}/get_results/{project_name}/{scan_id}"
     
     try:
         # Read file content BEFORE creating the request
@@ -1317,30 +1323,30 @@ async def start_local_scan(request: Request, project_name: str,
                 scan.status = "failed"
                 scan.error_message = "Invalid response from microservice"
                 db.commit()
-                return RedirectResponse(url=f"/project/{project_name}?error=microservice_invalid_response", status_code=302)
+                return RedirectResponse(url=get_full_url(f"project/{project_name}?error=microservice_invalid_response"), status_code=302)
             
             if response.status_code == 200 and result.get("status") == "accepted":
                 scan.status = "running"
                 db.commit()
-                return RedirectResponse(url=f"/scan/{scan_id}", status_code=302)
+                return RedirectResponse(url=get_full_url(f"scan/{scan_id}"), status_code=302)
             else:
                 scan.status = "failed"
                 scan.error_message = result.get("message", "Unknown error")
                 db.commit()
                 error_msg = result.get("message", "Unknown error from microservice")
                 encoded_error = urllib.parse.quote(error_msg)
-                return RedirectResponse(url=f"/project/{project_name}?error={encoded_error}", status_code=302)
+                return RedirectResponse(url=get_full_url(f"project/{project_name}?error={encoded_error}"), status_code=302)
                 
     except httpx.TimeoutException:
         scan.status = "failed"
         scan.error_message = "Microservice timeout"
         db.commit()
-        return RedirectResponse(url=f"/project/{project_name}?error=microservice_timeout", status_code=302)
+        return RedirectResponse(url=get_full_url(f"project/{project_name}?error=microservice_timeout"), status_code=302)
     except Exception as e:
         scan.status = "failed"
         scan.error_message = str(e)
         db.commit()
-        return RedirectResponse(url=f"/project/{project_name}?error=local_scan_failed", status_code=302)
+        return RedirectResponse(url=get_full_url(f"project/{project_name}?error=local_scan_failed"), status_code=302)
 
 @router.get("/scan/{scan_id}", response_class=HTMLResponse)
 async def scan_status(request: Request, scan_id: str, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -2389,274 +2395,277 @@ async def get_scan_status(scan_id: str, _: bool = Depends(get_current_user), db:
 
 @router.post("/multi_scan")
 async def multi_scan(request: Request, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
-   """Handle multi-scan requests"""
-   try:
-       scan_requests = await request.json()
-       
-       if not isinstance(scan_requests, list) or len(scan_requests) == 0:
-           return JSONResponse(
-               status_code=400,
-               content={"status": "error", "message": "Invalid request format"}
-           )
-       
-       # Check microservice health
-       if not await check_microservice_health():
-           return JSONResponse(
-               status_code=503,
-               content={"status": "error", "message": "Микросервис недоступен"}
-           )
-       
-       # Create multi-scan record
-       multi_scan_id = str(uuid.uuid4())
-       scan_ids = []
-       
-       # Create scan records in database
-       scan_records = []
-       for scan_request in scan_requests:
-           # Extract scan ID from callback URL or generate new
-           callback_url = scan_request.get("CallbackUrl", "")
-           scan_id = callback_url.split("/")[-1] if callback_url else str(uuid.uuid4())
-           scan_ids.append(scan_id)
-           
-           # Create scan record
-           scan = Scan(
-               id=scan_id,
-               project_name=scan_request["ProjectName"],
-               ref_type=scan_request["RefType"],
-               ref=scan_request["Ref"],
-               status="pending",
-               started_by=current_user
-           )
-           db.add(scan)
-           scan_records.append(scan)
-       
-       # Create multi-scan record
-       multi_scan = MultiScan(
-           id=multi_scan_id,
-           user_id=current_user,
-           scan_ids=json.dumps(scan_ids),
-           name=f"Multi-scan {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-       )
-       db.add(multi_scan)
-       db.commit()
-       
-       # Send request to microservice
-       try:
-           async with httpx.AsyncClient(timeout=300.0) as client:  # 5 minutes timeout
-               microservice_payload = {
-                   "repositories": scan_requests
-               }
-               
-               response = await client.post(
-                   f"{MICROSERVICE_URL}/multi_scan",
-                   json=microservice_payload, headers=get_auth_headers()
-               )
-               
-               # Handle different response status codes
-               if response.status_code == 200:
-                   result = response.json()
-                   
-                   if result.get("status") == "accepted":
-                       # All repositories resolved successfully - update scan records
-                       scan_data_list = result.get("data", [])
-                       for i, scan_record in enumerate(scan_records):
-                           if i < len(scan_data_list):
-                               scan_data = scan_data_list[i]
-                               scan_record.status = "running"
-                               scan_record.ref = scan_data.get("Ref", scan_record.ref)
-                               scan_record.repo_commit = scan_data.get("commit")
-                           else:
-                               # Fallback if data is incomplete
-                               scan_record.status = "running"
-                       
-                       db.commit()
-                       
-                       # Add base repo URLs to response data
-                       for i, scan_data in enumerate(scan_data_list):
-                           if i < len(scan_requests):
-                               scan_data["BaseRepoUrl"] = scan_requests[i]["RepoUrl"]
-                       
-                       return JSONResponse(
-                           status_code=200,
-                           content={
-                               "status": "accepted",
-                               "message": result.get("message", "Мультисканирование добавлено в очередь"),
-                               "data": scan_data_list,
-                               "multi_scan_id": multi_scan_id,
-                               "RepoUrl": result.get("RepoUrl", "Undefined")
-                           }
-                       )
-                   
-                   else:
-                       # Unexpected status in 200 response
-                       db.delete(multi_scan)
-                       error_message = result.get("message", "Неизвестная ошибка")
-                       for scan_record in scan_records:
-                           scan_record.status = "failed"
-                           scan_record.error_message = error_message
-                       
-                       db.commit()
-                       return JSONResponse(
-                           status_code=400,
-                           content={
-                               "status": "error",
-                               "message": error_message
-                           }
-                       )
-               
-               elif response.status_code == 400:
-                   # Validation failed - some repositories couldn't be resolved
-                   try:
-                       result = response.json()
-                       if result.get("status") == "validation_failed":
-                           scan_data_list = result.get("data", [])
-                           
-                           # Add base repo URLs to response data even for failed validation
-                           for i, scan_data in enumerate(scan_data_list):
-                               if i < len(scan_requests):
-                                   scan_data["BaseRepoUrl"] = scan_requests[i]["RepoUrl"]
-                           
-                           # Update scan records based on validation results
-                           for i, scan_record in enumerate(scan_records):
-                               if i < len(scan_data_list):
-                                   scan_data = scan_data_list[i]
-                                   if scan_data.get("commit") == "not_found":
-                                       scan_record.status = "failed"
-                                       scan_record.error_message = "Failed to resolve commit"
-                                   else:
-                                       # This shouldn't happen in validation_failed, but handle it
-                                       scan_record.status = "failed"
-                                       scan_record.error_message = "Validation failed"
-                               else:
-                                   scan_record.status = "failed"
-                                   scan_record.error_message = "Validation failed"
-                           
-                           db.commit()
-                           return JSONResponse(
-                               status_code=400,
-                               content={
-                                   "status": "validation_failed",
-                                   "message": result.get("message", "Не удалось отрезолвить коммиты"),
-                                   "data": scan_data_list
-                               }
-                           )
-                       else:
-                           # Other 400 error
-                           db.delete(multi_scan)
-                           error_message = result.get("message", "Ошибка валидации")
-                           for scan_record in scan_records:
-                               scan_record.status = "failed"
-                               scan_record.error_message = error_message
-                           
-                           db.commit()
-                           return JSONResponse(
-                               status_code=400,
-                               content={
-                                   "status": "error",
-                                   "message": error_message
-                               }
-                           )
-                   except Exception as parse_error:
-                       # Can't parse 400 response
-                       db.delete(multi_scan)
-                       error_message = "Ошибка валидации запроса"
-                       for scan_record in scan_records:
-                           scan_record.status = "failed"
-                           scan_record.error_message = error_message
-                       
-                       db.commit()
-                       return JSONResponse(
-                           status_code=400,
-                           content={
-                               "status": "error",
-                               "message": error_message
-                           }
-                       )
-               
-               elif response.status_code == 429:
-                   # Queue is full
-                   try:
-                       result = response.json()
-                       error_message = result.get("message", "Очередь переполнена")
-                   except:
-                       error_message = "Очередь переполнена"
-                   
-                   # Mark scans as failed due to queue overflow
-                   db.delete(multi_scan)
-                   for scan_record in scan_records:
-                       scan_record.status = "failed"
-                       scan_record.error_message = "Queue full"
-                   
-                   db.commit()
-                   return JSONResponse(
-                       status_code=429,
-                       content={
-                           "status": "queue_full",
-                           "message": error_message
-                       }
-                   )
-               
-               else:
-                   # Other HTTP error codes
-                   try:
-                       error_data = response.json()
-                       error_message = error_data.get("message", error_data.get("detail", f"HTTP {response.status_code}"))
-                   except:
-                       error_message = f"HTTP {response.status_code}"
-                   
-                   # Mark all scans as failed
-                   db.delete(multi_scan)
-                   for scan_record in scan_records:
-                       scan_record.status = "failed"
-                       scan_record.error_message = f"Microservice error: {error_message}"
-                   
-                   db.commit()
-                   
-                   return JSONResponse(
-                       status_code=response.status_code,
-                       content={
-                           "status": "error", 
-                           "message": f"Ошибка микросервиса: {error_message}"
-                       }
-                   )
-       
-       except httpx.TimeoutException:
-           # Mark all scans as failed due to timeout
-           db.delete(multi_scan)
-           for scan_record in scan_records:
-               scan_record.status = "failed"
-               scan_record.error_message = "Microservice timeout"
-           
-           db.commit()
-           
-           return JSONResponse(
-               status_code=408,
-               content={"status": "error", "message": "Таймаут микросервиса"}
-           )
-       
-       except Exception as e:
-           # Mark all scans as failed due to connection error
-           db.delete(multi_scan)
-           for scan_record in scan_records:
-               scan_record.status = "failed"
-               scan_record.error_message = f"Connection error: {str(e)}"
-           
-           db.commit()
-           
-           return JSONResponse(
-               status_code=500,
-               content={"status": "error", "message": "Ошибка соединения с микросервисом"}
-           )
-   
-   except Exception as e:
-       logger.error(f"Multi-scan error: {e}")
-       import traceback
-       traceback.print_exc()
-       
-       return JSONResponse(
-           status_code=500,
-           content={"status": "error", "message": "Внутренняя ошибка сервера"}
-       )
+  """Handle multi-scan requests"""
+  try:
+      scan_requests = await request.json()
+      
+      if not isinstance(scan_requests, list) or len(scan_requests) == 0:
+          return JSONResponse(
+              status_code=400,
+              content={"status": "error", "message": "Invalid request format"}
+          )
+      
+      # Check microservice health
+      if not await check_microservice_health():
+          return JSONResponse(
+              status_code=503,
+              content={"status": "error", "message": "Микросервис недоступен"}
+          )
+      
+      # Create multi-scan record
+      multi_scan_id = str(uuid.uuid4())
+      scan_ids = []
+      
+      # Create scan records in database
+      scan_records = []
+      for scan_request in scan_requests:
+          # Generate new scan ID
+          scan_id = str(uuid.uuid4())
+          scan_ids.append(scan_id)
+          
+          # Create correct callback URL with BASE_URL prefix
+          callback_url = f"http://{APP_HOST}:{APP_PORT}{BASE_URL}/get_results/{scan_request['ProjectName']}/{scan_id}"
+          scan_request["CallbackUrl"] = callback_url
+          
+          # Create scan record
+          scan = Scan(
+              id=scan_id,
+              project_name=scan_request["ProjectName"],
+              ref_type=scan_request["RefType"],
+              ref=scan_request["Ref"],
+              status="pending",
+              started_by=current_user
+          )
+          db.add(scan)
+          scan_records.append(scan)
+      
+      # Create multi-scan record
+      multi_scan = MultiScan(
+          id=multi_scan_id,
+          user_id=current_user,
+          scan_ids=json.dumps(scan_ids),
+          name=f"Multi-scan {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+      )
+      db.add(multi_scan)
+      db.commit()
+      
+      # Send request to microservice
+      try:
+          async with httpx.AsyncClient(timeout=300.0) as client:  # 5 minutes timeout
+              microservice_payload = {
+                  "repositories": scan_requests
+              }
+              
+              response = await client.post(
+                  f"{MICROSERVICE_URL}/multi_scan",
+                  json=microservice_payload, headers=get_auth_headers()
+              )
+              
+              # Handle different response status codes
+              if response.status_code == 200:
+                  result = response.json()
+                  
+                  if result.get("status") == "accepted":
+                      # All repositories resolved successfully - update scan records
+                      scan_data_list = result.get("data", [])
+                      for i, scan_record in enumerate(scan_records):
+                          if i < len(scan_data_list):
+                              scan_data = scan_data_list[i]
+                              scan_record.status = "running"
+                              scan_record.ref = scan_data.get("Ref", scan_record.ref)
+                              scan_record.repo_commit = scan_data.get("commit")
+                          else:
+                              # Fallback if data is incomplete
+                              scan_record.status = "running"
+                      
+                      db.commit()
+                      
+                      # Add base repo URLs to response data
+                      for i, scan_data in enumerate(scan_data_list):
+                          if i < len(scan_requests):
+                              scan_data["BaseRepoUrl"] = scan_requests[i]["RepoUrl"]
+                      
+                      return JSONResponse(
+                          status_code=200,
+                          content={
+                              "status": "accepted",
+                              "message": result.get("message", "Мультисканирование добавлено в очередь"),
+                              "data": scan_data_list,
+                              "multi_scan_id": multi_scan_id,
+                              "RepoUrl": result.get("RepoUrl", "Undefined")
+                          }
+                      )
+                  
+                  else:
+                      # Unexpected status in 200 response
+                      db.delete(multi_scan)
+                      error_message = result.get("message", "Неизвестная ошибка")
+                      for scan_record in scan_records:
+                          scan_record.status = "failed"
+                          scan_record.error_message = error_message
+                      
+                      db.commit()
+                      return JSONResponse(
+                          status_code=400,
+                          content={
+                              "status": "error",
+                              "message": error_message
+                          }
+                      )
+              
+              elif response.status_code == 400:
+                  # Validation failed - some repositories couldn't be resolved
+                  try:
+                      result = response.json()
+                      if result.get("status") == "validation_failed":
+                          scan_data_list = result.get("data", [])
+                          
+                          # Add base repo URLs to response data even for failed validation
+                          for i, scan_data in enumerate(scan_data_list):
+                              if i < len(scan_requests):
+                                  scan_data["BaseRepoUrl"] = scan_requests[i]["RepoUrl"]
+                          
+                          # Update scan records based on validation results
+                          for i, scan_record in enumerate(scan_records):
+                              if i < len(scan_data_list):
+                                  scan_data = scan_data_list[i]
+                                  if scan_data.get("commit") == "not_found":
+                                      scan_record.status = "failed"
+                                      scan_record.error_message = "Failed to resolve commit"
+                                  else:
+                                      # This shouldn't happen in validation_failed, but handle it
+                                      scan_record.status = "failed"
+                                      scan_record.error_message = "Validation failed"
+                              else:
+                                  scan_record.status = "failed"
+                                  scan_record.error_message = "Validation failed"
+                          
+                          db.commit()
+                          return JSONResponse(
+                              status_code=400,
+                              content={
+                                  "status": "validation_failed",
+                                  "message": result.get("message", "Не удалось отрезолвить коммиты"),
+                                  "data": scan_data_list
+                              }
+                          )
+                      else:
+                          # Other 400 error
+                          db.delete(multi_scan)
+                          error_message = result.get("message", "Ошибка валидации")
+                          for scan_record in scan_records:
+                              scan_record.status = "failed"
+                              scan_record.error_message = error_message
+                          
+                          db.commit()
+                          return JSONResponse(
+                              status_code=400,
+                              content={
+                                  "status": "error",
+                                  "message": error_message
+                              }
+                          )
+                  except Exception as parse_error:
+                      # Can't parse 400 response
+                      db.delete(multi_scan)
+                      error_message = "Ошибка валидации запроса"
+                      for scan_record in scan_records:
+                          scan_record.status = "failed"
+                          scan_record.error_message = error_message
+                      
+                      db.commit()
+                      return JSONResponse(
+                          status_code=400,
+                          content={
+                              "status": "error",
+                              "message": error_message
+                          }
+                      )
+              
+              elif response.status_code == 429:
+                  # Queue is full
+                  try:
+                      result = response.json()
+                      error_message = result.get("message", "Очередь переполнена")
+                  except:
+                      error_message = "Очередь переполнена"
+                  
+                  # Mark scans as failed due to queue overflow
+                  db.delete(multi_scan)
+                  for scan_record in scan_records:
+                      scan_record.status = "failed"
+                      scan_record.error_message = "Queue full"
+                  
+                  db.commit()
+                  return JSONResponse(
+                      status_code=429,
+                      content={
+                          "status": "queue_full",
+                          "message": error_message
+                      }
+                  )
+              
+              else:
+                  # Other HTTP error codes
+                  try:
+                      error_data = response.json()
+                      error_message = error_data.get("message", error_data.get("detail", f"HTTP {response.status_code}"))
+                  except:
+                      error_message = f"HTTP {response.status_code}"
+                  
+                  # Mark all scans as failed
+                  db.delete(multi_scan)
+                  for scan_record in scan_records:
+                      scan_record.status = "failed"
+                      scan_record.error_message = f"Microservice error: {error_message}"
+                  
+                  db.commit()
+                  
+                  return JSONResponse(
+                      status_code=response.status_code,
+                      content={
+                          "status": "error", 
+                          "message": f"Ошибка микросервиса: {error_message}"
+                      }
+                  )
+      
+      except httpx.TimeoutException:
+          # Mark all scans as failed due to timeout
+          db.delete(multi_scan)
+          for scan_record in scan_records:
+              scan_record.status = "failed"
+              scan_record.error_message = "Microservice timeout"
+          
+          db.commit()
+          
+          return JSONResponse(
+              status_code=408,
+              content={"status": "error", "message": "Таймаут микросервиса"}
+          )
+      
+      except Exception as e:
+          # Mark all scans as failed due to connection error
+          db.delete(multi_scan)
+          for scan_record in scan_records:
+              scan_record.status = "failed"
+              scan_record.error_message = f"Connection error: {str(e)}"
+          
+          db.commit()
+          
+          return JSONResponse(
+              status_code=500,
+              content={"status": "error", "message": "Ошибка соединения с микросервисом"}
+          )
+  
+  except Exception as e:
+      logger.error(f"Multi-scan error: {e}")
+      import traceback
+      traceback.print_exc()
+      
+      return JSONResponse(
+          status_code=500,
+          content={"status": "error", "message": "Внутренняя ошибка сервера"}
+      )
 
 @router.get("/api/multi-scans")
 async def get_user_multi_scans(current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):

@@ -900,7 +900,7 @@
             const confirmed = confirm('Вы уверены, что хотите удалить этот проект и все его сканирования?');
             if (!confirmed) return;
 
-            fetch(`/projects/${id}/delete`, {
+            fetch(`/secret_scanner/projects/${id}/delete`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

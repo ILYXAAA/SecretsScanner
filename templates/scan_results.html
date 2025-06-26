@@ -2381,7 +2381,7 @@
         async function restoreSingleSecret(secretId) {
             if (confirm('Are you sure you want to restore this secret? It will be changed from "Refuted" to "No status".')) {
                 try {
-                    const response = await fetch(`/secrets/${secretId}/update-status`, {
+                    const response = await fetch(`/secret_scanner/secrets/${secretId}/update-status`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                         body: new URLSearchParams({ status: 'No status', comment: '' })
@@ -2405,7 +2405,7 @@
             }
             
             try {
-                const response = await fetch(`/secrets/${secretId}/delete`, {
+                const response = await fetch(`/secret_scanner/secrets/${secretId}/delete`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' }
                 });
@@ -2446,7 +2446,7 @@
             const comment = document.getElementById(`comment-${secretId}`)?.value || '';
             
             try {
-                const response = await fetch(`/secrets/${secretId}/update-status`, {
+                const response = await fetch(`/secret_scanner/secrets/${secretId}/update-status`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                     body: new URLSearchParams({ status: status, comment: comment })

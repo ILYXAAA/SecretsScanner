@@ -786,7 +786,7 @@
             
             for (const item of validatedUrls) {
                 try {
-                    const response = await fetch(`/api/project/check?repo_url=${encodeURIComponent(item.parsed.baseRepoUrl)}`);
+                    const response = await fetch(`/secret_scanner/api/project/check?repo_url=${encodeURIComponent(item.parsed.baseRepoUrl)}`);
                     if (response.ok) {
                         const data = await response.json();
                         if (data.exists) {
@@ -833,7 +833,7 @@
             scans.forEach((scan, index) => {
                 const scanItem = document.createElement('a');
                 scanItem.className = 'scan-item';
-                scanItem.href = scan.status === 'completed' ? `/scan/${scan.scan_id}/results` : `/scan/${scan.scan_id}`;
+                scanItem.href = scan.status === 'completed' ? `/secret_scanner/scan/${scan.scan_id}/results` : `/secret_scanner/scan/${scan.scan_id}`;
                 scanItem.dataset.scanId = scan.scan_id;
                 
                 let statusHtml = '';
@@ -1050,7 +1050,7 @@
                     RepoUrl: item.parsed.baseRepoUrl,
                     RefType: item.parsed.refType,
                     Ref: item.parsed.ref,
-                    CallbackUrl: `${window.location.origin}/get_results/${item.projectName}/${generateUUID()}`
+                    CallbackUrl: `${window.location.origin}/secret_scanner/get_results/${item.projectName}/${generateUUID()}`
                 }));
                 
                 // Send multi-scan request

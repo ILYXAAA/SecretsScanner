@@ -688,7 +688,7 @@
             {% if recent_scans %}
             <div class="scan-list">
                 {% for scan_data in recent_scans %}
-                <a href="{% if scan_data.scan.status == 'completed' %}/scan/{{ scan_data.scan.id }}/results{% elif scan_data.scan.status == 'running' %}/scan/{{ scan_data.scan.id }}{% else %}/project/{{ scan_data.scan.project_name }}{% endif %}" class="scan-item{% if scan_data.scan.status == 'failed' %} scan-failed{% elif scan_data.scan.status == 'timeout' %} scan-timeout{% endif %}">
+                <a href="{% if scan_data.scan.status == 'completed' %}/secret_scanner/scan/{{ scan_data.scan.id }}/results{% elif scan_data.scan.status == 'running' %}/secret_scanner/scan/{{ scan_data.scan.id }}{% else %}/secret_scanner/project/{{ scan_data.scan.project_name }}{% endif %}" class="scan-item{% if scan_data.scan.status == 'failed' %} scan-failed{% elif scan_data.scan.status == 'timeout' %} scan-timeout{% endif %}">
                     <div class="scan-main">
                         <div class="scan-project">{{ scan_data.scan.project_name }}</div>
                         <div class="scan-meta">
@@ -925,7 +925,7 @@
             const confirmed = confirm('Вы уверены, что хотите удалить этот проект и все его сканирования?');
             if (!confirmed) return;
 
-            fetch(`/projects/${id}/delete`, {
+            fetch(`/secret_scanner/projects/${id}/delete`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
