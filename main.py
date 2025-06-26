@@ -386,7 +386,7 @@ def verify_token(token: str):
 # Обработчик исключений
 @app.exception_handler(AuthenticationException)
 async def auth_exception_handler(request: Request, exc: AuthenticationException):
-    response = RedirectResponse(url="/secret_scanner/", status_code=302)
+    response = RedirectResponse(url=get_full_url(""), status_code=302)
     response.delete_cookie(key="auth_token")  # Удаляем невалидный токен
     return response
 
@@ -532,7 +532,7 @@ async def login_page(request: Request):
             try:
                 user = user_db.query(User).filter(User.username == username).first()
                 if user:
-                    return RedirectResponse(url="/secret_scanner/dashboard", status_code=302)
+                    return RedirectResponse(url=get_full_url("dashboard"), status_code=302)
             finally:
                 user_db.close()
         
@@ -550,7 +550,7 @@ async def login(request: Request, username: str = Form(...), password: str = For
         access_token = create_access_token(
             data={"sub": username}, expires_delta=access_token_expires
         )
-        response = RedirectResponse(url="/secret_scanner/dashboard", status_code=302)
+        response = RedirectResponse(url=get_full_url("dashboard"), status_code=302)
         response.set_cookie(
             key="auth_token", 
             value=access_token, 
@@ -564,7 +564,7 @@ async def login(request: Request, username: str = Form(...), password: str = For
 
 @router.get("/logout")
 async def logout():
-    response = RedirectResponse(url="/secret_scanner/", status_code=302)
+    response = RedirectResponse(url=get_full_url(""), status_code=302)
     response.delete_cookie(key="auth_token")
     return response
 
@@ -1108,11 +1108,11 @@ async def update_project(request: Request, project_id: int = Form(...), project_
         
         project = db.query(Project).filter(Project.id == project_id).first()
         if not project:
-            return RedirectResponse(url=f"/project/{project_name}?error=project_not_found", status_code=302)
+            return RedirectResponse(url=get_full_url(f"project/{project_name}?error=project_not_found"), status_code=302)
         
         existing = db.query(Project).filter(Project.name == project_name, Project.id != project_id).first()
         if existing:
-            return RedirectResponse(url=f"/project/{project.name}?error=project_exists", status_code=302)
+            return RedirectResponse(url=get_full_url(f"project/{project.name}?error=project_exists"), status_code=302)
         
         # Store old project name for updating related scans
         old_project_name = project.name
@@ -1129,20 +1129,20 @@ async def update_project(request: Request, project_id: int = Form(...), project_
         
         db.commit()
         
-        return RedirectResponse(url=f"/project/{project_name}?success=project_updated", status_code=302)
+        return RedirectResponse(url=get_full_url(f"project/{project_name}?success=project_updated"), status_code=302)
     
     except ValueError as e:
         encoded_error = urllib.parse.quote(str(e))
-        return RedirectResponse(url=f"/project/{project_name}?error={encoded_error}", status_code=302)
+        return RedirectResponse(url=get_full_url(f"project/{project_name}?error={encoded_error}"), status_code=302)
     except Exception as e:
         logger.error(f"Error updating project: {e}")
-        return RedirectResponse(url=f"/project/{project_name}?error=project_update_failed", status_code=302)
+        return RedirectResponse(url=get_full_url(f"project/{project_name}?error=project_update_failed"), status_code=302)
 
 @router.post("/projects/{project_id}/delete")
 async def delete_project(project_id: int, _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
-        return RedirectResponse(url="/secret_scanner/dashboard?error=project_not_found", status_code=302)
+        return RedirectResponse(url=get_full_url("dashboard?error=project_not_found"), status_code=302)
     
     # Delete all related scans and secrets
     scans = db.query(Scan).filter(Scan.project_name == project.name).all()
@@ -1153,7 +1153,7 @@ async def delete_project(project_id: int, _: bool = Depends(get_current_user), d
     db.delete(project)
     db.commit()
     
-    return RedirectResponse(url="/secret_scanner/dashboard?success=project_deleted", status_code=302)
+    return RedirectResponse(url=get_full_url("dashboard?success=project_deleted"), status_code=302)
 
 @router.get("/project/{project_name}", response_class=HTMLResponse)
 async def project_page(request: Request, project_name: str, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -1944,7 +1944,7 @@ async def delete_scan(scan_id: str, _: bool = Depends(get_current_user), db: Ses
     db.delete(scan)
     db.commit()
     
-    return RedirectResponse(url=f"/project/{project_name}?success=scan_deleted", status_code=302)
+    return RedirectResponse(url=get_full_url(f"project/{project_name}?success=scan_deleted"), status_code=302)
 
 @router.get("/scan/{scan_id}/export")
 async def export_scan_results(scan_id: str, _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
