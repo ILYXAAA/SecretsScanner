@@ -1296,7 +1296,8 @@
         async function submitCustomSecret(event) {
             event.preventDefault();
             
-            const scanId = window.location.pathname.split('/')[2];
+            const pathParts = window.location.pathname.split('/');
+            const scanId = pathParts[pathParts.length - 2];
             const formData = new FormData();
             
             formData.append('scan_id', scanId);

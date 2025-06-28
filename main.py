@@ -38,13 +38,13 @@ load_dotenv()
 
 os.environ["NO_PROXY"] = "127.0.0.1,localhost"
 os.environ["no_proxy"] = "127.0.0.1,localhost"
-BASE_URL = "/secret_scanner"
+BASE_URL = ""
 
 def get_full_url(path: str) -> str:
     """Helper to create full URLs with base prefix"""
     if path.startswith('/'):
         path = path[1:]
-    return f"{BASE_URL}/{path}" if path else BASE_URL
+    return f"/secret_scanner/{path}" if path else "/secret_scanner"
 
 SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_urlsafe(32))
 ALGORITHM = "HS256"
@@ -106,7 +106,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Secrets Scanner", lifespan=lifespan)
 
-router = APIRouter(prefix='/secret_scanner')
+router = APIRouter()
 
 # Create directories if they don't exist
 Path("templates").mkdir(exist_ok=True)
@@ -172,6 +172,7 @@ templates.env.filters['tojson'] = tojson_filter
 templates.env.filters['strftime'] = datetime_filter
 # templates.env.filters['basename'] = basename_filter
 templates.env.filters['urldecode'] = urldecode_filter
+templates.env.globals['get_full_url'] = get_full_url
 
 # Database setup
 SQLALCHEMY_DATABASE_URL = DATABASE_URL
@@ -1213,7 +1214,7 @@ async def start_scan(request: Request, project_name: str, ref_type: str = Form(.
     db.commit()
     
     # Start scan via microservice - ИСПРАВЛЕН callback URL
-    callback_url = f"http://{APP_HOST}:{APP_PORT}{BASE_URL}/get_results/{project_name}/{scan_id}"
+    callback_url = f"http://{APP_HOST}:{APP_PORT}/get_results/{project_name}/{scan_id}"
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(f"{MICROSERVICE_URL}/scan", json={
@@ -1288,7 +1289,7 @@ async def start_local_scan(request: Request, project_name: str,
     db.commit()
     
     # Prepare callback URL - ИСПРАВЛЕН
-    callback_url = f"http://{APP_HOST}:{APP_PORT}{BASE_URL}/get_results/{project_name}/{scan_id}"
+    callback_url = f"http://{APP_HOST}:{APP_PORT}/get_results/{project_name}/{scan_id}"
     
     try:
         # Read file content BEFORE creating the request
@@ -2057,12 +2058,17 @@ async def add_custom_secret(request: Request, scan_id: str = Form(...), secret_v
                            db: Session = Depends(get_db)):
     """Add a custom secret found by user"""
     try:
+        # Логирование для отладки
+        logger.info(f"Attempting to add custom secret for scan_id: {scan_id}")
+        
         scan = db.query(Scan).filter(Scan.id == scan_id).first()
         if not scan:
-            return JSONResponse(status_code=404, content={"status": "error", "message": "Scan not found"})
+            logger.error(f"Scan not found in database: {scan_id}")
+            return JSONResponse(status_code=404, content={"status": "error", "message": f"Scan not found: {scan_id}"})
         
         project = db.query(Project).filter(Project.name == scan.project_name).first()
         if not project:
+            logger.error(f"Project not found: {scan.project_name}")
             return JSONResponse(status_code=404, content={"status": "error", "message": "Project not found"})
         
         normalized_path = normalize_file_path(file_path, project.repo_url)
@@ -2084,6 +2090,7 @@ async def add_custom_secret(request: Request, scan_id: str = Form(...), secret_v
         if existing_secret:
             return JSONResponse(status_code=400, content={"status": "error", "message": "Secret already exists"})
         
+        # Создаем новый секрет
         new_secret = Secret(
             scan_id=scan_id,
             path=normalized_path,
@@ -2091,7 +2098,7 @@ async def add_custom_secret(request: Request, scan_id: str = Form(...), secret_v
             secret=modified_secret_value,
             context=full_context,
             severity="High",
-            confidence=1.0,
+            confidence=1.0,  # Убрал дублирование
             type=secret_type,
             status="Confirmed",
             is_exception=False,
@@ -2100,6 +2107,8 @@ async def add_custom_secret(request: Request, scan_id: str = Form(...), secret_v
         
         db.add(new_secret)
         db.commit()
+        
+        logger.info(f"Custom secret successfully added with ID: {new_secret.id}")
         
         # Get updated secrets data
         all_secrets_query = db.query(Secret).filter(Secret.scan_id == scan_id).order_by(
@@ -2118,25 +2127,33 @@ async def add_custom_secret(request: Request, scan_id: str = Form(...), secret_v
                 "context": html.escape(secret.context or "", quote=True),
                 "severity": html.escape(secret.severity or "", quote=True),
                 "type": html.escape(secret.type or "", quote=True),
+                "confidence": float(secret.confidence) if secret.confidence is not None else 1.0,  # Добавил confidence
                 "status": html.escape(secret.status or "No status", quote=True),
                 "is_exception": bool(secret.is_exception),
                 "exception_comment": html.escape(secret.exception_comment or "", quote=True),
                 "refuted_at": secret.refuted_at.strftime('%Y-%m-%d %H:%M') if secret.refuted_at else None,
                 "confirmed_by": secret.confirmed_by if secret.confirmed_by else None,
-                "refuted_by": secret.refuted_by if secret.refuted_by else None
+                "refuted_by": secret.refuted_by if secret.refuted_by else None,
+                "previous_status": None,  # Добавил недостающие поля
+                "previous_scan_date": None
             }
             secrets_data.append(secret_obj)
         
         logger.info(f"Custom secret added by {current_user} to scan {scan_id}")
-        return {
-            "status": "success", 
-            "message": "Secret added successfully",
-            "secrets_data": secrets_data
-        }
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "success", 
+                "message": "Secret added successfully",
+                "secrets_data": secrets_data
+            }
+        )
         
     except Exception as e:
         logger.error(f"Error adding custom secret: {e}")
-        return JSONResponse(status_code=500, content={"status": "error", "message": "Failed to add secret"})
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return JSONResponse(status_code=500, content={"status": "error", "message": f"Failed to add secret: {str(e)}"})
 
 @router.post("/secrets/{secret_id}/delete")
 async def delete_secret(secret_id: int, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -2424,7 +2441,7 @@ async def multi_scan(request: Request, current_user: str = Depends(get_current_u
           scan_ids.append(scan_id)
           
           # Create correct callback URL with BASE_URL prefix
-          callback_url = f"http://{APP_HOST}:{APP_PORT}{BASE_URL}/get_results/{scan_request['ProjectName']}/{scan_id}"
+          callback_url = f"http://{APP_HOST}:{APP_PORT}/get_results/{scan_request['ProjectName']}/{scan_id}"
           scan_request["CallbackUrl"] = callback_url
           
           # Create scan record
