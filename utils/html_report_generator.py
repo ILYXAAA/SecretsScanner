@@ -445,6 +445,7 @@ def generate_html_report(scan, project, secrets, HubType):
                         <tbody>
             """
             
+
             for secret in type_secrets:
                 # Санитизация данных секрета
                 secret_path = sanitize_input(secret.path)
@@ -452,12 +453,21 @@ def generate_html_report(scan, project, secrets, HubType):
                 secret_value = sanitize_input(secret.secret)
                 
                 # Build file URL based on hub type с дополнительной проверкой
-                if hub_type.lower() == 'azure':
-                    start_column = 1
-                    end_column = len(secret.secret) + 1
-                    file_url = f"{project_repo_url}?path={urllib.parse.quote(secret.path)}&version=GC{repo_commit}&line={secret_line}&lineEnd={secret_line}&lineStartColumn={start_column}&lineEndColumn={end_column}&_a=contents"
-                else:
-                    file_url = f"{project_repo_url}/blob/{repo_commit}{urllib.parse.quote(secret.path)}?plain=1#L{secret_line}"
+                try:
+                    if 'devzone.local' in project_repo_url:
+                        # DevZone/GitLab URL format
+                        file_url = f"{project_repo_url}/-/blob/{repo_commit}/{urllib.parse.quote(secret.path)}#L{secret_line}-{secret_line}"
+                    elif hub_type.lower() == 'azure':
+                        # Azure DevOps URL format
+                        start_column = 1
+                        end_column = len(secret.secret) + 1
+                        file_url = f"{project_repo_url}?path={urllib.parse.quote(secret.path)}&version=GC{repo_commit}&line={secret_line}&lineEnd={secret_line}&lineStartColumn={start_column}&lineEndColumn={end_column}&_a=contents"
+                    else:
+                        # Default/GitHub URL format
+                        file_url = f"{project_repo_url}/blob/{repo_commit}{urllib.parse.quote(secret.path)}?plain=1#L{secret_line}"
+                except Exception as error:
+                    print(f"Error building file URL: {error}")
+                    file_url = "#"
                 
                 # Дополнительная санитизация URL
                 file_url = sanitize_url(file_url)
