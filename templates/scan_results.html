@@ -458,25 +458,25 @@
         }
 
         .table-header th.sortable::after {
-            content: '↕️';
+            content: '↓';
             margin-left: 0.5rem;
-            opacity: 0.5;
+            opacity: 0.3;
             font-size: 0.75rem;
         }
 
-        /* .table-header th.sortable.sort-asc::after {
-            content: '↑' !important;
-            opacity: 1 !important;
-            color: #3b82f6 !important;
-            font-weight: bold !important;
+        .table-header th.sortable.sort-asc::after {
+            content: '↑';
+            opacity: 1;
+            color: #3b82f6;
+            font-weight: bold;
         }
 
         .table-header th.sortable.sort-desc::after {
-            content: '↓' !important;
-            opacity: 1 !important;
-            color: #3b82f6 !important;
-            font-weight: bold !important;
-        } */
+            content: '↓';
+            opacity: 1;
+            color: #3b82f6;
+            font-weight: bold;
+        }
         
         .table-header th:nth-child(1) { width: 26%; } /* Secret */
         .table-header th:nth-child(2) { width: 8%; } /* Line */
@@ -2107,16 +2107,12 @@
                 if (indicator) indicator.remove();
             });
             
-            // Добавляем индикатор для активной сортировки
+            // Добавляем класс для активной сортировки
             if (sortColumns.length > 0) {
                 const sort = sortColumns[0];
                 const header = document.querySelector(`[data-sort="${sort.column}"]`);
                 if (header) {
-                    const indicator = document.createElement('span');
-                    indicator.className = 'sort-indicator';
-                    indicator.textContent = sort.direction === 'asc' ? '↑' : '↓';
-                    indicator.style.cssText = 'margin-left: 0.5rem; color: #3b82f6; font-weight: bold; font-size: 0.9rem;';
-                    header.appendChild(indicator);
+                    header.classList.add(sort.direction === 'asc' ? 'sort-asc' : 'sort-desc');
                 }
             }
         }
@@ -2194,17 +2190,22 @@
             // Build file URL (используем безопасные данные)
             let fileUrl;
             try {
-                if (hubType === 'Azure') {
-                    const startColumn = 1;
-                    const secretLength = secretData.secret ? secretData.secret.length : 0;
-                    const endColumn = secretLength + 1;
-                    fileUrl = `${projectRepoUrl}?path=${encodeURIComponent(secretData.path || '')}&version=GC${scanCommit}&line=${secretData.line}&lineEnd=${secretData.line}&lineStartColumn=${startColumn}&lineEndColumn=${endColumn}&_a=contents`;
-                } else {
-                    fileUrl = `${projectRepoUrl}/blob/${scanCommit}${encodeURIComponent(secretData.path || '')}?plain=1#L${secretData.line}`;
-                }
+            if (projectRepoUrl.includes('devzone.local')) {
+                // DevZone/GitLab URL format
+                fileUrl = `${projectRepoUrl}/-/blob/${scanCommit}/${encodeURIComponent(secretData.path || '')}#L${secretData.line}-${secretData.line}`;
+            } else if (hubType === 'Azure') {
+                // Azure DevOps URL format
+                const startColumn = 1;
+                const secretLength = secretData.secret ? secretData.secret.length : 0;
+                const endColumn = secretLength + 1;
+                fileUrl = `${projectRepoUrl}?path=${encodeURIComponent(secretData.path || '')}&version=GC${scanCommit}&line=${secretData.line}&lineEnd=${secretData.line}&lineStartColumn=${startColumn}&lineEndColumn=${endColumn}&_a=contents`;
+            } else {
+                // Default/GitHub URL format
+                fileUrl = `${projectRepoUrl}/blob/${scanCommit}${encodeURIComponent(secretData.path || '')}?plain=1#L${secretData.line}`;
+            }
             } catch (error) {
-                console.error('Error building file URL:', error);
-                fileUrl = '#';
+            console.error('Error building file URL:', error);
+            fileUrl = '#';
             }
             
             // Данные уже экранированы на сервере
