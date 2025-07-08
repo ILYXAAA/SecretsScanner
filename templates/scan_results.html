@@ -451,6 +451,8 @@
             user-select: none;
             transition: background-color 0.2s ease;
             position: relative;
+            white-space: nowrap;
+            overflow: hidden; 
         }
         
         .table-header th:hover {
@@ -478,14 +480,22 @@
             font-weight: bold;
         }
         
+        /* .table-header th:nth-child(1) { width: 26%; }
+        .table-header th:nth-child(2) { width: 8%; }
+        .table-header th:nth-child(3) { width: 20%; }
+        .table-header th:nth-child(4) { width: 11%; } 
+        .table-header th:nth-child(5) { width: 12%; } 
+        .table-header th:nth-child(6) { width: 12%; } 
+        .table-header th:nth-child(7) { width: 11%; } */
+
         .table-header th:nth-child(1) { width: 26%; } /* Secret */
         .table-header th:nth-child(2) { width: 8%; } /* Line */
         .table-header th:nth-child(3) { width: 20%; } /* File */
-        .table-header th:nth-child(4) { width: 11%; } /* Type */
-        .table-header th:nth-child(5) { width: 12%; } /* Status */
-        .table-header th:nth-child(6) { width: 12%; } /* Confidence */
-        .table-header th:nth-child(7) { width: 11%; } /* Level */
-        
+        .table-header th:nth-child(4) { width: 12%; } /* Type */
+        .table-header th:nth-child(5) { width: 14%; } /* Status */
+        .table-header th:nth-child(6) { width: 8%; } /* Confidence */
+        .table-header th:nth-child(7) { width: 12%; } /* Level */
+                
         .secret-row {
             border-bottom: 1px solid #f3f4f6;
             cursor: pointer;
@@ -1713,7 +1723,7 @@
                             <th class="sortable" data-sort="file">📁 File</th>
                             <th class="sortable" data-sort="type">🏷️ Type</th>
                             <th class="sortable" data-sort="status">📊 Status</th>
-                            <th class="sortable" data-sort="confidence">🎯 Conf</th>
+                            <th class="sortable" data-sort="confidence">🎯</th>
                             <th class="sortable" data-sort="severity">⚠️ Level</th>
                         </tr>
                     </thead>

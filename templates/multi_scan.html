@@ -570,9 +570,6 @@
                 <h2 style="color: #333; margin: 0;">📊 Запущенные сканирования</h2>
                 <div style="display: flex; gap: 1rem; align-items: center;">
                     <div id="refreshStatus" style="font-size: 0.9rem; color: #666;"></div>
-                    <button class="btn btn-primary" onclick="manualRefresh()">
-                        🔄 Обновить
-                    </button>
                     <button class="btn btn-secondary" onclick="clearScanResults()">
                         🗑️ Очистить результаты
                     </button>
@@ -912,10 +909,12 @@
             // Always show repo list if there are scans with commits
             displayCompletedRepos(scans);
             
-            // Start auto-refresh if there are running scans
+            // Автоматически запускаем автообновление если есть запущенные сканы
             const hasRunning = scans.some(scan => scan.status === 'running' || scan.status === 'pending');
             if (hasRunning) {
                 startAutoRefresh();
+            } else {
+                updateRefreshStatus('Все сканирования завершены');
             }
         }
 
@@ -1164,24 +1163,36 @@
         
         // Restore scan results on page load
         window.addEventListener('DOMContentLoaded', async function() {
+            // Проверяем есть ли сохраненный multi-scan ID
+            const savedMultiScanId = sessionStorage.getItem('currentMultiScanId');
+            
+            if (!savedMultiScanId) {
+                // Если нет сохраненного ID, не загружаем предыдущие результаты
+                return;
+            }
+            
             try {
                 const response = await fetch('/secret_scanner/api/multi-scans');
                 if (response.ok) {
                     const data = await response.json();
                     if (data.status === 'success' && data.multi_scans.length > 0) {
-                        // Show the most recent multi-scan
-                        const latestMultiScan = data.multi_scans[0];
-                        displayScanResults(latestMultiScan.scans, latestMultiScan.multi_scan_id);
+                        // Ищем сохраненный multi-scan
+                        const savedMultiScan = data.multi_scans.find(ms => ms.multi_scan_id === savedMultiScanId);
                         
-                        // Start auto-refresh if needed
-                        const hasRunning = latestMultiScan.scans.some(scan => scan.status === 'running' || scan.status === 'pending');
-                        if (hasRunning) {
-                            startAutoRefresh();
+                        if (savedMultiScan) {
+                            displayScanResults(savedMultiScan.scans, savedMultiScan.multi_scan_id);
+                        } else {
+                            // Если сохраненный multi-scan не найден, очищаем sessionStorage
+                            sessionStorage.removeItem('currentMultiScanId');
+                            sessionStorage.removeItem('baseRepoUrls');
                         }
                     }
                 }
             } catch (error) {
                 console.error('Error loading multi-scans:', error);
+                // При ошибке очищаем sessionStorage
+                sessionStorage.removeItem('currentMultiScanId');
+                sessionStorage.removeItem('baseRepoUrls');
             }
         });
         
@@ -1193,23 +1204,25 @@
             }
         }
         
-        async function manualRefresh() {
-            updateRefreshStatus('Обновляется...');
-            const hasRunning = await refreshScanStatuses();
-            updateRefreshStatus(hasRunning ? 'Автообновление активно' : 'Все сканирования завершены');
+        // async function manualRefresh() {
+        //     updateRefreshStatus('Обновляется...');
+        //     const hasRunning = await refreshScanStatuses();
+        //     updateRefreshStatus(hasRunning ? 'Автообновление активно' : 'Все сканирования завершены');
             
-            if (hasRunning && !refreshTimer) {
-                startAutoRefresh();
-            }
-        }
+        //     if (hasRunning && !refreshTimer) {
+        //         startAutoRefresh();
+        //     }
+        // }
         
         function clearScanResults() {
-            // Просто очищаем отображение без удаления из БД
+            // Очищаем сессионное хранилище
             sessionStorage.removeItem('currentMultiScanId');
+            sessionStorage.removeItem('baseRepoUrls');
+            
+            // Скрываем результаты
             document.getElementById('scanResults').style.display = 'none';
             document.getElementById('completedRepos').style.display = 'none';
             document.getElementById('scanForm').style.display = 'block';
-            showAlert('success', 'Результаты мультисканирования очищены с экрана');
             
             // Останавливаем автообновление
             if (refreshTimer) {
@@ -1217,8 +1230,10 @@
                 refreshTimer = null;
             }
             
-            // Очищаем поле ввода для нового мультискана
+            // Очищаем поле ввода
             document.getElementById('repoUrls').value = '';
+            
+            showAlert('success', 'Результаты мультисканирования очищены с экрана');
         }
     </script>
 </body>
