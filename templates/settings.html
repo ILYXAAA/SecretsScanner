@@ -795,8 +795,10 @@ excluded_files:
         </div>
         
         <!-- Database Backup Section -->
+       <!-- Database Backup Section -->
         <div class="settings-section">
             <h2 class="section-title">💾 Database Backup Management</h2>
+            {% if is_sqlite %}
             <p style="color: #666; margin-bottom: 1rem;">
                 Управление резервными копиями базы данных. Автоматические бэкапы создаются каждые 24 часа.
             </p>
@@ -830,6 +832,19 @@ excluded_files:
                     </div>
                 </div>
             </div>
+            {% else %}
+            <div class="alert alert-error">
+                ⚠️ Бэкапы базы данных доступны только для SQLite. 
+                Текущая БД: {{ db_type }}
+            </div>
+            <p style="color: #666; margin-bottom: 1rem;">
+                Для создания бэкапов PostgreSQL или MySQL используйте соответствующие инструменты:
+            </p>
+            <div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; border: 1px solid #e1e5e9; font-family: monospace; font-size: 0.9rem;">
+                <strong>PostgreSQL:</strong> pg_dump database_name > backup.sql<br>
+                <strong>MySQL:</strong> mysqldump database_name > backup.sql
+            </div>
+            {% endif %}
         </div>
     </div>
     
@@ -939,8 +954,12 @@ excluded_files:
             });
         }
         
+        const isSqlite = {{ is_sqlite | tojson }};
+
         // Backup Management Functions
         async function loadBackups() {
+            if (!isSqlite) return;
+            
             const backupList = document.getElementById('backup-list');
             
             // Show loading state
@@ -1024,6 +1043,8 @@ excluded_files:
         }
         
         async function createBackup() {
+            if (!isSqlite) return;
+            
             const btn = document.getElementById('createBackupBtn');
             const originalText = btn.innerHTML;
             
@@ -1052,6 +1073,8 @@ excluded_files:
         }
         
         async function refreshBackups() {
+            if (!isSqlite) return;
+            
             const btn = document.getElementById('refreshBtn');
             const originalText = btn.innerHTML;
             

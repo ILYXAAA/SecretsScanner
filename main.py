@@ -674,6 +674,17 @@ async def settings(request: Request, current_user: str = Depends(get_current_use
    current_token = "Not set"
    microservice_available = True
    
+   # Check if database is SQLite for backup functionality
+   is_sqlite = "sqlite" in DATABASE_URL.lower()
+   if "postgresql" in DATABASE_URL.lower():
+       db_type = "PostgreSQL"
+   elif "mysql" in DATABASE_URL.lower():
+       db_type = "MySQL"
+   elif "sqlite" in DATABASE_URL.lower():
+       db_type = "SQLite"
+   else:
+       db_type = "Другая"
+   
    try:
        async with httpx.AsyncClient() as client:
            response = await client.get(f"{MICROSERVICE_URL}/get-pat", headers=get_auth_headers(), timeout=5.0)
@@ -819,6 +830,8 @@ async def settings(request: Request, current_user: str = Depends(get_current_use
        "current_excluded_files_content": current_excluded_files_content,
        "BACKUP_RETENTION_DAYS": BACKUP_RETENTION_DAYS,
        "microservice_available": microservice_available,
+       "is_sqlite": is_sqlite,
+       "db_type": db_type,
        "current_user": current_user
    })
 
@@ -2250,7 +2263,7 @@ def create_database_backup():
                 backup_logger.error(f"Database file not found: {db_file}")
                 return None
         else:
-            # For non-SQLite databases, you'd implement pg_dump, mysqldump, etc.
+            # For non-SQLite databases needs implement pg_dump, mysqldump, etc.
             backup_logger.warning("Backup only implemented for SQLite databases")
             return None
             
