@@ -904,7 +904,7 @@ async def update_fp_rules(request: Request, fp_rules_content: str = Form(...), _
                     error_message = f"Microservice error: HTTP {response.status_code}"
                 
                 encoded_error = urllib.parse.quote(error_message)
-                return RedirectResponse(url=f"/settings?error={encoded_error}", status_code=302)
+                return RedirectResponse(url=f"/secret_scanner/settings?error={encoded_error}", status_code=302)
                 
     except Exception as e:
         logger.error(f"FP rules update error: {e}")
@@ -912,7 +912,7 @@ async def update_fp_rules(request: Request, fp_rules_content: str = Form(...), _
         traceback.print_exc()
         error_message = f"Update error: {str(e)}"
         encoded_error = urllib.parse.quote(error_message)
-        return RedirectResponse(url=f"/settings?error={encoded_error}", status_code=302)
+        return RedirectResponse(url=f"/secret_scanner/settings?error={encoded_error}", status_code=302)
 
 @router.post("/settings/update-token")
 async def update_token(request: Request, token: str = Form(...), _: bool = Depends(get_current_user)):
@@ -954,7 +954,7 @@ async def update_rules(request: Request, rules_content: str = Form(...), _: bool
                     error_message = f"Microservice error: HTTP {response.status_code}"
                 
                 encoded_error = urllib.parse.quote(error_message)
-                return RedirectResponse(url=f"/settings?error={encoded_error}", status_code=302)
+                return RedirectResponse(url=f"/secret_scanner/settings?error={encoded_error}", status_code=302)
                 
     except Exception as e:
         logger.error(f"Rules update error: {e}")
@@ -962,7 +962,7 @@ async def update_rules(request: Request, rules_content: str = Form(...), _: bool
         traceback.print_exc()
         error_message = f"Update error: {str(e)}"
         encoded_error = urllib.parse.quote(error_message)
-        return RedirectResponse(url=f"/settings?error={encoded_error}", status_code=302)
+        return RedirectResponse(url=f"/secret_scanner/settings?error={encoded_error}", status_code=302)
 
 @router.post("/settings/update-excluded-extensions")
 async def update_excluded_extensions(request: Request, excluded_extensions_content: str = Form(...), _: bool = Depends(get_current_user)):
@@ -991,7 +991,7 @@ async def update_excluded_extensions(request: Request, excluded_extensions_conte
                     error_message = f"Microservice error: HTTP {response.status_code}"
                 
                 encoded_error = urllib.parse.quote(error_message)
-                return RedirectResponse(url=f"/settings?error={encoded_error}", status_code=302)
+                return RedirectResponse(url=f"/secret_scanner/settings?error={encoded_error}", status_code=302)
                 
     except Exception as e:
         logger.error(f"Excluded extensions update error: {e}")
@@ -999,7 +999,7 @@ async def update_excluded_extensions(request: Request, excluded_extensions_conte
         traceback.print_exc()
         error_message = f"Update error: {str(e)}"
         encoded_error = urllib.parse.quote(error_message)
-        return RedirectResponse(url=f"/settings?error={encoded_error}", status_code=302)
+        return RedirectResponse(url=f"/secret_scanner/settings?error={encoded_error}", status_code=302)
 
 @router.post("/settings/update-excluded-files")
 async def update_excluded_files(request: Request, excluded_files_content: str = Form(...), _: bool = Depends(get_current_user)):
@@ -1028,7 +1028,7 @@ async def update_excluded_files(request: Request, excluded_files_content: str = 
                     error_message = f"Microservice error: HTTP {response.status_code}"
                 
                 encoded_error = urllib.parse.quote(error_message)
-                return RedirectResponse(url=f"/settings?error={encoded_error}", status_code=302)
+                return RedirectResponse(url=f"/secret_scanner/settings?error={encoded_error}", status_code=302)
                 
     except Exception as e:
         logger.error(f"Excluded files update error: {e}")
@@ -1036,7 +1036,7 @@ async def update_excluded_files(request: Request, excluded_files_content: str = 
         traceback.print_exc()
         error_message = f"Update error: {str(e)}"
         encoded_error = urllib.parse.quote(error_message)
-        return RedirectResponse(url=f"/settings?error={encoded_error}", status_code=302)
+        return RedirectResponse(url=f"/secret_scanner/settings?error={encoded_error}", status_code=302)
 
 def validate_repo_url(repo_url: str, hub_type: str) -> str:
     """Validate and normalize repository URL based on hub type"""
