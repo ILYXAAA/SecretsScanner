@@ -776,7 +776,7 @@
                     <div class="form-group">
                         <label for="repo_url">Ссылка на репозиторий</label>
                         {% if HUB_TYPE == "Azure" %}
-                        <input type="url" id="repo_url" name="repo_url" 
+                        <input type="text" id="repo_url" name="repo_url" 
                                placeholder="https://server/Collection/Project/_git/Repository" required>
                         <small style="color: #444; font-size: 0.85rem;">
                         <div style="display: flex; align-items: center; gap: 6px; font-weight: bold; color: #e09122; margin-bottom: 4px;">
@@ -791,13 +791,19 @@
                         <b>Формат ссылок для Azure DevOps</b> 
                         <span style="color: #dc3545;">(required)</span>:<br>
                         • https://server/collection/project/<span style="color: #dc3545;">_git</span>/repository <b>(full format)</b><br>
-                        • https://server/collection/<span style="color: #dc3545;">_git</span>/repository <b>(short format)</b>
+                        • https://server/collection/<span style="color: #dc3545;">_git</span>/repository <b>(short format)</b><br><br>
+
+                        <b>Формат ссылок для DevZone</b> 
+                        <span style="color: #17a2b8;">(поддерживается)</span>:<br>
+                        • git@git.devzone.local:devzone/project/repo.git<br>
+                        • https://git.devzone.local/devzone/project/repo<br>
+                        <span style="color: #ffc107; font-weight: bold;">📌 Для DevZone доступны только локальные сканирования</span>
                         </small>
                         {% else %}
-                        <input type="url" id="repo_url" name="repo_url" 
+                        <input type="text" id="repo_url" name="repo_url" 
                                placeholder="https://github.com/user/repo" required>
                         <small style="color: #666; font-size: 0.85rem;">
-                            Поддерживаются GitHub и Azure
+                            Поддерживаются GitHub, Azure и DevZone
                         </small>
                         {% endif %}
                     </div>

@@ -1038,8 +1038,30 @@ async def update_excluded_files(request: Request, excluded_files_content: str = 
         encoded_error = urllib.parse.quote(error_message)
         return RedirectResponse(url=f"/settings?error={encoded_error}", status_code=302)
 
-def validate_repo_url(repo_url: str, hub_type: str) -> None:
-    """Validate repository URL based on hub type"""
+def validate_repo_url(repo_url: str, hub_type: str) -> str:
+    """Validate and normalize repository URL based on hub type"""
+    
+    # Check for devzone URLs first
+    if "devzone.local" in repo_url:
+        # Convert git@ format to https for devzone
+        if repo_url.startswith("git@git.devzone.local:"):
+            # Extract path after the colon
+            path = repo_url.split("git@git.devzone.local:")[1]
+            # Remove .git suffix if present
+            if path.endswith(".git"):
+                path = path[:-4]
+            # Construct https URL
+            normalized_url = f"https://git.devzone.local/{path}"
+            return normalized_url
+        elif repo_url.startswith("https://git.devzone.local"):
+            # Already in correct format, just normalize
+            normalized_url = repo_url.rstrip('/')
+            if normalized_url.endswith(".git"):
+                normalized_url = normalized_url[:-4]
+            return normalized_url
+        else:
+            raise ValueError("❌ Некорректный формат URL для devzone")
+    
     if hub_type == "Azure":
         parsed = urlparse(repo_url)
         
@@ -1069,6 +1091,8 @@ def validate_repo_url(repo_url: str, hub_type: str) -> None:
         
         if not collection or not project or not repository:
             raise ValueError("❌ URL содержит пустые компоненты")
+        
+        return repo_url
     
     elif hub_type == "Git":
         parsed = urlparse(repo_url)
@@ -1076,18 +1100,22 @@ def validate_repo_url(repo_url: str, hub_type: str) -> None:
             raise ValueError("❌ Некорректный URL репозитория")
         if parsed.scheme not in ['http', 'https']:
             raise ValueError("❌ URL должен использовать HTTP или HTTPS")
+        
+        return repo_url
+    
+    return repo_url
 
 @router.post("/projects/add")
 async def add_project(request: Request, project_name: str = Form(...), repo_url: str = Form(...), 
                      current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     try:
-        validate_repo_url(repo_url, HUB_TYPE)
+        normalized_url = validate_repo_url(repo_url, HUB_TYPE)
         
         existing = db.query(Project).filter(Project.name == project_name).first()
         if existing:
             return RedirectResponse(url=get_full_url("dashboard?error=project_exists"), status_code=302)
         
-        project = Project(name=project_name, repo_url=repo_url, created_by=current_user)
+        project = Project(name=project_name, repo_url=normalized_url, created_by=current_user)
         db.add(project)
         db.commit()
         
@@ -1104,8 +1132,8 @@ async def add_project(request: Request, project_name: str = Form(...), repo_url:
 async def update_project(request: Request, project_id: int = Form(...), project_name: str = Form(...), 
                         repo_url: str = Form(...), _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
     try:
-        # Validate repository URL based on hub type
-        validate_repo_url(repo_url, HUB_TYPE)
+        # Validate and normalize repository URL based on hub type
+        normalized_url = validate_repo_url(repo_url, HUB_TYPE)
         
         project = db.query(Project).filter(Project.id == project_id).first()
         if not project:
@@ -1120,7 +1148,7 @@ async def update_project(request: Request, project_id: int = Form(...), project_
         
         # Update project
         project.name = project_name
-        project.repo_url = repo_url
+        project.repo_url = normalized_url
         
         # Update all scans that reference the old project name
         if old_project_name != project_name:

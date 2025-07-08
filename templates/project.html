@@ -518,6 +518,23 @@
             cursor: pointer;
             font-size: 12px;
         }
+
+        .btn-disabled {
+            background: #6c757d !important;
+            color: #ffffff !important;
+            cursor: not-allowed !important;
+            opacity: 0.6 !important;
+            box-shadow: none !important;
+        }
+
+        .btn-disabled:hover {
+            transform: none !important;
+            box-shadow: none !important;
+        }
+
+        .btn-disabled s {
+            text-decoration: line-through;
+        }
     </style>
 </head>
 <body>
@@ -551,9 +568,19 @@
                 {% endif %}
             </div>
             <div class="project-actions">
+                {% if 'devzone.local' in project.repo_url %}
+                <button class="btn btn-success btn-disabled" disabled>
+                    <s>Запустить сканирование</s>
+                </button>
+                <div style="font-size: 0.8rem; color: #666; margin-top: 0.25rem; max-width: 300px;">
+                    Онлайн сканирование DevZone репозиториев пока не поддерживается.<br>
+                    Используйте сканирование ZIP-архива.
+                </div>
+                {% else %}
                 <button class="btn btn-success" onclick="toggleScanForm()">
                     Запустить сканирование
                 </button>
+                {% endif %}
                 <button class="btn btn-zip-scan" onclick="toggleLocalScanForm()">
                     🗂️ Сканирование ZIP
                 </button>
