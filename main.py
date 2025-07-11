@@ -2938,7 +2938,7 @@ async def get_logs(lines: int = 1000, _: str = Depends(get_current_user)):
         
         if not os.path.exists(log_file_path):
             return {
-                "status": "error",
+                "status": "error", 
                 "message": "Log file not found",
                 "lines": [],
                 "size": 0
@@ -2960,7 +2960,7 @@ async def get_logs(lines: int = 1000, _: str = Depends(get_current_user)):
             log_lines = cleaned_lines[-lines:]
         else:
             log_lines = cleaned_lines
-        
+            
         return {
             "status": "success",
             "lines": log_lines,
