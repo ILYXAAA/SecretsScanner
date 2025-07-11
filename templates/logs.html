@@ -149,12 +149,14 @@
             line-height: 1.4;
             white-space: pre-wrap;
             word-break: break-word;
+            scroll-behavior: smooth;
         }
 
         .log-line {
             margin-bottom: 2px;
             padding: 2px 0;
             border-radius: 2px;
+            transition: background-color 0.3s ease;
         }
 
         .log-line.highlight {
@@ -163,8 +165,14 @@
         }
 
         @keyframes highlight-fade {
-            0% { background-color: rgba(255, 255, 0, 0.3); }
-            100% { background-color: rgba(255, 255, 0, 0.1); }
+            0% { 
+                background-color: rgba(255, 255, 0, 0.3);
+                transform: translateX(3px);
+            }
+            100% { 
+                background-color: rgba(255, 255, 0, 0.1);
+                transform: translateX(0);
+            }
         }
 
         /* Log level colors */
@@ -359,6 +367,7 @@
         let linesLimit = 500;
         let searchTerm = '';
         let currentLogLevel = '';
+        let lastDisplayedLines = []; // Добавляем для отслеживания уже отображенных строк
 
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
@@ -372,7 +381,7 @@
             }
             
             if (autoRefreshEnabled) {
-                refreshInterval = setInterval(refreshLogs, 2000); // Refresh every 2 seconds
+                refreshInterval = setInterval(refreshLogs, 2000);
             }
         }
 
@@ -429,7 +438,7 @@
             try {
                 showLoading(true);
                 
-                const response = await fetch('/secret_scanner/api/logs');
+                const response = await fetch('{{ get_full_url("api/logs") }}');
                 const data = await response.json();
                 
                 if (data.status === 'success') {
@@ -441,10 +450,27 @@
                     document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString();
                     
                     // Check if file has changed
-                    if (newSize !== lastLogSize) {
+                    if (newSize !== lastLogSize || newLines.length !== currentLogLines.length) {
                         lastLogSize = newSize;
+                        const oldLinesCount = currentLogLines.length;
                         currentLogLines = newLines;
-                        filterLogs();
+                        
+                        // Применяем фильтры к новым данным
+                        const newFilteredLines = applyFilters(newLines);
+                        
+                        // Проверяем, изменились ли отфильтрованные данные
+                        if (!arraysEqual(newFilteredLines, lastDisplayedLines)) {
+                            // Определяем, нужно ли добавлять новые строки или полностью перерисовывать
+                            if (shouldAppendOnly(lastDisplayedLines, newFilteredLines)) {
+                                appendNewLines(lastDisplayedLines, newFilteredLines);
+                            } else {
+                                // Полная перерисовка при изменении фильтров или больших изменениях
+                                displayLogs(newFilteredLines, false);
+                            }
+                            
+                            lastDisplayedLines = [...newFilteredLines];
+                        }
+                        
                         updateStatus('Connected');
                     } else {
                         updateStatus('Up to date');
@@ -460,79 +486,156 @@
             }
         }
 
-        function filterLogs() {
-            let lines = [...currentLogLines];
+        function arraysEqual(a, b) {
+            if (a.length !== b.length) return false;
+            for (let i = 0; i < a.length; i++) {
+                if (a[i] !== b[i]) return false;
+            }
+            return true;
+        }
+
+        function shouldAppendOnly(oldLines, newLines) {
+            // Проверяем, являются ли новые строки просто дополнением к старым
+            if (newLines.length <= oldLines.length) return false;
+            
+            // Проверяем, что старые строки остались теми же
+            for (let i = 0; i < oldLines.length; i++) {
+                if (oldLines[i] !== newLines[newLines.length - oldLines.length + i]) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        function appendNewLines(oldLines, newLines) {
+            const container = document.getElementById('logContent');
+            const wasAtBottom = isScrolledToBottom();
+            
+            // Добавляем только новые строки
+            const newLinesCount = newLines.length - oldLines.length;
+            const linesToAdd = newLines.slice(-newLinesCount);
+            
+            linesToAdd.forEach((line) => {
+                const lineDiv = createLogLineElement(line, true); // true для анимации новой строки
+                container.appendChild(lineDiv);
+            });
+            
+            // Обновляем счетчик строк
+            document.getElementById('totalLines').textContent = newLines.length;
+            
+            // Удаляем старые строки если превышен лимит
+            if (linesLimit !== 'all') {
+                while (container.children.length > linesLimit) {
+                    container.removeChild(container.firstChild);
+                }
+            }
+            
+            // Auto-scroll если нужно
+            if (autoScrollEnabled && wasAtBottom) {
+                scrollToBottom();
+            }
+        }
+
+        function applyFilters(lines) {
+            let filteredLines = [...lines];
             
             // Apply log level filter
             if (currentLogLevel) {
-                lines = lines.filter(line => line.includes(`- ${currentLogLevel} -`));
+                filteredLines = filteredLines.filter(line => line.includes(`- ${currentLogLevel} -`));
             }
             
             // Apply search filter
             if (searchTerm) {
-                lines = lines.filter(line => 
+                filteredLines = filteredLines.filter(line => 
                     line.toLowerCase().includes(searchTerm.toLowerCase())
                 );
             }
             
             // Apply lines limit
             if (linesLimit !== 'all') {
-                lines = lines.slice(-linesLimit);
+                filteredLines = filteredLines.slice(-linesLimit);
             }
             
-            filteredLines = lines;
-            displayLogs(lines);
-            document.getElementById('totalLines').textContent = lines.length;
+            return filteredLines;
         }
 
-        function displayLogs(lines) {
-            const container = document.getElementById('logContent');
-            const wasAtBottom = isScrolledToBottom();
+        function filterLogs() {
+            const newFilteredLines = applyFilters(currentLogLines);
             
-            container.innerHTML = '';
+            // Полная перерисовка при изменении фильтров
+            displayLogs(newFilteredLines, false);
+            lastDisplayedLines = [...newFilteredLines];
+            
+            document.getElementById('totalLines').textContent = newFilteredLines.length;
+        }
+
+        function createLogLineElement(line, isNew = false) {
+            const lineDiv = document.createElement('div');
+            lineDiv.className = 'log-line';
+            
+            // Добавляем анимацию для новых строк
+            if (isNew) {
+                lineDiv.classList.add('highlight');
+            }
+            
+            // Detect log level and apply appropriate class
+            let logLevel = '';
+            if (line.includes(' - INFO - ')) logLevel = 'INFO';
+            else if (line.includes(' - WARNING - ')) logLevel = 'WARNING';
+            else if (line.includes(' - ERROR - ')) logLevel = 'ERROR';
+            else if (line.includes(' - DEBUG - ')) logLevel = 'DEBUG';
+            else if (line.includes(' - CRITICAL - ')) logLevel = 'CRITICAL';
+            
+            if (logLevel) {
+                lineDiv.classList.add(logLevel);
+            }
+            
+            // Format line with syntax highlighting
+            let formattedLine = formatLogLine(line);
+            
+            // Apply search highlighting
+            if (searchTerm) {
+                formattedLine = highlightSearch(formattedLine, searchTerm);
+            }
+            
+            lineDiv.innerHTML = formattedLine;
+            return lineDiv;
+        }
+
+        function displayLogs(lines, preserveScroll = true) {
+            const container = document.getElementById('logContent');
+            const wasAtBottom = preserveScroll ? isScrolledToBottom() : false;
+            const scrollTop = preserveScroll ? container.scrollTop : 0;
+            
+            // Используем DocumentFragment для более эффективной вставки
+            const fragment = document.createDocumentFragment();
             
             if (lines.length === 0) {
                 container.innerHTML = '<div style="color: #6b7280; text-align: center; padding: 40px;">No logs match the current filters</div>';
                 return;
             }
             
-            lines.forEach((line, index) => {
-                const lineDiv = document.createElement('div');
-                lineDiv.className = 'log-line';
-                
-                // Detect log level and apply appropriate class
-                let logLevel = '';
-                if (line.includes(' - INFO - ')) logLevel = 'INFO';
-                else if (line.includes(' - WARNING - ')) logLevel = 'WARNING';
-                else if (line.includes(' - ERROR - ')) logLevel = 'ERROR';
-                else if (line.includes(' - DEBUG - ')) logLevel = 'DEBUG';
-                else if (line.includes(' - CRITICAL - ')) logLevel = 'CRITICAL';
-                
-                if (logLevel) {
-                    lineDiv.classList.add(logLevel);
-                }
-                
-                // Format line with syntax highlighting
-                let formattedLine = formatLogLine(line);
-                
-                // Apply search highlighting
-                if (searchTerm) {
-                    formattedLine = highlightSearch(formattedLine, searchTerm);
-                }
-                
-                lineDiv.innerHTML = formattedLine;
-                container.appendChild(lineDiv);
+            lines.forEach((line) => {
+                const lineDiv = createLogLineElement(line);
+                fragment.appendChild(lineDiv);
             });
             
-            // Auto-scroll if enabled and user was at bottom
-            if (autoScrollEnabled && (wasAtBottom || container.children.length <= 50)) {
+            // Одна операция вставки вместо множественных appendChild
+            container.innerHTML = '';
+            container.appendChild(fragment);
+            
+            // Восстанавливаем позицию скролла если нужно
+            if (preserveScroll && !wasAtBottom) {
+                container.scrollTop = scrollTop;
+            }
+            
+            // Auto-scroll если нужно
+            if (autoScrollEnabled && (wasAtBottom || !preserveScroll)) {
                 scrollToBottom();
             }
         }
 
         function formatLogLine(line) {
-            // Simple log line formatting
-            // Format: YYYY-MM-DD HH:MM:SS - logger_name - LEVEL - message
             const logPattern = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[^-]*) - ([^-]+) - ([^-]+) - (.*)$/;
             const match = line.match(logPattern);
             
@@ -581,7 +684,7 @@
         function clearDisplay() {
             document.getElementById('logContent').innerHTML = '<div style="color: #6b7280; text-align: center; padding: 40px;">Display cleared. Refresh to reload logs.</div>';
             currentLogLines = [];
-            filteredLines = [];
+            lastDisplayedLines = [];
             document.getElementById('totalLines').textContent = '0';
         }
 
@@ -598,9 +701,8 @@
             const indicator = document.getElementById('autoScrollIndicator');
             
             if (autoScrollEnabled && !isScrolledToBottom()) {
-                // User scrolled up while auto-scroll is on
                 indicator.classList.remove('visible');
-            } 
+            }
         });
 
         // Cleanup on page unload
