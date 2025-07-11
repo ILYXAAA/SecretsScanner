@@ -1402,6 +1402,12 @@ async def scan_status(request: Request, scan_id: str, current_user: str = Depend
         "current_user": current_user
     })
 
+def sanitize_string(value):
+    """Удаляет NUL-символы из строки для совместимости с PostgreSQL"""
+    if isinstance(value, str):
+        return value.replace('\x00', '')
+    return value
+
 @router.post("/get_results/{project_name}/{scan_id}")
 async def receive_scan_results(project_name: str, scan_id: str, request: Request, db: Session = Depends(get_db)):
     start_time = datetime.now(timezone.utc)
@@ -1649,15 +1655,15 @@ async def receive_scan_results(project_name: str, scan_id: str, request: Request
                         try:
                             secret = Secret(
                                 scan_id=scan_id,
-                                path=result.get("path", ""),
+                                path=sanitize_string(result.get("path", "")),
                                 line=result.get("line", 0),
-                                secret=result.get("secret", ""),
-                                context=result.get("context", ""),
+                                secret=sanitize_string(result.get("secret", "")),
+                                context=sanitize_string(result.get("context", "")),
                                 severity=severity,
                                 confidence=result.get("confidence", 1.0),
-                                type=result.get("Type", result.get("type", "Unknown")),
+                                type=sanitize_string(result.get("Type", result.get("type", "Unknown"))),
                                 is_exception=is_exception,
-                                exception_comment=exception_comment,
+                                exception_comment=sanitize_string(exception_comment) if exception_comment else None,
                                 status=status,
                                 refuted_at=refuted_at,
                                 confirmed_by=most_recent_secret.confirmed_by if most_recent_secret else None,
@@ -2914,6 +2920,65 @@ async def update_secret_key(request: Request, secret_key: str = Form(""),
     except Exception as e:
         logger.error(f"Error updating SECRET_KEY: {e}")
         return RedirectResponse(url="/secret_scanner/admin?error=secret_key_update_failed", status_code=302)
+
+#### LOGS 
+@router.get("/logs", response_class=HTMLResponse)
+async def logs_page(request: Request, current_user: str = Depends(get_current_user)):
+    """Logs page - shows system logs in real-time"""
+    return templates.TemplateResponse("logs.html", {
+        "request": request,
+        "current_user": current_user
+    })
+
+@router.get("/api/logs")
+async def get_logs(lines: int = 1000, _: str = Depends(get_current_user)):
+    """Get system logs"""
+    try:
+        log_file_path = "secrets_scanner.log"
+        
+        if not os.path.exists(log_file_path):
+            return {
+                "status": "error",
+                "message": "Log file not found",
+                "lines": [],
+                "size": 0
+            }
+        
+        # Get file stats
+        file_stats = os.stat(log_file_path)
+        file_size = file_stats.st_size
+        
+        # Read log file
+        with open(log_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            all_lines = f.readlines()
+        
+        # Clean lines (remove empty lines and strip whitespace)
+        cleaned_lines = [line.rstrip() for line in all_lines if line.strip()]
+        
+        # Return specified number of lines (or all if lines <= 0)
+        if lines > 0:
+            log_lines = cleaned_lines[-lines:]
+        else:
+            log_lines = cleaned_lines
+        
+        return {
+            "status": "success",
+            "lines": log_lines,
+            "total_lines": len(cleaned_lines),
+            "size": file_size,
+            "last_modified": file_stats.st_mtime
+        }
+        
+    except Exception as e:
+        logger.error(f"Error reading logs: {e}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "lines": [],
+            "size": 0
+        }
+
+
 
 app.include_router(router)
 if __name__ == "__main__":

@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Logs - Secrets Scanner</title>
+    <link rel="icon" type="image/x-icon" href="/ico/favicon.ico">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            background-color: #1a1a1a;
+            color: #e0e0e0;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #333;
+        }
+
+        .header h1 {
+            color: #ffffff;
+            font-size: 2rem;
+            font-weight: 600;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .nav-links a {
+            color: #60a5fa;
+            text-decoration: none;
+            padding: 8px 16px;
+            border: 1px solid #374151;
+            border-radius: 6px;
+            background-color: #1f2937;
+            transition: all 0.2s;
+        }
+
+        .nav-links a:hover {
+            background-color: #374151;
+            border-color: #60a5fa;
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .control-group label {
+            color: #d1d5db;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: 1px solid #374151;
+            border-radius: 6px;
+            background-color: #1f2937;
+            color: #e0e0e0;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 14px;
+        }
+
+        .btn:hover {
+            background-color: #374151;
+            border-color: #60a5fa;
+        }
+
+        .btn.active {
+            background-color: #3b82f6;
+            border-color: #3b82f6;
+            color: white;
+        }
+
+        select, input {
+            padding: 8px 12px;
+            border: 1px solid #374151;
+            border-radius: 6px;
+            background-color: #1f2937;
+            color: #e0e0e0;
+            font-size: 14px;
+        }
+
+        select:focus, input:focus {
+            outline: none;
+            border-color: #60a5fa;
+            box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.2);
+        }
+
+        .log-container {
+            background-color: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .log-header {
+            padding: 12px 16px;
+            background-color: #1e293b;
+            border-bottom: 1px solid #334155;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .log-info {
+            color: #94a3b8;
+            font-size: 14px;
+        }
+
+        .log-content {
+            height: 70vh;
+            overflow-y: auto;
+            padding: 16px;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.4;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .log-line {
+            margin-bottom: 2px;
+            padding: 2px 0;
+            border-radius: 2px;
+        }
+
+        .log-line.highlight {
+            background-color: rgba(255, 255, 0, 0.1);
+            animation: highlight-fade 2s ease-out;
+        }
+
+        @keyframes highlight-fade {
+            0% { background-color: rgba(255, 255, 0, 0.3); }
+            100% { background-color: rgba(255, 255, 0, 0.1); }
+        }
+
+        /* Log level colors */
+        .log-line.INFO { color: #60a5fa; }
+        .log-line.WARNING { color: #fbbf24; }
+        .log-line.ERROR { color: #f87171; }
+        .log-line.DEBUG { color: #a78bfa; }
+        .log-line.CRITICAL { color: #ef4444; background-color: rgba(239, 68, 68, 0.1); }
+
+        /* Timestamp styling */
+        .timestamp {
+            color: #6b7280;
+            margin-right: 8px;
+        }
+
+        /* Logger name styling */
+        .logger-name {
+            color: #34d399;
+            margin-right: 8px;
+        }
+
+        /* Auto-scroll indicator */
+        .auto-scroll-indicator {
+            position: absolute;
+            bottom: 16px;
+            right: 16px;
+            background-color: #059669;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .auto-scroll-indicator.visible {
+            opacity: 1;
+        }
+
+        /* Search highlight */
+        .search-highlight {
+            background-color: #fbbf24;
+            color: #000;
+            padding: 1px 2px;
+            border-radius: 2px;
+        }
+
+        /* Loading indicator */
+        .loading {
+            display: none;
+            color: #60a5fa;
+            font-style: italic;
+        }
+
+        /* Stats */
+        .stats {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+
+        .stat-item {
+            color: #94a3b8;
+        }
+
+        .stat-value {
+            color: #e0e0e0;
+            font-weight: 600;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .container {
+                padding: 15px;
+            }
+            
+            .header {
+                flex-direction: column;
+                gap: 15px;
+                align-items: flex-start;
+            }
+            
+            .controls {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            
+            .log-content {
+                height: 60vh;
+                font-size: 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📋 System Logs</h1>
+            <div class="nav-links">
+                <a href="{{ get_full_url('dashboard') }}">Dashboard</a>
+                <a href="{{ get_full_url('settings') }}">Settings</a>
+                {% if current_user == 'admin' %}
+                <a href="{{ get_full_url('admin') }}">Admin</a>
+                {% endif %}
+                <a href="{{ get_full_url('logout') }}">Logout</a>
+            </div>
+        </div>
+
+        <div class="stats">
+            <div class="stat-item">
+                Total Lines: <span class="stat-value" id="totalLines">0</span>
+            </div>
+            <div class="stat-item">
+                File Size: <span class="stat-value" id="fileSize">0 KB</span>
+            </div>
+            <div class="stat-item">
+                Last Updated: <span class="stat-value" id="lastUpdated">-</span>
+            </div>
+            <div class="stat-item">
+                Status: <span class="stat-value" id="connectionStatus">Connecting...</span>
+            </div>
+        </div>
+
+        <div class="controls">
+            <div class="control-group">
+                <label>Auto-refresh:</label>
+                <button class="btn active" id="autoRefreshBtn" onclick="toggleAutoRefresh()">ON</button>
+            </div>
+            
+            <div class="control-group">
+                <label>Auto-scroll:</label>
+                <button class="btn active" id="autoScrollBtn" onclick="toggleAutoScroll()">ON</button>
+            </div>
+            
+            <div class="control-group">
+                <label>Log Level:</label>
+                <select id="logLevelFilter" onchange="filterLogs()">
+                    <option value="">All Levels</option>
+                    <option value="DEBUG">DEBUG</option>
+                    <option value="INFO">INFO</option>
+                    <option value="WARNING">WARNING</option>
+                    <option value="ERROR">ERROR</option>
+                    <option value="CRITICAL">CRITICAL</option>
+                </select>
+            </div>
+            
+            <div class="control-group">
+                <label>Lines to show:</label>
+                <select id="linesLimit" onchange="setLinesLimit()">
+                    <option value="100">Last 100</option>
+                    <option value="500" selected>Last 500</option>
+                    <option value="1000">Last 1000</option>
+                    <option value="all">All</option>
+                </select>
+            </div>
+            
+            <div class="control-group">
+                <label>Search:</label>
+                <input type="text" id="searchInput" placeholder="Search in logs..." onkeyup="searchLogs()">
+            </div>
+            
+            <button class="btn" onclick="refreshLogs()">🔄 Refresh</button>
+            <button class="btn" onclick="clearDisplay()">🗑️ Clear Display</button>
+        </div>
+
+        <div class="log-container">
+            <div class="log-header">
+                <div class="log-info" id="logInfo">
+                    secrets_scanner.log
+                </div>
+                <div class="loading" id="loadingIndicator">Loading...</div>
+            </div>
+            <div class="log-content" id="logContent">
+                <div style="color: #6b7280; text-align: center; padding: 40px;">
+                    Connecting to log stream...
+                </div>
+            </div>
+            <div class="auto-scroll-indicator" id="autoScrollIndicator">
+                Auto-scrolling
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let autoRefreshEnabled = true;
+        let autoScrollEnabled = true;
+        let refreshInterval;
+        let lastLogSize = 0;
+        let currentLogLines = [];
+        let filteredLines = [];
+        let linesLimit = 500;
+        let searchTerm = '';
+        let currentLogLevel = '';
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            startAutoRefresh();
+            refreshLogs();
+        });
+
+        function startAutoRefresh() {
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+            }
+            
+            if (autoRefreshEnabled) {
+                refreshInterval = setInterval(refreshLogs, 2000); // Refresh every 2 seconds
+            }
+        }
+
+        function toggleAutoRefresh() {
+            autoRefreshEnabled = !autoRefreshEnabled;
+            const btn = document.getElementById('autoRefreshBtn');
+            
+            if (autoRefreshEnabled) {
+                btn.textContent = 'ON';
+                btn.classList.add('active');
+                startAutoRefresh();
+                updateStatus('Auto-refresh enabled');
+            } else {
+                btn.textContent = 'OFF';
+                btn.classList.remove('active');
+                clearInterval(refreshInterval);
+                updateStatus('Auto-refresh disabled');
+            }
+        }
+
+        function toggleAutoScroll() {
+            autoScrollEnabled = !autoScrollEnabled;
+            const btn = document.getElementById('autoScrollBtn');
+            const indicator = document.getElementById('autoScrollIndicator');
+            
+            if (autoScrollEnabled) {
+                btn.textContent = 'ON';
+                btn.classList.add('active');
+                scrollToBottom();
+                updateStatus('Auto-scroll enabled');
+            } else {
+                btn.textContent = 'OFF';
+                btn.classList.remove('active');
+                indicator.classList.remove('visible');
+                updateStatus('Auto-scroll disabled');
+            }
+        }
+
+        function setLinesLimit() {
+            const select = document.getElementById('linesLimit');
+            linesLimit = select.value === 'all' ? 'all' : parseInt(select.value);
+            filterLogs();
+        }
+
+        function updateStatus(message) {
+            document.getElementById('connectionStatus').textContent = message;
+        }
+
+        function showLoading(show) {
+            document.getElementById('loadingIndicator').style.display = show ? 'block' : 'none';
+        }
+
+        async function refreshLogs() {
+            try {
+                showLoading(true);
+                
+                const response = await fetch('/secret_scanner/api/logs');
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    const newSize = data.size;
+                    const newLines = data.lines;
+                    
+                    // Update stats
+                    document.getElementById('fileSize').textContent = formatFileSize(newSize);
+                    document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString();
+                    
+                    // Check if file has changed
+                    if (newSize !== lastLogSize) {
+                        lastLogSize = newSize;
+                        currentLogLines = newLines;
+                        filterLogs();
+                        updateStatus('Connected');
+                    } else {
+                        updateStatus('Up to date');
+                    }
+                } else {
+                    updateStatus('Error: ' + data.message);
+                }
+            } catch (error) {
+                console.error('Error refreshing logs:', error);
+                updateStatus('Connection error');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        function filterLogs() {
+            let lines = [...currentLogLines];
+            
+            // Apply log level filter
+            if (currentLogLevel) {
+                lines = lines.filter(line => line.includes(`- ${currentLogLevel} -`));
+            }
+            
+            // Apply search filter
+            if (searchTerm) {
+                lines = lines.filter(line => 
+                    line.toLowerCase().includes(searchTerm.toLowerCase())
+                );
+            }
+            
+            // Apply lines limit
+            if (linesLimit !== 'all') {
+                lines = lines.slice(-linesLimit);
+            }
+            
+            filteredLines = lines;
+            displayLogs(lines);
+            document.getElementById('totalLines').textContent = lines.length;
+        }
+
+        function displayLogs(lines) {
+            const container = document.getElementById('logContent');
+            const wasAtBottom = isScrolledToBottom();
+            
+            container.innerHTML = '';
+            
+            if (lines.length === 0) {
+                container.innerHTML = '<div style="color: #6b7280; text-align: center; padding: 40px;">No logs match the current filters</div>';
+                return;
+            }
+            
+            lines.forEach((line, index) => {
+                const lineDiv = document.createElement('div');
+                lineDiv.className = 'log-line';
+                
+                // Detect log level and apply appropriate class
+                let logLevel = '';
+                if (line.includes(' - INFO - ')) logLevel = 'INFO';
+                else if (line.includes(' - WARNING - ')) logLevel = 'WARNING';
+                else if (line.includes(' - ERROR - ')) logLevel = 'ERROR';
+                else if (line.includes(' - DEBUG - ')) logLevel = 'DEBUG';
+                else if (line.includes(' - CRITICAL - ')) logLevel = 'CRITICAL';
+                
+                if (logLevel) {
+                    lineDiv.classList.add(logLevel);
+                }
+                
+                // Format line with syntax highlighting
+                let formattedLine = formatLogLine(line);
+                
+                // Apply search highlighting
+                if (searchTerm) {
+                    formattedLine = highlightSearch(formattedLine, searchTerm);
+                }
+                
+                lineDiv.innerHTML = formattedLine;
+                container.appendChild(lineDiv);
+            });
+            
+            // Auto-scroll if enabled and user was at bottom
+            if (autoScrollEnabled && (wasAtBottom || container.children.length <= 50)) {
+                scrollToBottom();
+            }
+        }
+
+        function formatLogLine(line) {
+            // Simple log line formatting
+            // Format: YYYY-MM-DD HH:MM:SS - logger_name - LEVEL - message
+            const logPattern = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[^-]*) - ([^-]+) - ([^-]+) - (.*)$/;
+            const match = line.match(logPattern);
+            
+            if (match) {
+                const [, timestamp, loggerName, level, message] = match;
+                return `<span class="timestamp">${timestamp.trim()}</span><span class="logger-name">${loggerName.trim()}</span><strong>${level.trim()}</strong> - ${message}`;
+            }
+            
+            return line;
+        }
+
+        function highlightSearch(text, term) {
+            if (!term) return text;
+            
+            const regex = new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+            return text.replace(regex, '<span class="search-highlight">$1</span>');
+        }
+
+        function isScrolledToBottom() {
+            const container = document.getElementById('logContent');
+            return container.scrollTop + container.clientHeight >= container.scrollHeight - 10;
+        }
+
+        function scrollToBottom() {
+            const container = document.getElementById('logContent');
+            container.scrollTop = container.scrollHeight;
+            
+            const indicator = document.getElementById('autoScrollIndicator');
+            indicator.classList.add('visible');
+            setTimeout(() => indicator.classList.remove('visible'), 1000);
+        }
+
+        function searchLogs() {
+            searchTerm = document.getElementById('searchInput').value;
+            filterLogs();
+        }
+
+        function filterLogsByLevel() {
+            currentLogLevel = document.getElementById('logLevelFilter').value;
+            filterLogs();
+        }
+
+        // Bind the filter function to the select element
+        document.getElementById('logLevelFilter').addEventListener('change', filterLogsByLevel);
+
+        function clearDisplay() {
+            document.getElementById('logContent').innerHTML = '<div style="color: #6b7280; text-align: center; padding: 40px;">Display cleared. Refresh to reload logs.</div>';
+            currentLogLines = [];
+            filteredLines = [];
+            document.getElementById('totalLines').textContent = '0';
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        // Handle scroll events to control auto-scroll indicator
+        document.getElementById('logContent').addEventListener('scroll', function() {
+            const indicator = document.getElementById('autoScrollIndicator');
+            
+            if (autoScrollEnabled && !isScrolledToBottom()) {
+                // User scrolled up while auto-scroll is on
+                indicator.classList.remove('visible');
+            }
+        });
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', function() {
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+            }
+        });
+    </script>
+</body>
+</html>
