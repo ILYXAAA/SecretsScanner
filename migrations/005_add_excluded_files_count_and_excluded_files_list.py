@@ -6,7 +6,7 @@ def upgrade(migration_system):
     """Apply migration changes"""
     from sqlalchemy import text
     # Add column to scans
-    migration_system.safe_add_column("scans", "excluded_files_count INTEGER DEFAULT '0'")
+    migration_system.safe_add_column("scans", "excluded_files_count INTEGER DEFAULT 0")
     # Add column to scans
     migration_system.safe_add_column("scans", "excluded_files_list TEXT")
 
