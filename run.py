@@ -270,7 +270,7 @@ def validate_environment():
 
     check_and_setup_user_database()
 
-    required_files = ["templates/dashboard.html", "templates/login.html", "templates/admin.html", "UsersManager.py",
+    required_files = ["templates/dashboard.html", "templates/login.html", "templates/admin.html", "utils/UsersManager.py",
                       "templates/multi_scan.html", "templates/project.html", "templates/scan_results.html", 
                       "templates/scan_status.html", "templates/settings.html", "utils/html_report_generator.py", "main.py"]
     

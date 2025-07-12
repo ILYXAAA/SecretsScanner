@@ -535,6 +535,11 @@
         .btn-disabled s {
             text-decoration: line-through;
         }
+
+        .scan-status.timeout {
+            background: #fff3cd;
+            color: #856404;
+        }
     </style>
 </head>
 <body>
@@ -761,67 +766,71 @@
         </div>
         {% endif %}
         
-        <div class="scan-history">
-            <h2 class="section-title">📋 История сканирований</h2>
-            {% if scan_stats %}
-            <div class="scan-list">
-                {% for stat in scan_stats %}
-                {% if stat.scan.status == 'completed' %}
-                <a href="/secret_scanner/scan/{{ stat.scan.id }}/results" class="scan-item">
-                {% elif stat.scan.status == 'running' %}
-                <a href="/secret_scanner/scan/{{ stat.scan.id }}" class="scan-item">
-                {% else %}
-                <div class="scan-item">
-                {% endif %}
-                    <div class="scan-details">
-                        <div class="scan-date">{{ stat.scan.started_at.strftime('%d.%m.%Y %H:%M') }}</div>
-                        <div class="scan-meta">
-                            <span class="scan-status {{ stat.scan.status }}">
-                                {% if stat.scan.status == 'running' %}⏳ Running
-                                {% elif stat.scan.status == 'completed' %}✅ Completed
-                                {% else %}❌ Failed
-                                {% endif %}
-                            </span>
-                            <div>
-                                • ℹ️ Запущено по: {{ stat.scan.ref_type }}: {{ stat.scan.ref }}<br>
-                                {% if stat.scan.started_by %}• 👮 <b><span style="color: #3b82f6;">{{ stat.scan.started_by }}</span></b>{% endif %}
-                            </div>
-                            <div>
-                                {% if stat.scan.repo_commit %}
-                                • ⚙️ Commit: {{ stat.scan.repo_commit }}
-                                {% endif %}
-                            </div>
-                        </div>
-                    </div>
-                    <div class="scan-stats">
-                        <div>
-                            <span class="confirmed-count">{{ stat.confirmed_count }}</span> secrets
-                        </div>
-                        {% if stat.scan.files_scanned %}
-                        <div class="files-count">Просканировано {{ stat.scan.files_scanned }} файлов</div>
-                        {% endif %}
-                    </div>
-                    <div class="scan-actions">
-                        <form method="post" action="/secret_scanner/scan/{{ stat.scan.id }}/delete" 
-                            onsubmit="return confirm('Are you sure you want to delete this scan?')"
-                            onclick="event.stopPropagation()">
-                            <button type="submit" class="btn btn-danger btn-sm">Delete</button>
-                        </form>
-                    </div>
-                {% if stat.scan.status == 'completed' or stat.scan.status == 'running' %}
-                </a>
-                {% else %}
-                </div>
-                {% endif %}
-                {% endfor %}
-            </div>
+    <div class="scan-history">
+        <h2 class="section-title">📋 История сканирований</h2>
+        {% if scan_stats %}
+        <div class="scan-list">
+            {% for stat in scan_stats %}
+            {% if stat.scan.status == 'completed' %}
+            <a href="/secret_scanner/scan/{{ stat.scan.id }}/results" class="scan-item">
+            {% elif stat.scan.status == 'running' %}
+            <a href="/secret_scanner/scan/{{ stat.scan.id }}" class="scan-item">
+            {% elif stat.scan.status == 'failed' or stat.scan.status == 'timeout' %}
+            <a href="/secret_scanner/scan/{{ stat.scan.id }}" class="scan-item">
             {% else %}
-            <div class="empty-state">
-                <h3>🤷‍♂️ Не найдено</h3>
-                <p>Запустите свое первое сканирование, чтобы начать мониторинг этого проекта на наличие секретов.</p>
+            <div class="scan-item">
+            {% endif %}
+                <div class="scan-details">
+                    <div class="scan-date">{{ stat.scan.started_at.strftime('%d.%m.%Y %H:%M') }}</div>
+                    <div class="scan-meta">
+                        <span class="scan-status {{ stat.scan.status }}">
+                            {% if stat.scan.status == 'running' %}⏳ Running
+                            {% elif stat.scan.status == 'completed' %}✅ Completed
+                            {% elif stat.scan.status == 'timeout' %}⏰ Timeout
+                            {% elif stat.scan.status == 'failed' %}❌ Failed
+                            {% else %}❓ Unknown
+                            {% endif %}
+                        </span>
+                        <div>
+                            • ℹ️ Запущено по: {{ stat.scan.ref_type }}: {{ stat.scan.ref }}<br>
+                            {% if stat.scan.started_by %}• 👮 <b><span style="color: #3b82f6;">{{ stat.scan.started_by }}</span></b>{% endif %}
+                        </div>
+                        <div>
+                            {% if stat.scan.repo_commit %}
+                            • ⚙️ Commit: {{ stat.scan.repo_commit }}
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                <div class="scan-stats">
+                    <div>
+                        <span class="confirmed-count">{{ stat.confirmed_count }}</span> secrets
+                    </div>
+                    {% if stat.scan.files_scanned %}
+                    <div class="files-count">Просканировано {{ stat.scan.files_scanned }} файлов</div>
+                    {% endif %}
+                </div>
+                <div class="scan-actions">
+                    <form method="post" action="/secret_scanner/scan/{{ stat.scan.id }}/delete" 
+                        onsubmit="return confirm('Are you sure you want to delete this scan?')"
+                        onclick="event.stopPropagation()">
+                        <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                    </form>
+                </div>
+            {% if stat.scan.status == 'completed' or stat.scan.status == 'running' or stat.scan.status == 'failed' or stat.scan.status == 'timeout' %}
+            </a>
+            {% else %}
             </div>
             {% endif %}
+            {% endfor %}
         </div>
+        {% else %}
+        <div class="empty-state">
+            <h3>🤷‍♂️ Не найдено</h3>
+            <p>Запустите свое первое сканирование, чтобы начать мониторинг этого проекта на наличие секретов.</p>
+        </div>
+        {% endif %}
+    </div>
     </div>
     
     <script>

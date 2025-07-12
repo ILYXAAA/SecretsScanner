@@ -124,6 +124,9 @@
             border-radius: 8px;
             overflow: hidden;
             position: relative;
+            height: 70vh; /* Фиксированная высота контейнера */
+            display: flex;
+            flex-direction: column;
         }
 
         .log-header {
@@ -133,6 +136,8 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            flex-shrink: 0; /* Не сжимается */
+            min-height: 48px; /* Фиксированная минимальная высота */
         }
 
         .log-info {
@@ -140,8 +145,13 @@
             font-size: 14px;
         }
 
+        .log-header-right {
+            min-width: 80px; /* Резервируем место для Loading */
+            text-align: right;
+        }
+
         .log-content {
-            height: 70vh;
+            flex: 1; /* Занимает оставшееся место */
             overflow-y: auto;
             padding: 16px;
             font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
@@ -156,21 +166,20 @@
             margin-bottom: 2px;
             padding: 2px 0;
             border-radius: 2px;
-            transition: background-color 0.3s ease;
         }
 
-        .log-line.highlight {
-            background-color: rgba(255, 255, 0, 0.1);
-            animation: highlight-fade 2s ease-out;
+        /* Анимация только для новых строк */
+        .log-line.new-line {
+            animation: new-line-highlight 1.5s ease-out forwards;
         }
 
-        @keyframes highlight-fade {
+        @keyframes new-line-highlight {
             0% { 
-                background-color: rgba(255, 255, 0, 0.3);
+                background-color: rgba(34, 197, 94, 0.3);
                 transform: translateX(3px);
             }
             100% { 
-                background-color: rgba(255, 255, 0, 0.1);
+                background-color: transparent;
                 transform: translateX(0);
             }
         }
@@ -206,6 +215,7 @@
             font-size: 12px;
             opacity: 0;
             transition: opacity 0.3s;
+            pointer-events: none;
         }
 
         .auto-scroll-indicator.visible {
@@ -222,9 +232,18 @@
 
         /* Loading indicator */
         .loading {
-            display: none;
             color: #60a5fa;
             font-style: italic;
+            font-size: 14px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            min-height: 20px; /* Фиксированная высота */
+            display: flex;
+            align-items: center;
+        }
+
+        .loading.visible {
+            opacity: 1;
         }
 
         /* Stats */
@@ -261,8 +280,11 @@
                 align-items: flex-start;
             }
             
-            .log-content {
+            .log-container {
                 height: 60vh;
+            }
+            
+            .log-content {
                 font-size: 12px;
             }
         }
@@ -329,6 +351,14 @@
                     <option value="all">All</option>
                 </select>
             </div>
+
+            <div class="control-group">
+                <label>Log Source:</label>
+                <select id="logSourceSelect" onchange="changeLogSource()">
+                    <option value="main">Main Service</option>
+                    <option value="microservice">Microservice</option>
+                </select>
+            </div>
             
             <div class="control-group">
                 <label>Search:</label>
@@ -344,7 +374,9 @@
                 <div class="log-info" id="logInfo">
                     secrets_scanner.log
                 </div>
-                <div class="loading" id="loadingIndicator">Loading...</div>
+                <div class="log-header-right">
+                    <div class="loading" id="loadingIndicator">Loading...</div>
+                </div>
             </div>
             <div class="log-content" id="logContent">
                 <div style="color: #6b7280; text-align: center; padding: 40px;">
@@ -367,7 +399,9 @@
         let linesLimit = 500;
         let searchTerm = '';
         let currentLogLevel = '';
-        let lastDisplayedLines = []; // Добавляем для отслеживания уже отображенных строк
+        let lastDisplayedLines = [];
+        let lastLogHash = ''; // Для более точного сравнения изменений
+        let currentLogSource = 'main';
 
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
@@ -383,6 +417,24 @@
             if (autoRefreshEnabled) {
                 refreshInterval = setInterval(refreshLogs, 2000);
             }
+        }
+
+        function changeLogSource() {
+            const select = document.getElementById('logSourceSelect');
+            currentLogSource = select.value;
+            
+            // Обновляем информацию о файле
+            const logInfo = document.getElementById('logInfo');
+            logInfo.textContent = currentLogSource === 'main' ? 'secrets_scanner.log' : 'microservice.log';
+            
+            // Очищаем текущие логи и перезагружаем
+            clearDisplay();
+            currentLogLines = [];
+            lastDisplayedLines = [];
+            lastLogHash = '';
+            
+            // Обновляем логи для нового источника
+            refreshLogs();
         }
 
         function toggleAutoRefresh() {
@@ -431,46 +483,60 @@
         }
 
         function showLoading(show) {
-            document.getElementById('loadingIndicator').style.display = show ? 'block' : 'none';
+            const loadingElement = document.getElementById('loadingIndicator');
+            if (show) {
+                loadingElement.classList.add('visible');
+            } else {
+                loadingElement.classList.remove('visible');
+            }
+        }
+
+        // Создаем простой хеш для сравнения содержимого
+        function createHash(lines) {
+            return lines.join('').length + '_' + (lines.length > 0 ? lines[lines.length - 1].substring(0, 50) : '');
         }
 
         async function refreshLogs() {
             try {
                 showLoading(true);
                 
-                const response = await fetch('{{ get_full_url("api/logs") }}');
+                const endpoint = currentLogSource === 'main' ? 
+                    '{{ get_full_url("api/logs") }}' : 
+                    '{{ get_full_url("api/microservice-logs") }}';
+                
+                const response = await fetch(endpoint);
                 const data = await response.json();
                 
                 if (data.status === 'success') {
                     const newSize = data.size;
                     const newLines = data.lines;
+                    const newHash = createHash(newLines);
                     
                     // Update stats
                     document.getElementById('fileSize').textContent = formatFileSize(newSize);
                     document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString();
                     
-                    // Check if file has changed
-                    if (newSize !== lastLogSize || newLines.length !== currentLogLines.length) {
-                        lastLogSize = newSize;
+                    // Проверяем, действительно ли изменились данные
+                    if (newHash !== lastLogHash) {
+                        lastLogHash = newHash;
                         const oldLinesCount = currentLogLines.length;
                         currentLogLines = newLines;
                         
-                        // Применяем фильтры к новым данным
+                        // Применяем фильтры
                         const newFilteredLines = applyFilters(newLines);
                         
-                        // Проверяем, изменились ли отфильтрованные данные
-                        if (!arraysEqual(newFilteredLines, lastDisplayedLines)) {
-                            // Определяем, нужно ли добавлять новые строки или полностью перерисовывать
-                            if (shouldAppendOnly(lastDisplayedLines, newFilteredLines)) {
-                                appendNewLines(lastDisplayedLines, newFilteredLines);
-                            } else {
-                                // Полная перерисовка при изменении фильтров или больших изменениях
-                                displayLogs(newFilteredLines, false);
-                            }
-                            
-                            lastDisplayedLines = [...newFilteredLines];
+                        // Проверяем, есть ли новые строки для добавления
+                        const newLinesCount = newFilteredLines.length - lastDisplayedLines.length;
+                        
+                        if (newLinesCount > 0 && canAppendNewLines(lastDisplayedLines, newFilteredLines)) {
+                            // Добавляем только новые строки
+                            appendNewLines(newFilteredLines.slice(-newLinesCount));
+                        } else if (!arraysEqual(newFilteredLines, lastDisplayedLines)) {
+                            // Полная перерисовка только если действительно нужно
+                            displayLogs(newFilteredLines, true);
                         }
                         
+                        lastDisplayedLines = [...newFilteredLines];
                         updateStatus('Connected');
                     } else {
                         updateStatus('Up to date');
@@ -494,34 +560,38 @@
             return true;
         }
 
-        function shouldAppendOnly(oldLines, newLines) {
-            // Проверяем, являются ли новые строки просто дополнением к старым
+        function canAppendNewLines(oldLines, newLines) {
+            // Проверяем, можно ли просто добавить новые строки
             if (newLines.length <= oldLines.length) return false;
             
-            // Проверяем, что старые строки остались теми же
-            for (let i = 0; i < oldLines.length; i++) {
-                if (oldLines[i] !== newLines[newLines.length - oldLines.length + i]) {
+            const overlap = Math.min(oldLines.length, newLines.length);
+            if (overlap === 0) return true;
+            
+            // Проверяем совпадение последних строк
+            for (let i = 0; i < overlap; i++) {
+                if (oldLines[oldLines.length - 1 - i] !== newLines[newLines.length - 1 - i - (newLines.length - oldLines.length)]) {
                     return false;
                 }
             }
             return true;
         }
 
-        function appendNewLines(oldLines, newLines) {
+        function appendNewLines(newLines) {
             const container = document.getElementById('logContent');
             const wasAtBottom = isScrolledToBottom();
             
-            // Добавляем только новые строки
-            const newLinesCount = newLines.length - oldLines.length;
-            const linesToAdd = newLines.slice(-newLinesCount);
+            // Создаем fragment для эффективной вставки
+            const fragment = document.createDocumentFragment();
             
-            linesToAdd.forEach((line) => {
-                const lineDiv = createLogLineElement(line, true); // true для анимации новой строки
-                container.appendChild(lineDiv);
+            newLines.forEach((line) => {
+                const lineDiv = createLogLineElement(line, true); // Помечаем как новую строку
+                fragment.appendChild(lineDiv);
             });
             
-            // Обновляем счетчик строк
-            document.getElementById('totalLines').textContent = newLines.length;
+            container.appendChild(fragment);
+            
+            // Обновляем счетчик
+            document.getElementById('totalLines').textContent = lastDisplayedLines.length;
             
             // Удаляем старые строки если превышен лимит
             if (linesLimit !== 'all') {
@@ -561,11 +631,8 @@
 
         function filterLogs() {
             const newFilteredLines = applyFilters(currentLogLines);
-            
-            // Полная перерисовка при изменении фильтров
             displayLogs(newFilteredLines, false);
             lastDisplayedLines = [...newFilteredLines];
-            
             document.getElementById('totalLines').textContent = newFilteredLines.length;
         }
 
@@ -573,9 +640,13 @@
             const lineDiv = document.createElement('div');
             lineDiv.className = 'log-line';
             
-            // Добавляем анимацию для новых строк
+            // Добавляем анимацию только для действительно новых строк
             if (isNew) {
-                lineDiv.classList.add('highlight');
+                lineDiv.classList.add('new-line');
+                // Убираем класс после завершения анимации
+                setTimeout(() => {
+                    lineDiv.classList.remove('new-line');
+                }, 1500);
             }
             
             // Detect log level and apply appropriate class
@@ -607,24 +678,24 @@
             const wasAtBottom = preserveScroll ? isScrolledToBottom() : false;
             const scrollTop = preserveScroll ? container.scrollTop : 0;
             
-            // Используем DocumentFragment для более эффективной вставки
-            const fragment = document.createDocumentFragment();
-            
             if (lines.length === 0) {
                 container.innerHTML = '<div style="color: #6b7280; text-align: center; padding: 40px;">No logs match the current filters</div>';
                 return;
             }
             
+            // Используем DocumentFragment для эффективной вставки
+            const fragment = document.createDocumentFragment();
+            
             lines.forEach((line) => {
-                const lineDiv = createLogLineElement(line);
+                const lineDiv = createLogLineElement(line, false); // Не помечаем как новые при полной перерисовке
                 fragment.appendChild(lineDiv);
             });
             
-            // Одна операция вставки вместо множественных appendChild
+            // Одна операция замены содержимого
             container.innerHTML = '';
             container.appendChild(fragment);
             
-            // Восстанавливаем позицию скролла если нужно
+            // Восстанавливаем позицию скролла
             if (preserveScroll && !wasAtBottom) {
                 container.scrollTop = scrollTop;
             }
@@ -685,6 +756,7 @@
             document.getElementById('logContent').innerHTML = '<div style="color: #6b7280; text-align: center; padding: 40px;">Display cleared. Refresh to reload logs.</div>';
             currentLogLines = [];
             lastDisplayedLines = [];
+            lastLogHash = '';
             document.getElementById('totalLines').textContent = '0';
         }
 

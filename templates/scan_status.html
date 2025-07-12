@@ -168,6 +168,11 @@
             background: #dc3545;
             color: white;
         }
+
+        .btn-info {
+            background: #17a2b8;
+            color: white;
+        }
         
         .loading-spinner {
             width: 40px;
@@ -227,6 +232,34 @@
             color: #0c5460;
             margin-bottom: 0.5rem;
         }
+
+        .logs-info {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 8px;
+            padding: 1rem;
+            margin: 1.5rem 0;
+            text-align: left;
+        }
+
+        .logs-info-title {
+            font-weight: 600;
+            color: #856404;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .logs-info-text {
+            color: #856404;
+            font-size: 0.95rem;
+            margin-bottom: 1rem;
+        }
+
+        .logs-button-container {
+            text-align: center;
+        }
     </style>
 </head>
 <body>
@@ -270,6 +303,21 @@
             <div class="elapsed-time" id="elapsedTime">
                 Started: {{ scan.started_at.strftime('%d.%m.%Y %H:%M') }}
             </div>
+
+            <div class="logs-info">
+                <div class="logs-info-title">
+                    💡 Информация о диагностике
+                </div>
+                <div class="logs-info-text">
+                    Если скан завис или работает слишком долго, вы можете посмотреть логи сервиса для диагностики проблемы.
+                </div>
+                <div class="logs-button-container">
+                    <a href="/secret_scanner/logs" class="btn btn-info">
+                        📋 Посмотреть логи
+                    </a>
+                </div>
+            </div>
+
             {% elif scan.status == 'completed' %}
             <div class="status-icon">✅</div>
             <h1 class="status-title">Scan Completed</h1>
@@ -282,12 +330,45 @@
             <p class="status-description">
                 The scan took longer than 10 minutes and was automatically cancelled.
             </p>
+
+            <div class="logs-info">
+                <div class="logs-info-title">
+                    🔍 Диагностика проблемы
+                </div>
+                <div class="logs-info-text">
+                    Скан был остановлен по таймауту. Для выяснения причины вы можете проверить логи сервиса.
+                </div>
+                <div class="logs-button-container">
+                    <a href="/secret_scanner/logs" class="btn btn-info">
+                        📋 Посмотреть логи
+                    </a>
+                </div>
+            </div>
+
             {% elif scan.status == 'failed' %}
             <div class="status-icon">❌</div>
             <h1 class="status-title">Scan Failed</h1>
             <p class="status-description">
                 {{ scan.error_message }}
             </p>
+
+            <div class="logs-info">
+                <div class="logs-info-title">
+                    🔍 Диагностика ошибки
+                </div>
+                <div class="logs-info-text">
+                    Произошла ошибка во время сканирования. Детальную информацию об ошибке можно найти в логах сервиса.<br><br>
+                    <strong>ID сканирования для поиска в логах сервиса:</strong> 
+                    <br><strong><code style="background: #f8f9fa; padding: 2px 6px; border-radius: 4px; color: #dc3545;">{{ scan.id }}</code></strong><br><br>
+                    <strong>Имя проекта для поиска в логах микросервиса:</strong> 
+                    <br><strong><code style="background: #f8f9fa; padding: 2px 6px; border-radius: 4px; color: #dc3545;">{{ scan.project_name }}</code></strong>
+                </div>
+                <div class="logs-button-container">
+                    <a href="/secret_scanner/logs" class="btn btn-info">
+                        📋 Посмотреть логи
+                    </a>
+                </div>
+            </div>
             {% endif %}
             
             <div class="scan-details">
