@@ -479,22 +479,21 @@
             color: #3b82f6;
             font-weight: bold;
         }
-        
-        /* .table-header th:nth-child(1) { width: 26%; }
-        .table-header th:nth-child(2) { width: 8%; }
-        .table-header th:nth-child(3) { width: 20%; }
-        .table-header th:nth-child(4) { width: 11%; } 
-        .table-header th:nth-child(5) { width: 12%; } 
-        .table-header th:nth-child(6) { width: 12%; } 
-        .table-header th:nth-child(7) { width: 11%; } */
 
-        .table-header th:nth-child(1) { width: 26%; } /* Secret */
-        .table-header th:nth-child(2) { width: 8%; } /* Line */
-        .table-header th:nth-child(3) { width: 20%; } /* File */
-        .table-header th:nth-child(4) { width: 12%; } /* Type */
-        .table-header th:nth-child(5) { width: 14%; } /* Status */
-        .table-header th:nth-child(6) { width: 8%; } /* Confidence */
-        .table-header th:nth-child(7) { width: 12%; } /* Level */
+        /* .table-header th:nth-child(1) { width: 26%; } 
+        .table-header th:nth-child(2) { width: 8%; } 
+        .table-header th:nth-child(3) { width: 20%; } 
+        .table-header th:nth-child(4) { width: 12%; } 
+        .table-header th:nth-child(5) { width: 14%; }
+        .table-header th:nth-child(6) { width: 8%; } 
+        .table-header th:nth-child(7) { width: 12%; }  */
+
+        .table-header th:nth-child(1) { width: 34%; } /* Secret (было 26% + 8% от Line) */
+        .table-header th:nth-child(2) { width: 20%; } /* File */
+        .table-header th:nth-child(3) { width: 12%; } /* Type */
+        .table-header th:nth-child(4) { width: 14%; } /* Status */
+        .table-header th:nth-child(5) { width: 8%; } /* Confidence */
+        .table-header th:nth-child(6) { width: 12%; } /* Level */
                 
         .secret-row {
             border-bottom: 1px solid #f3f4f6;
@@ -547,7 +546,7 @@
             padding: 0.25rem 0.5rem;
             border-radius: 4px;
             border: 1px solid #e5e7eb;
-            max-width: 300px;
+            max-width: 450px;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
@@ -1075,7 +1074,17 @@
                     </div>
                     {% if scan.files_scanned %}
                     <div class="commit-info">
-                        📂 Файлов просканировано: <span style="font-weight: bold; color: #3b82f6;">{{ scan.files_scanned }}</span>
+                        📂 Всего файлов: <span style="font-weight: bold; color: #3b82f6;">{{ scan.files_scanned }}</span>
+                    </div>
+                    {% endif %}
+                    {% if scan.excluded_files_count %}
+                    <div class="commit-info">
+                        🚫 Файлов исключено by rules: <span style="font-weight: bold; color: #3b82f6;">{{ scan.excluded_files_count }}</span>
+                    </div>
+                    {% endif %}
+                    {% if scan.excluded_files_list %}
+                    <div class="commit-info">
+                        🧩 Список исключенных файлов: <span style="font-weight: bold; color: #3b82f6;">{{ scan.excluded_files_list }}</span>
                     </div>
                     {% endif %}
                 </div>
@@ -1713,13 +1722,12 @@
 
             // console.log(`Rendering ${pageSecrets.length} secrets (${startIndex}-${endIndex} of ${filteredSecrets.length})`);
 
-            // Generate table HTML
+            // Generate table HTML -- deleted <th>📍 Line</th>
             let tableHTML = `
                 <table class="secrets-table">
                     <thead class="table-header">
                         <tr>
                             <th class="sortable" data-sort="secret">🔑 Secret</th>
-                            <th>📍 Line</th>
                             <th class="sortable" data-sort="file">📁 File</th>
                             <th class="sortable" data-sort="type">🏷️ Type</th>
                             <th class="sortable" data-sort="status">📊 Status</th>
@@ -1730,15 +1738,12 @@
                     <tbody>
             `;
 
-            pageSecrets.forEach((secret, index) => {
+            pageSecrets.forEach((secret, index) => { // deleted <td> <span class="secret-line"> ${secret.line} </span> </td>
                 const globalIndex = startIndex + index;
                 tableHTML += `
                     <tr class="secret-row ${safeHtml(secret.severity).toLowerCase()}" data-secret-id="${secret.id}" data-secret-index="${globalIndex}">
                         <td>
                             <div class="secret-value">${escapeHtml(secret.secret)}</div>
-                        </td>
-                        <td>
-                            <span class="secret-line">${secret.line}</span>
                         </td>
                         <td>
                             <span class="secret-file">${escapeHtml((secret.path || '').split('/').pop())}</span>

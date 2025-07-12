@@ -2,7 +2,6 @@ from fastapi import FastAPI, Request, Form, Depends, HTTPException, File, Upload
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-# from fastapi.security import HTTPBearer
 from sqlalchemy import create_engine, Column, String, DateTime, Integer, Text, Boolean, func, text, Float
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
@@ -29,22 +28,21 @@ import secrets
 import html
 from utils.html_report_generator import generate_html_report
 from passlib.context import CryptContext
-# Password hashing
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 os.system("") # Для цветной консоли
-# Load environment variables
 load_dotenv()
 
 os.environ["NO_PROXY"] = "127.0.0.1,localhost"
 os.environ["no_proxy"] = "127.0.0.1,localhost"
-BASE_URL = ""
+BASE_URL = "/secret_scanner"
 
 def get_full_url(path: str) -> str:
     """Helper to create full URLs with base prefix"""
     if path.startswith('/'):
         path = path[1:]
-    return f"/secret_scanner/{path}" if path else "/secret_scanner"
+    return f"{BASE_URL}/{path}" if path else BASE_URL
 
 SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_urlsafe(32))
 ALGORITHM = "HS256"
@@ -54,18 +52,14 @@ def decompress_callback_data(payload: dict) -> dict:
     """Decompress callback data if it's compressed"""
     try:
         if payload.get("compressed", False):
-            # Получаем сжатые данные
             compressed_b64 = payload.get("data", "")
             original_size = payload.get("original_size", 0)
             compressed_size = payload.get("compressed_size", 0)
             
-            # Декодируем из base64
             compressed_data = base64.b64decode(compressed_b64.encode('ascii'))
             
-            # Распаковываем
             decompressed_data = gzip.decompress(compressed_data)
             
-            # Парсим JSON
             decompressed_json = decompressed_data.decode('utf-8')
             original_payload = json.loads(decompressed_json)
             
@@ -76,7 +70,6 @@ def decompress_callback_data(payload: dict) -> dict:
             
             return original_payload
         else:
-            # Данные не сжаты, возвращаем как есть
             return payload
             
     except Exception as e:
@@ -104,20 +97,17 @@ async def lifespan(app: FastAPI):
         pass
 
 
-app = FastAPI(title="Secrets Scanner", lifespan=lifespan)
+app = FastAPI(title="Secrets Scanner", lifespan=lifespan, root_path="/secret_scanner")
 
 router = APIRouter()
 
-# Create directories if they don't exist
 Path("templates").mkdir(exist_ok=True)
 Path("ico").mkdir(exist_ok=True)
 
-# Mount static files for favicon
 app.mount("/ico", StaticFiles(directory="ico"), name="ico")
 
 templates = Jinja2Templates(directory="templates")
 
-# Environment variables
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./database/secrets_scanner.db")
 if "database/" in DATABASE_URL:
     Path("database").mkdir(exist_ok=True)
@@ -144,7 +134,6 @@ logging.basicConfig(
 backup_logger = logging.getLogger("backup")
 logger = logging.getLogger("main")
 
-# Add JSON filter to Jinja2
 def tojson_filter(obj):
     if obj is None:
         return json.dumps("")
@@ -158,11 +147,6 @@ def datetime_filter(timestamp):
         return datetime.fromtimestamp(timestamp).strftime('%d.%m.%Y %H:%M:%S')
     return 'Unknown'
 
-# def basename_filter(path):
-#     if path:
-#         return path.split('/')[-1]
-#     return ''
-
 def urldecode_filter(text):
     if text:
         return urllib.parse.unquote(text)
@@ -170,7 +154,6 @@ def urldecode_filter(text):
 
 templates.env.filters['tojson'] = tojson_filter
 templates.env.filters['strftime'] = datetime_filter
-# templates.env.filters['basename'] = basename_filter
 templates.env.filters['urldecode'] = urldecode_filter
 templates.env.globals['get_full_url'] = get_full_url
 
@@ -200,6 +183,8 @@ class Scan(Base):
     started_at = Column(DateTime, default=datetime.now)
     completed_at = Column(DateTime)
     files_scanned = Column(Integer)  # New field for tracking scanned files
+    excluded_files_count = Column(Integer)
+    excluded_files_list = Column(String)
     error_message = Column(Text, default="No message")  # Add default value
     started_by = Column(String, nullable=True)
 
@@ -277,22 +262,11 @@ def create_indexes():
     """Создание индексов для оптимизации производительности"""
     try:
         with engine.connect() as conn:
-            # Композитный индекс для поиска похожих секретов
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_secrets_composite ON secrets (path, line, secret, type)"))
-            
-            # Индекс для фильтрации по scan_id и is_exception
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_secrets_scan_exception ON secrets (scan_id, is_exception)"))
-            
-            # Индекс для фильтрации по severity
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_secrets_severity ON secrets (scan_id, severity, is_exception)"))
-            
-            # Индекс для фильтрации по type
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_secrets_type ON secrets (scan_id, type, is_exception)"))
-            
-            # Индекс для поиска секретов по проекту и времени
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_scans_project_time ON scans (project_name, completed_at)"))
-            
-            # Индекс для статуса сканов
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_scans_status ON scans (status, started_at)"))
             
             conn.commit()
@@ -306,7 +280,7 @@ def migrate_database():
     """Add new columns for user tracking"""
     try:
         with engine.connect() as conn:
-            # Check if columns exist before adding them
+            # Check if columns exist before adding them excluded_files_list
             try:
                 conn.execute(text("SELECT started_by FROM scans LIMIT 1"))
             except:
@@ -351,7 +325,6 @@ def migrate_database():
                 conn.execute(text("SELECT confidence FROM secrets LIMIT 1"))
             except:
                 conn.execute(text("ALTER TABLE secrets ADD COLUMN confidence REAL DEFAULT 1.0"))
-                # Update existing records to have confidence = 1.0
                 conn.execute(text("UPDATE secrets SET confidence = 1.0 WHERE confidence IS NULL"))
                 logger.info("Added confidence column to secrets table")
 
@@ -425,22 +398,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-# Authentication
-# security = HTTPBearer()
-
-# def load_credentials():
-#     try:
-#         LOGIN_FILE = "Auth/login.dat"
-#         PASSWORD_FILE = "Auth/password.dat"
-#         username = decrypt_from_file(LOGIN_FILE, key_name="LOGIN_KEY")
-#         password = decrypt_from_file(PASSWORD_FILE, key_name="PASSWORD_KEY")
-#         return [username, password]
-#     except Exception as error:
-#         logger.error(f"Error: {str(error)}")
-#         logger.error("Если это первый запуск - необходимо запустить мастер настройки Auth данных `python CredsManager.py`")
-
-#     return None
 
 def verify_credentials(username: str, password: str, user_db: Session):
     user = user_db.query(User).filter(User.username == username).first()
@@ -840,20 +797,16 @@ async def change_password(request: Request, current_password: str = Form(...),
                          new_password: str = Form(...), confirm_password: str = Form(...),
                          current_user: str = Depends(get_current_user), user_db: Session = Depends(get_user_db)):
     try:
-        # Validate passwords match
         if new_password != confirm_password:
             return RedirectResponse(url="/secret_scanner/settings?error=password_mismatch", status_code=302)
         
-        # Get current user from database
         user = user_db.query(User).filter(User.username == current_user).first()
         if not user:
             return RedirectResponse(url="/secret_scanner/settings?error=user_not_found", status_code=302)
         
-        # Verify current password
         if not verify_password(current_password, user.password_hash):
             return RedirectResponse(url="/secret_scanner/settings?error=password_change_failed", status_code=302)
         
-        # Update password
         user.password_hash = get_password_hash(new_password)
         user_db.commit()
         
@@ -1403,9 +1356,9 @@ async def scan_status(request: Request, scan_id: str, current_user: str = Depend
     })
 
 def sanitize_string(value):
-    """Удаляет NUL-символы из строки для совместимости с PostgreSQL"""
+    """Удаляет NUL-символы и др из строки для совместимости с PostgreSQL"""
     if isinstance(value, str):
-        return value.replace('\x00', '')
+        return value.replace('\x00', '').replace('\x01', '').replace('\x02', '').replace('\x03', '').replace('\x04', '').replace('\x05', '').replace('\x06', '').replace('\x07', '').replace('\x08', '')
     return value
 
 @router.post("/get_results/{project_name}/{scan_id}")
@@ -1474,8 +1427,13 @@ async def receive_scan_results(project_name: str, scan_id: str, request: Request
     # Handle partial results
     if data.get("Status") == "partial":
         try:
-            files_scanned = data.get("FilesScanned", 0)
+            files_scanned = data.get("AllFiles", 0)
+            excluded_files_count = data.get("FilesExcluded", 0)
+            excluded_files_list = data.get("SkippedFiles", "")
+
             scan.files_scanned = files_scanned
+            scan.excluded_files_count = excluded_files_count
+            scan.excluded_files_list = excluded_files_list
             db.commit()
             logger.info(f"📊 Частичные результаты для scan {scan_id}: {files_scanned} файлов просканировано")
             return {"status": "success", "message": "Partial results received"}
@@ -1496,9 +1454,11 @@ async def receive_scan_results(project_name: str, scan_id: str, request: Request
             scan.status = "completed"
             scan.repo_commit = data.get("RepoCommit")
             scan.completed_at = datetime.now(timezone.utc)
-            scan.files_scanned = data.get("FilesScanned")
+            scan.files_scanned = data.get("AllFiles")
+            scan.excluded_files_count = data.get("FilesExcluded")
+            scan.excluded_files_list = data.get("SkippedFiles")
             
-            logger.info(f"📂 Итого файлов просканировано: {scan.files_scanned}")
+            logger.info(f"📂 Итого файлов просканировано: {scan.files_scanned}. Пропущено по правилам: {scan.excluded_files_count}")
             logger.info(f"🔗 Commit: {scan.repo_commit}")
         except Exception as e:
             logger.error(f"❌ Ошибка при обновлении информации о скане {scan_id}: {type(e).__name__}: {e}")
@@ -1671,7 +1631,7 @@ async def receive_scan_results(project_name: str, scan_id: str, request: Request
                             )
                             batch_secrets.append(secret)
                         except Exception as e:
-                            logger.error(f"❌ Ошибка при создании объекта Secret для секрета {j} в батче {i//batch_size + 1}: {type(e).__name__}: {e}")
+                            logger.error(f"❌ Ошибка при создании объекта Secret для секрета {j} в батче {i//batch_size + 1}: {type(e).name}: {e}")
                             logger.error(f"📋 Данные секрета: {result}")
                             continue
                         
@@ -1769,6 +1729,7 @@ async def receive_scan_results(project_name: str, scan_id: str, request: Request
             logger.info(f"   📊 Всего секретов: {len(results)}")
             logger.info(f"   📝 Ручных секретов: {added_manual_count if 'added_manual_count' in locals() else 0}")
             logger.info(f"   📂 Файлов просканировано: {scan.files_scanned}")
+            logger.info(f"   📂 Файлов пропущено по правилам: {scan.excluded_files_count}")
             logger.info(f"   🗺️ Применено предыдущих статусов: {len(previous_secrets_map)}")
         except Exception as e:
             logger.warning(f"⚠️ Ошибка при выводе итоговой статистики: {type(e).__name__}: {e}")
@@ -2454,7 +2415,8 @@ async def get_scan_status(scan_id: str, _: bool = Depends(get_current_user), db:
         "completed_at": scan.completed_at.strftime('%Y-%m-%d %H:%M') if scan.completed_at else None,
         "high_count": high_count,
         "potential_count": potential_count,
-        "files_scanned": scan.files_scanned
+        "files_scanned": scan.files_scanned,
+        "excluded_files_count": scan.excluded_files_count
     }
 
 @router.post("/multi_scan")
@@ -2765,7 +2727,8 @@ async def get_user_multi_scans(current_user: str = Depends(get_current_user), db
                     "completed_at": scan.completed_at.strftime('%Y-%m-%d %H:%M') if scan.completed_at else None,
                     "high_count": high_count,
                     "potential_count": potential_count,
-                    "files_scanned": scan.files_scanned
+                    "files_scanned": scan.files_scanned,
+                    "excluded_files_count": scan.excluded_files_count
                 })
             
             result.append({
@@ -2806,8 +2769,7 @@ def update_secret_key_in_env(new_secret_key: str = None):
         env_file = ".env"
         set_key(env_file, "SECRET_KEY", new_secret_key)
         load_dotenv(override=True)
-        
-        # Update global SECRET_KEY variable
+
         global SECRET_KEY
         SECRET_KEY = new_secret_key
         
@@ -2817,7 +2779,6 @@ def update_secret_key_in_env(new_secret_key: str = None):
         return False
 
 # Admin Panel Routes
-
 @router.get("/admin", response_class=HTMLResponse)
 async def admin_panel(request: Request, _: str = Depends(get_admin_user)):
     """Admin panel - only accessible by admin user"""
@@ -2852,12 +2813,10 @@ async def create_user(request: Request, username: str = Form(...), password: str
                      _: str = Depends(get_admin_user), user_db: Session = Depends(get_user_db)):
     """Create new user - admin only"""
     try:
-        # Check if user already exists
         existing_user = user_db.query(User).filter(User.username == username).first()
         if existing_user:
             return RedirectResponse(url="/secret_scanner/admin?error=user_exists", status_code=302)
         
-        # Create new user
         password_hash = get_password_hash(password)
         new_user = User(username=username, password_hash=password_hash)
         user_db.add(new_user)
@@ -2875,14 +2834,12 @@ async def delete_user(username: str, _: str = Depends(get_admin_user),
                      user_db: Session = Depends(get_user_db)):
     """Delete user - admin only"""
     try:
-        # Prevent admin deletion
         if username == "admin":
             return JSONResponse(
                 status_code=400,
                 content={"status": "error", "message": "Cannot delete admin user"}
             )
         
-        # Find and delete user
         user = user_db.query(User).filter(User.username == username).first()
         if not user:
             return JSONResponse(
@@ -2908,7 +2865,6 @@ async def update_secret_key(request: Request, secret_key: str = Form(""),
                            _: str = Depends(get_admin_user)):
     """Update SECRET_KEY - admin only"""
     try:
-        # Use provided key or generate new one
         new_key = secret_key.strip() if secret_key.strip() else None
         
         if update_secret_key_in_env(new_key):
@@ -2944,18 +2900,14 @@ async def get_logs(lines: int = 1000, _: str = Depends(get_current_user)):
                 "size": 0
             }
         
-        # Get file stats
         file_stats = os.stat(log_file_path)
         file_size = file_stats.st_size
         
-        # Read log file
         with open(log_file_path, 'r', encoding='utf-8', errors='ignore') as f:
             all_lines = f.readlines()
         
-        # Clean lines (remove empty lines and strip whitespace)
         cleaned_lines = [line.rstrip() for line in all_lines if line.strip()]
         
-        # Return specified number of lines (or all if lines <= 0)
         if lines > 0:
             log_lines = cleaned_lines[-lines:]
         else:
@@ -2977,9 +2929,7 @@ async def get_logs(lines: int = 1000, _: str = Depends(get_current_user)):
             "lines": [],
             "size": 0
         }
-
-
-
+    
 app.include_router(router)
 if __name__ == "__main__":
     import uvicorn
