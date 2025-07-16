@@ -1385,8 +1385,17 @@
             if (text === null || text === undefined) {
                 return '';
             }
+            
+            const str = String(text);
+            
+            // Если текст уже содержит HTML entities, не экранируем повторно
+            if (str.includes('&quot;') || str.includes('&lt;') || str.includes('&gt;') || str.includes('&amp;')) {
+                return str;
+            }
+            
+            // Только для неэкранированного текста применяем экранирование
             const div = document.createElement('div');
-            div.textContent = String(text);
+            div.textContent = str;
             return div.innerHTML;
         }
 
@@ -1738,12 +1747,12 @@
                     <tbody>
             `;
 
-            pageSecrets.forEach((secret, index) => { // deleted <td> <span class="secret-line"> ${secret.line} </span> </td>
+            pageSecrets.forEach((secret, index) => {
                 const globalIndex = startIndex + index;
                 tableHTML += `
                     <tr class="secret-row ${safeHtml(secret.severity).toLowerCase()}" data-secret-id="${secret.id}" data-secret-index="${globalIndex}">
                         <td>
-                            <div class="secret-value">${escapeHtml(secret.secret)}</div>
+                            <div class="secret-value">${safeHtml(secret.secret)}</div>
                         </td>
                         <td>
                             <span class="secret-file">${escapeHtml((secret.path || '').split('/').pop())}</span>
@@ -2302,7 +2311,7 @@
                     <div class="detail-section">
                         <h4>🔑 Значение секрета</h4>
                         <div class="detail-field" style="background: #fef3c7; border: 1px solid #f59e0b; color: #92400e; font-weight: 600;">
-                            ${safeSecret}
+                            ${safeHtml(secretData.secret || '')}
                         </div>
                     </div>
                     

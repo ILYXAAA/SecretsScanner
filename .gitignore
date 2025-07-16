@@ -15,6 +15,10 @@ test.txt
 run_2.py
 Dataset_Secrets.txt
 Dataset_NonSecrets.txt
+AllSecrets.txt
+FalseSecrets.txt
+TrueSecrets.txt
+*.zip
 
 # Distribution / packaging
 .Python
