@@ -388,6 +388,8 @@ async def receive_scan_results(project_name: str, scan_id: str, request: Request
             scan.files_scanned = data.get("AllFiles")
             scan.excluded_files_count = data.get("FilesExcluded")
             scan.excluded_files_list = data.get("SkippedFiles")
+
+            db.commit()
             
             logger.info(f"📂 Итого файлов просканировано: {scan.files_scanned}. Пропущено по правилам: {scan.excluded_files_count}")
             logger.info(f"🔗 Commit: {scan.repo_commit}")
