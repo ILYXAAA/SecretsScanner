@@ -974,6 +974,7 @@ async def add_custom_secret(request: Request, scan_id: str = Form(...), secret_v
         logger.error(f"Traceback: {traceback.format_exc()}")
         return JSONResponse(status_code=500, content={"status": "error", "message": f"Failed to add secret: {str(e)}"})
 
+# Исправление функции delete_secret в scan_routes.py
 @router.post("/secrets/{secret_id}/delete")
 async def delete_secret(secret_id: int, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     """Delete a secret from database"""
@@ -1003,12 +1004,15 @@ async def delete_secret(secret_id: int, current_user: str = Depends(get_current_
                 "context": html.escape(secret.context or "", quote=True),
                 "severity": html.escape(secret.severity or "", quote=True),
                 "type": html.escape(secret.type or "", quote=True),
+                "confidence": float(secret.confidence) if secret.confidence is not None else 1.0,  # Исправление: явное преобразование к float
                 "status": html.escape(secret.status or "No status", quote=True),
                 "is_exception": bool(secret.is_exception),
                 "exception_comment": html.escape(secret.exception_comment or "", quote=True),
                 "refuted_at": secret.refuted_at.strftime('%Y-%m-%d %H:%M') if secret.refuted_at else None,
                 "confirmed_by": secret.confirmed_by if secret.confirmed_by else None,
-                "refuted_by": secret.refuted_by if secret.refuted_by else None
+                "refuted_by": secret.refuted_by if secret.refuted_by else None,
+                "previous_status": None,  # Добавлены недостающие поля
+                "previous_scan_date": None
             }
             secrets_data.append(secret_obj)
         

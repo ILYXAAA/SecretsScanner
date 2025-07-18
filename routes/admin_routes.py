@@ -1,18 +1,29 @@
-from fastapi import APIRouter, Request, Form, Depends
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi import APIRouter, Request, Form, Depends, BackgroundTasks
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import and_
 from dotenv import set_key, load_dotenv
 import secrets
 import logging
 import os
-
+import tempfile
+import zipfile
+import asyncio
+from typing import Dict
+import uuid
+import re
 from services.auth import get_admin_user, get_user_db, get_password_hash
 from services.backup_service import create_database_backup, get_backup_status, list_backups
-from models import User
+from models import User, Secret
 from services.templates import templates
+from services.database import get_db
+
 logger = logging.getLogger("main")
 
 router = APIRouter()
+
+# In-memory storage for download tasks
+download_tasks: Dict[str, dict] = {}
 
 def get_current_secret_key():
     """Get current SECRET_KEY from environment"""
@@ -37,6 +48,188 @@ def update_secret_key_in_env(new_secret_key: str = None):
     except Exception as e:
         logger.error(f"Error updating SECRET_KEY in .env: {e}")
         return False
+
+def filter_and_clean_secrets(secrets_list):
+    """Filter and clean secrets list"""
+    # Excluded strings
+    excluded_strings = [
+        "ФАЙЛ НЕ ВЫВЕДЕН ПОЛНОСТЬЮ",
+        "СТРОКА НЕ СКАНИРОВАЛАСЬ"
+    ]
+    
+    # Get unique secrets and filter out empty and excluded ones
+    unique_secrets = set()
+    
+    for secret in secrets_list:
+        secret_value = secret.secret
+        
+        # Skip if empty or whitespace only
+        if not secret_value or not secret_value.strip():
+            continue
+            
+        # Skip if contains excluded strings
+        if any(excluded in secret_value for excluded in excluded_strings):
+            continue
+        
+        # Remove all control characters (ASCII 0-31 and 127)
+        # Keep only printable characters (32-126) and basic whitespace (space, tab, newline)
+        cleaned_secret = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', secret_value)
+        
+        # Additional cleanup: remove excessive whitespace and strip
+        cleaned_secret = re.sub(r'\s+', ' ', cleaned_secret).strip()
+        
+        # Skip if empty after cleaning
+        if not cleaned_secret:
+            continue
+            
+        # Add to set (automatically handles uniqueness)
+        unique_secrets.add(cleaned_secret)
+    
+    return sorted(list(unique_secrets))
+
+def filter_and_clean_secrets_optimized(secrets_list):
+    """Optimized filter and clean secrets list for string inputs"""
+    # Excluded strings
+    excluded_strings = [
+        "ФАЙЛ НЕ ВЫВЕДЕН ПОЛНОСТЬЮ",
+        "СТРОКА НЕ СКАНИРОВАЛАСЬ"
+    ]
+    
+    # Get unique secrets and filter out empty and excluded ones
+    unique_secrets = set()
+    
+    for secret_value in secrets_list:
+        # Skip if empty or whitespace only
+        if not secret_value or not secret_value.strip():
+            continue
+            
+        # Skip if contains excluded strings
+        if any(excluded in secret_value for excluded in excluded_strings):
+            continue
+        
+        # Remove all control characters (ASCII 0-31 and 127)
+        cleaned_secret = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', secret_value)
+        
+        # Additional cleanup: remove excessive whitespace and strip
+        cleaned_secret = re.sub(r'\s+', ' ', cleaned_secret).strip()
+        
+        # Skip if empty after cleaning
+        if not cleaned_secret:
+            continue
+            
+        # Add to set (automatically handles uniqueness)
+        unique_secrets.add(cleaned_secret)
+    
+    return sorted(list(unique_secrets))
+
+async def prepare_secrets_download(task_id: str, status_filter: str, db_session: Session):
+    """Background task to prepare secrets download"""
+    # Create new database session for background task
+    from services.database import SessionLocal
+    db = SessionLocal()
+    
+    try:
+        download_tasks[task_id]["status"] = "processing"
+        download_tasks[task_id]["message"] = "Получение секретов из базы данных..."
+        
+        # Get total count first for progress tracking
+        count_query = db.query(Secret)
+        if status_filter == "confirmed":
+            count_query = count_query.filter(Secret.status == "Confirmed")
+        elif status_filter == "refuted":
+            count_query = count_query.filter(Secret.status == "Refuted")
+        
+        total_count = count_query.count()
+        
+        if total_count == 0:
+            download_tasks[task_id]["status"] = "error"
+            download_tasks[task_id]["message"] = "Секреты не найдены"
+            return
+        
+        download_tasks[task_id]["message"] = f"Найдено {total_count} записей. Загрузка данных..."
+        
+        # Process secrets in batches
+        batch_size = 5000  # Увеличиваем размер батча
+        all_secrets = []
+        processed = 0
+        
+        # Use more efficient query with only needed field
+        base_query = db.query(Secret.secret)  # Только поле secret
+        if status_filter == "confirmed":
+            base_query = base_query.filter(Secret.status == "Confirmed")
+        elif status_filter == "refuted":
+            base_query = base_query.filter(Secret.status == "Refuted")
+        
+        # Process in chunks
+        for offset in range(0, total_count, batch_size):
+            batch = base_query.offset(offset).limit(batch_size).all()
+            
+            # Extract just the secret values
+            batch_secrets = [row.secret for row in batch]
+            all_secrets.extend(batch_secrets)
+            
+            processed += len(batch)
+            download_tasks[task_id]["message"] = f"Загружено {processed}/{total_count} записей..."
+            
+            # Small yield to prevent blocking
+            await asyncio.sleep(0.001)
+            
+            # Break if we got less than batch_size (end of data)
+            if len(batch) < batch_size:
+                break
+        
+        download_tasks[task_id]["message"] = f"Загружено {len(all_secrets)} записей. Фильтрация и очистка..."
+        
+        # Filter and clean secrets - работаем со строками напрямую
+        cleaned_secrets = filter_and_clean_secrets_optimized(all_secrets)
+        
+        if not cleaned_secrets:
+            download_tasks[task_id]["status"] = "error"
+            download_tasks[task_id]["message"] = "После фильтрации секреты не найдены"
+            return
+        
+        download_tasks[task_id]["message"] = f"Подготовлено {len(cleaned_secrets)} уникальных секретов. Создание файла..."
+        
+        # Create tmp directory if it doesn't exist
+        tmp_dir = "tmp"
+        os.makedirs(tmp_dir, exist_ok=True)
+        
+        # Determine if we need a zip file (threshold: 1000 secrets)
+        use_zip = len(cleaned_secrets) > 1000
+        
+        if use_zip:
+            download_tasks[task_id]["message"] = "Создание ZIP архива..."
+            zip_path = os.path.join(tmp_dir, f"secrets_{task_id}.zip")
+            
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                txt_content = "\n".join(cleaned_secrets)
+                zipf.writestr(f"secrets_{status_filter}.txt", txt_content)
+            
+            download_tasks[task_id]["file_path"] = zip_path
+            download_tasks[task_id]["filename"] = f"secrets_{status_filter}.zip"
+            download_tasks[task_id]["content_type"] = "application/zip"
+        else:
+            download_tasks[task_id]["message"] = "Создание TXT файла..."
+            txt_path = os.path.join(tmp_dir, f"secrets_{task_id}.txt")
+            
+            with open(txt_path, 'w', encoding='utf-8') as f:
+                for secret_value in cleaned_secrets:
+                    f.write(f"{secret_value}\n")
+            
+            download_tasks[task_id]["file_path"] = txt_path
+            download_tasks[task_id]["filename"] = f"secrets_{status_filter}.txt"
+            download_tasks[task_id]["content_type"] = "text/plain"
+        
+        download_tasks[task_id]["status"] = "ready"
+        download_tasks[task_id]["message"] = f"Файл готов к скачиванию ({len(cleaned_secrets)} уникальных секретов)"
+        
+    except Exception as e:
+        logger.error(f"Error preparing secrets download: {e}")
+        download_tasks[task_id]["status"] = "error"
+        download_tasks[task_id]["message"] = f"Ошибка: {str(e)}"
+    finally:
+        # Always close the database session
+        db.close()
 
 @router.get("/admin", response_class=HTMLResponse)
 async def admin_panel(request: Request, _: str = Depends(get_admin_user)):
@@ -135,6 +328,108 @@ async def update_secret_key(request: Request, secret_key: str = Form(""),
     except Exception as e:
         logger.error(f"Error updating SECRET_KEY: {e}")
         return RedirectResponse(url="/secret_scanner/admin?error=secret_key_update_failed", status_code=302)
+
+@router.post("/admin/export-secrets")
+async def export_secrets(background_tasks: BackgroundTasks, status_filter: str = Form(...),
+                        _: str = Depends(get_admin_user)):
+    """Export secrets - admin only"""
+    try:
+        if status_filter not in ["all", "confirmed", "refuted"]:
+            return JSONResponse(
+                status_code=400,
+                content={"status": "error", "message": "Invalid status filter"}
+            )
+        
+        # Generate unique task ID
+        task_id = str(uuid.uuid4())
+        
+        # Initialize task
+        download_tasks[task_id] = {
+            "status": "started",
+            "message": "Инициализация...",
+            "file_path": None,
+            "filename": None,
+            "content_type": None
+        }
+        
+        # Start background task without passing db session
+        background_tasks.add_task(prepare_secrets_download, task_id, status_filter, None)
+        
+        return {"status": "success", "task_id": task_id}
+        
+    except Exception as e:
+        logger.error(f"Error starting export: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": str(e)}
+        )
+@router.get("/admin/export-status/{task_id}")
+async def export_status(task_id: str, _: str = Depends(get_admin_user)):
+    """Check export status"""
+    if task_id not in download_tasks:
+        return JSONResponse(
+            status_code=404,
+            content={"status": "error", "message": "Task not found"}
+        )
+    
+    task = download_tasks[task_id]
+    return {
+        "status": task["status"],
+        "message": task["message"]
+    }
+
+@router.get("/admin/download/{task_id}")
+async def download_secrets(task_id: str, _: str = Depends(get_admin_user)):
+    """Download prepared secrets file"""
+    if task_id not in download_tasks:
+        return JSONResponse(
+            status_code=404,
+            content={"status": "error", "message": "Task not found"}
+        )
+    
+    task = download_tasks[task_id]
+    
+    if task["status"] != "ready":
+        return JSONResponse(
+            status_code=400,
+            content={"status": "error", "message": "File not ready"}
+        )
+    
+    if not os.path.exists(task["file_path"]):
+        return JSONResponse(
+            status_code=404,
+            content={"status": "error", "message": "File not found"}
+        )
+    
+    try:
+        # Return file and clean up task
+        response = FileResponse(
+            path=task["file_path"],
+            filename=task["filename"],
+            media_type=task["content_type"]
+        )
+        
+        # Schedule cleanup
+        async def cleanup():
+            await asyncio.sleep(5)  # Wait 5 seconds before cleanup
+            try:
+                if os.path.exists(task["file_path"]):
+                    os.remove(task["file_path"])
+                if task_id in download_tasks:
+                    del download_tasks[task_id]
+            except Exception as e:
+                logger.error(f"Error cleaning up download file: {e}")
+        
+        asyncio.create_task(cleanup())
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error downloading file: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": str(e)}
+        )
 
 @router.get("/admin/backup-status")
 async def backup_status(_: bool = Depends(get_admin_user)):

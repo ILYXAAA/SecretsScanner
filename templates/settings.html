@@ -587,12 +587,6 @@ false_positive:
                             <p style="color: #666; margin-bottom: 1rem;">
                                 🚫 Файлы исключаются из сканирования, если их расширение совпадает с одним из шаблонов в <span style="color: #df224e;">excluded_extensions.yml</span>
                             </p>
-                            <p style="color: #666; margin-bottom: 1rem;">
-                                Поддерживаются шаблоны с <b><span style="color: #28a745;">*</span></b>, например:<br><b><span style="color: #28a745;">*gz</span></b> — исключит backup.tar.gz, log.gz<br><b><span style="color: #28a745;">*min.js</span></b> — исключит app.min.js
-                            </p>
-                            <p style="color: #666; margin-bottom: 1rem;">
-                                ⚠️ Шаблоны со звездочками необходимо записывать в кавычках:<br><b><span style="color: #28a745;">- '*gz'</span></b> 
-                            </p>
                         </div>
                         <div class="config-stats">
                             {% if excluded_extensions_info %}
@@ -794,8 +788,8 @@ excluded_files:
             </div>
         </div>
         
-        <!-- Database Backup Section -->
        <!-- Database Backup Section -->
+        {% if current_user == "admin" %}
         <div class="settings-section">
             <h2 class="section-title">💾 Database Backup Management</h2>
             {% if is_sqlite %}
@@ -846,6 +840,7 @@ excluded_files:
             </div>
             {% endif %}
         </div>
+        {% endif %}
     </div>
     
     <script>

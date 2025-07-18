@@ -19,6 +19,7 @@ AllSecrets.txt
 FalseSecrets.txt
 TrueSecrets.txt
 *.zip
+tmp/
 
 # Distribution / packaging
 .Python

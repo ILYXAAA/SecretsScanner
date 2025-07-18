@@ -17,6 +17,13 @@ router = APIRouter()
 def validate_repo_url(repo_url: str, hub_type: str) -> str:
     """Validate and normalize repository URL based on hub type"""
     
+    # Проверяем что URL не содержит параметров версии или commit в пути
+    if "?" in repo_url:
+        raise ValueError("❌ Ссылка на репозиторий не должна содержать параметры (version, commit и т.д.). Используйте базовую ссылку на репозиторий.")
+    
+    if "/commit/" in repo_url:
+        raise ValueError("❌ Ссылка на репозиторий не должна содержать путь к коммиту (/commit/). Используйте базовую ссылку на репозиторий.")
+    
     # Check for devzone URLs first
     if "devzone.local" in repo_url:
         # Convert git@ format to https for devzone
@@ -118,12 +125,35 @@ async def project_page(request: Request, project_name: str, current_user: str = 
 async def add_project(request: Request, project_name: str = Form(...), repo_url: str = Form(...), 
                      current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     try:
+        # Validate project name
+        project_name = project_name.strip()
+        repo_url = repo_url.strip()
+        
+        if not project_name:
+            return RedirectResponse(url=get_full_url("dashboard?error=empty_project_name"), status_code=302)
+        
+        if not repo_url:
+            return RedirectResponse(url=get_full_url("dashboard?error=empty_repo_url"), status_code=302)
+        
+        # Check project name format
+        import re
+        if not re.match(r'^[a-zA-Z0-9._\-\s]+$', project_name):
+            return RedirectResponse(url=get_full_url("dashboard?error=invalid_project_name"), status_code=302)
+        
+        # Validate and normalize repository URL
         normalized_url = validate_repo_url(repo_url, HUB_TYPE)
         
-        existing = db.query(Project).filter(Project.name == project_name).first()
-        if existing:
+        # Check if project already exists by name
+        existing_name = db.query(Project).filter(Project.name == project_name).first()
+        if existing_name:
             return RedirectResponse(url=get_full_url("dashboard?error=project_exists"), status_code=302)
         
+        # Check if project already exists by repo URL
+        existing_url = db.query(Project).filter(Project.repo_url == normalized_url).first()
+        if existing_url:
+            return RedirectResponse(url=get_full_url("dashboard?error=repo_url_exists"), status_code=302)
+        
+        # Create project
         project = Project(name=project_name, repo_url=normalized_url, created_by=current_user)
         db.add(project)
         db.commit()
@@ -136,7 +166,6 @@ async def add_project(request: Request, project_name: str = Form(...), repo_url:
     except Exception as e:
         logger.error(f"Error adding project: {e}")
         return RedirectResponse(url=get_full_url("dashboard?error=unexpected_error"), status_code=302)
-
 @router.post("/projects/update")
 async def update_project(request: Request, project_id: int = Form(...), project_name: str = Form(...), 
                         repo_url: str = Form(...), _: bool = Depends(get_current_user), db: Session = Depends(get_db)):

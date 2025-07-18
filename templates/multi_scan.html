@@ -640,9 +640,17 @@
             let ref = 'main';
             
             // Check for commit in path (format: /commit/hash)
-            if (pathParts.includes('commit') && pathParts.indexOf('commit') === gitIndex + 2) {
+            const commitIndex = pathParts.indexOf('commit');
+            if (commitIndex !== -1 && commitIndex === gitIndex + 2) {
+                // Проверяем, что нет других параметров
+                if (urlObj.searchParams.has('version')) {
+                    throw new Error('URL содержит одновременно commit в пути и параметр version');
+                }
                 refType = 'commit';
                 ref = pathParts[gitIndex + 3];
+                if (!ref) {
+                    throw new Error('URL некорректен: отсутствует хеш коммита после "/commit/"');
+                }
             }
             // Check for version parameter
             else if (urlObj.searchParams.has('version')) {
@@ -656,6 +664,16 @@
                 } else if (version.startsWith('GC')) {
                     refType = 'commit';
                     ref = version.substring(2);
+                    // Проверяем, что в пути нет /commit/
+                    if (pathParts.includes('commit')) {
+                        throw new Error('URL содержит одновременно параметр version=GC и commit в пути');
+                    }
+                } else {
+                    throw new Error('Неподдерживаемый формат параметра version: ' + version);
+                }
+                
+                if (!ref) {
+                    throw new Error('Пустое значение после префикса в параметре version');
                 }
             }
             
@@ -676,7 +694,7 @@
                 baseRepoUrl
             };
         }
-        
+
         function validateUrls(urls) {
             const results = [];
             const errors = [];
@@ -1082,10 +1100,17 @@
                         ref: item.Ref,
                         commit: item.commit,
                         scan_id: scanRequests[index].CallbackUrl.split('/').pop(),
-                        base_repo_url: scanRequests[index].RepoUrl
+                        base_repo_url: scanRequests[index].RepoUrl,
+                        status: 'running', // Set initial status
+                        started_at: new Date().toLocaleString('ru-RU')
                     }));
                     
                     displayScanResults(scans, result.multi_scan_id, baseRepoUrls);
+                    
+                    // Сразу запускаем автообновление после успешного запуска
+                    setTimeout(() => {
+                        startAutoRefresh();
+                    }, 2000); // Начинаем обновление через 2 секунды
                 }
                 else if (result.status === 'validation_failed') {
                     hideLoading();
@@ -1158,8 +1183,10 @@
                     clearInterval(refreshTimer);
                     refreshTimer = null;
                     updateRefreshStatus('Все сканирования завершены');
+                } else {
+                    updateRefreshStatus('Автообновление активно (обновлено ' + new Date().toLocaleTimeString() + ')');
                 }
-            }, 3000); // Check every 3 seconds
+            }, 5000); // Check every 5 seconds
         }
         
         // Restore scan results on page load

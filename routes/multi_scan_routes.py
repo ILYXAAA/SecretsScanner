@@ -53,6 +53,15 @@ async def multi_scan(request: Request, current_user: str = Depends(get_current_u
               content={"status": "error", "message": "Invalid request format"}
           )
       
+      # Validate repo URLs - ensure they don't contain ref parameters
+      for scan_request in scan_requests:
+          repo_url = scan_request.get("RepoUrl", "")
+          if "?" in repo_url or "/commit/" in repo_url:
+              return JSONResponse(
+                  status_code=400,
+                  content={"status": "error", "message": f"Repo URL должен быть базовой ссылкой на репозиторий без параметров: {repo_url}"}
+              )
+      
       # Check microservice health
       if not await check_microservice_health():
           return JSONResponse(
@@ -314,7 +323,6 @@ async def multi_scan(request: Request, current_user: str = Depends(get_current_u
           status_code=500,
           content={"status": "error", "message": "Внутренняя ошибка сервера"}
       )
-
 @router.get("/api/multi-scans")
 async def get_user_multi_scans(current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     """Get all multi-scans for current user"""
