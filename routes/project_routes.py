@@ -11,6 +11,7 @@ from models import Project, Scan, Secret
 from services.auth import get_current_user
 from services.database import get_db
 from services.templates import templates
+import time
 logger = logging.getLogger("main")
 
 router = APIRouter()
@@ -175,6 +176,7 @@ def get_framework_stats_from_scan(scan):
 
 @router.get("/project/{project_name}", response_class=HTMLResponse)
 async def project_page(request: Request, project_name: str, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
+    start = time.time()
     project = db.query(Project).filter(Project.name == project_name).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -203,7 +205,8 @@ async def project_page(request: Request, project_name: str, current_user: str = 
             "scan": scan,
             "confirmed_count": confirmed_count
         })
-    
+    end = time.time()
+    print(f"Время выполнения: {end - start:.4f} секунд")
     return templates.TemplateResponse("project.html", {
         "request": request,
         "project": project,

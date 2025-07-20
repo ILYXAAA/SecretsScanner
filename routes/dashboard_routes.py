@@ -9,30 +9,30 @@ from models import Project, Scan, Secret
 from services.auth import get_current_user
 from services.database import get_db
 from services.templates import templates
+import time
 
 router = APIRouter()
 
 @router.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request, page: int = 1, search: str = "", current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
+    start = time.time()
     per_page = 10
     offset = (page - 1) * per_page
     
-    # Оптимизированный запрос для получения recent scans с статистикой
-    recent_scans_query = db.query(
-        Scan,
-        func.count(Secret.id).filter(Secret.severity == 'High', Secret.is_exception == False).label('high_count'),
-        func.count(Secret.id).filter(Secret.severity == 'Potential', Secret.is_exception == False).label('potential_count')
-    ).outerjoin(Secret, Scan.id == Secret.scan_id).group_by(Scan.id).order_by(Scan.started_at.desc()).limit(20)
-    
+    # Оптимизированный запрос для recent scans - используем денормализованные счетчики
     recent_scans_data = []
-    for scan, high_count, potential_count in recent_scans_query.all():
+    recent_scans = db.query(Scan).filter(
+        Scan.completed_at.is_not(None)
+    ).order_by(Scan.started_at.desc()).limit(20).all()
+    
+    for scan in recent_scans:
         recent_scans_data.append({
             "scan": scan,
-            "high_count": high_count or 0,
-            "potential_count": potential_count or 0
+            "high_count": scan.high_secrets_count or 0,
+            "potential_count": scan.potential_secrets_count or 0
         })
     
-    # Оптимизированный запрос проектов с пагинацией и поиском по названию и репозиторию
+    # Оптимизированный запрос проектов с пагинацией и поиском
     projects_query = db.query(Project)
     if search:
         projects_query = projects_query.filter(
@@ -42,13 +42,18 @@ async def dashboard(request: Request, page: int = 1, search: str = "", current_u
     total_projects = projects_query.count()
     projects_list = projects_query.offset(offset).limit(per_page).all()
     
-    # Получить последние сканы для проектов одним запросом
+    # Получить последние сканы для проектов ОДНИМ эффективным запросом
     project_names = [p.name for p in projects_list]
+    
+    # Подзапрос для поиска ID последних сканов по каждому проекту
     latest_scans_subquery = db.query(
         Scan.project_name,
         func.max(Scan.started_at).label('max_date')
-    ).filter(Scan.project_name.in_(project_names)).group_by(Scan.project_name).subquery()
+    ).filter(
+        Scan.project_name.in_(project_names)
+    ).group_by(Scan.project_name).subquery()
     
+    # Получить полные данные последних сканов с денормализованными счетчиками
     latest_scans = db.query(Scan).join(
         latest_scans_subquery,
         (Scan.project_name == latest_scans_subquery.c.project_name) &
@@ -58,30 +63,18 @@ async def dashboard(request: Request, page: int = 1, search: str = "", current_u
     # Создать словарь для быстрого поиска
     scans_dict = {scan.project_name: scan for scan in latest_scans}
     
-    # Получить статистику для latest scans одним запросом
-    completed_scan_ids = [scan.id for scan in latest_scans if scan.status == 'completed']
-    if completed_scan_ids:
-        stats_query = db.query(
-            Secret.scan_id,
-            func.count(Secret.id).filter(Secret.severity == 'High').label('high_count'),
-            func.count(Secret.id).filter(Secret.severity == 'Potential').label('potential_count')
-        ).filter(
-            Secret.scan_id.in_(completed_scan_ids),
-            Secret.is_exception == False
-        ).group_by(Secret.scan_id).all()
-        
-        stats_dict = {stat.scan_id: (stat.high_count, stat.potential_count) for stat in stats_query}
-    else:
-        stats_dict = {}
-    
+    # Формируем данные проектов
     projects_data = []
     for project in projects_list:
         latest_scan = scans_dict.get(project.name)
-        high_count = 0
-        potential_count = 0
         
+        # Используем денормализованные счетчики из таблицы scans
         if latest_scan and latest_scan.status == 'completed':
-            high_count, potential_count = stats_dict.get(latest_scan.id, (0, 0))
+            high_count = latest_scan.high_secrets_count or 0
+            potential_count = latest_scan.potential_secrets_count or 0
+        else:
+            high_count = 0
+            potential_count = 0
         
         projects_data.append({
             "project": project,
@@ -91,9 +84,13 @@ async def dashboard(request: Request, page: int = 1, search: str = "", current_u
             "latest_scan_date": latest_scan.started_at if latest_scan else datetime.min
         })
     
+    # Сортируем по дате последнего скана
     projects_data.sort(key=lambda x: x["latest_scan_date"], reverse=True)
     total_pages = (total_projects + per_page - 1) // per_page
 
+    end = time.time()
+    print(f"Время выполнения: {end - start:.4f} секунд")
+    
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
         "recent_scans": recent_scans_data,

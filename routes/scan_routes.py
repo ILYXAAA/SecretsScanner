@@ -21,6 +21,7 @@ from services.database import get_db, sanitize_string
 from services.microservice_client import check_microservice_health
 from utils.html_report_generator import generate_html_report
 from services.templates import templates
+import time
 logger = logging.getLogger("main")
 
 router = APIRouter()
@@ -558,6 +559,26 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
         except:
             pass
 
+def update_scan_counters(db: Session, scan_id: str):
+    """Update denormalized counters in scans table"""
+    high_count = db.query(func.count(Secret.id)).filter(
+        Secret.scan_id == scan_id,
+        Secret.severity == "High",
+        Secret.is_exception == False
+    ).scalar() or 0
+    
+    potential_count = db.query(func.count(Secret.id)).filter(
+        Secret.scan_id == scan_id,
+        Secret.severity == "Potential", 
+        Secret.is_exception == False
+    ).scalar() or 0
+    
+    scan = db.query(Scan).filter(Scan.id == scan_id).first()
+    if scan:
+        scan.high_secrets_count = high_count
+        scan.potential_secrets_count = potential_count
+        db.commit()
+
 @router.post("/get_results/{project_name}/{scan_id}")
 async def receive_scan_results(project_name: str, scan_id: str, request: Request, 
                               background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
@@ -612,10 +633,13 @@ async def receive_scan_results(project_name: str, scan_id: str, request: Request
     except Exception as e:
         logger.error(f"❌ Ошибка при добавлении задачи в фон для scan {scan_id}: {type(e).__name__}: {e}")
         return {"status": "error", "message": "Failed to queue background processing"}
+
 @router.get("/scan/{scan_id}/results", response_class=HTMLResponse)
 async def scan_results(request: Request, scan_id: str, severity_filter: str = "", 
                      type_filter: str = "", show_exceptions: bool = False,
                      current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
+    import time
+    
     scan = db.query(Scan).filter(Scan.id == scan_id).first()
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
@@ -623,109 +647,64 @@ async def scan_results(request: Request, scan_id: str, severity_filter: str = ""
     # Get project info
     project = db.query(Project).filter(Project.name == scan.project_name).first()
     
-    # Получить ВСЕ секреты для JavaScript (БЕЗ фильтрации на стороне сервера)
+    # Оптимизированный запрос секретов с упрощенной сортировкой
+    start = time.time()
     all_secrets_query = db.query(Secret).filter(Secret.scan_id == scan_id).order_by(
-        Secret.severity == 'Potential',
+        Secret.severity,  # Убрали сложное выражение
         Secret.path,
         Secret.line
     ).all()
+    print(f"Секреты загружены за: {time.time() - start:.2f}с")
     
-    # Исправленный подсчет статистики - отдельными запросами
-    total_secrets = db.query(func.count(Secret.id)).filter(
-        Secret.scan_id == scan_id,
-        Secret.is_exception == False
-    ).scalar() or 0
+    # Сортируем в Python для правильного порядка (High сначала, потом Potential)
+    all_secrets_query.sort(key=lambda x: (x.severity == 'Potential', x.path or '', x.line or 0))
     
-    high_secrets = db.query(func.count(Secret.id)).filter(
-        Secret.scan_id == scan_id,
-        Secret.severity == 'High',
-        Secret.is_exception == False
-    ).scalar() or 0
+    # Используем денормализованные счетчики из таблицы scans
+    high_secrets = scan.high_secrets_count or 0
+    potential_secrets = scan.potential_secrets_count or 0
+    total_secrets = high_secrets + potential_secrets
     
-    potential_secrets = db.query(func.count(Secret.id)).filter(
-        Secret.scan_id == scan_id,
-        Secret.severity == 'Potential',
-        Secret.is_exception == False
-    ).scalar() or 0
-    
-    # Получить уникальные типы и severity отдельными эффективными запросами
+    # Получить уникальные типы и severity одним запросом каждый
     unique_types_query = db.query(Secret.type.distinct()).filter(Secret.scan_id == scan_id)
     unique_types = [row[0] for row in unique_types_query.all() if row[0]]
     
     unique_severities_query = db.query(Secret.severity.distinct()).filter(Secret.scan_id == scan_id)
     unique_severities = [row[0] for row in unique_severities_query.all() if row[0]]
     
-    # Инициализируем переменные в начале
+    # Инициализируем переменные
     secrets_data = []
-    previous_secrets_map = {}
-    previous_scans = []
     
-    # Оптимизированный поиск предыдущих статусов только для небольших наборов
-    if all_secrets_query and len(all_secrets_query) < 500:  # Только для небольших наборов
-        # Получить все предыдущие сканы одним запросом
-        previous_scans = db.query(Scan.id, Scan.completed_at).filter(
-            Scan.project_name == scan.project_name,
-            Scan.id != scan_id,
-            Scan.completed_at < scan.completed_at
-        ).order_by(Scan.completed_at.desc()).all()
-        
-        previous_scan_ids = [s.id for s in previous_scans]
-        
-        # Получить все предыдущие секреты одним запросом
-        if previous_scan_ids:
-            previous_secrets = db.query(Secret).filter(
-                Secret.scan_id.in_(previous_scan_ids),
-                Secret.status != "No status"
-            ).all()
-            
-            # Создать карту для быстрого поиска
-            for prev_secret in previous_secrets:
-                key = (prev_secret.path, prev_secret.line, prev_secret.secret, prev_secret.type)
-                if key not in previous_secrets_map:
-                    previous_secrets_map[key] = prev_secret
-    
-    # Обработка секретов
+    # Обработка секретов без поиска предыдущих статусов для больших наборов
+    start = time.time()
     for secret in all_secrets_query:
-        previous_status = None
-        previous_scan_date = None
-        
-        if previous_secrets_map:
-            key = (secret.path, secret.line, secret.secret, secret.type)
-            if key in previous_secrets_map:
-                prev_secret = previous_secrets_map[key]
-                previous_status = prev_secret.status
-                # Найти дату скана для этого секрета
-                for scan_info in previous_scans:
-                    if prev_secret.scan_id == scan_info.id:
-                        previous_scan_date = scan_info.completed_at.strftime('%Y-%m-%d %H:%M')
-                        break
-        
-        # БЕЗОПАСНОЕ создание объекта секрета с экранированием
+        # Упрощенное создание объекта секрета
         secret_obj = {
             "id": secret.id,
-            "path": html.escape(secret.path or "", quote=True),
+            "path": secret.path or "",
             "line": secret.line or 0,
-            "secret": html.escape(secret.secret or "", quote=True),
-            "context": html.escape(secret.context or "", quote=True),
-            "severity": html.escape(secret.severity or "", quote=True),
-            "type": html.escape(secret.type or "", quote=True),
+            "secret": secret.secret or "",
+            "context": secret.context or "",
+            "severity": secret.severity or "",
+            "type": secret.type or "",
             "confidence": float(secret.confidence) if secret.confidence is not None else 1.0,
-            "status": html.escape(secret.status or "No status", quote=True),
+            "status": secret.status or "No status",
             "is_exception": bool(secret.is_exception),
-            "exception_comment": html.escape(secret.exception_comment or "", quote=True),
+            "exception_comment": secret.exception_comment or "",
             "refuted_at": secret.refuted_at.strftime('%Y-%m-%d %H:%M') if secret.refuted_at else None,
             "confirmed_by": secret.confirmed_by if secret.confirmed_by else None,
             "refuted_by": secret.refuted_by if secret.refuted_by else None,
-            "previous_status": html.escape(previous_status or "", quote=True) if previous_status else None,
-            "previous_scan_date": previous_scan_date
+            "previous_status": None,  # Отключили для производительности
+            "previous_scan_date": None
         }
         secrets_data.append(secret_obj)
+    
+    print(f"Обработка секретов: {time.time() - start:.2f}с")
 
     return templates.TemplateResponse("scan_results.html", {
         "request": request,
         "scan": scan,
         "project": project,
-        "secrets_data": secrets_data,  # Передаем как объект для скрытого элемента
+        "secrets_data": secrets_data,
         "project_repo_url": project.repo_url or "",
         "scan_commit": scan.repo_commit or "",
         "unique_types": unique_types,
@@ -771,6 +750,10 @@ async def update_secret_status(secret_id: int, status: str = Form(...),
         secret.refuted_by = None
     
     db.commit()
+    
+    # Обновляем денормализованные счетчики
+    update_scan_counters(db, secret.scan_id)
+    
     return {"status": "success"}
 
 @router.post("/secrets/bulk-action")
@@ -782,8 +765,11 @@ async def bulk_secret_action(request: Request, current_user: str = Depends(get_c
     comment = data.get("comment", "")
     
     secrets = db.query(Secret).filter(Secret.id.in_(secret_ids)).all()
+    affected_scan_ids = set()
     
     for secret in secrets:
+        affected_scan_ids.add(secret.scan_id)
+        
         if action == "status":
             secret.status = value
             if value == "Refuted":
@@ -808,6 +794,11 @@ async def bulk_secret_action(request: Request, current_user: str = Depends(get_c
             secret.severity = value
     
     db.commit()
+    
+    # Обновляем счетчики для всех затронутых сканов
+    for scan_id in affected_scan_ids:
+        update_scan_counters(db, scan_id)
+    
     return {"status": "success"}
 
 @router.post("/secrets/add-custom")
@@ -817,7 +808,6 @@ async def add_custom_secret(request: Request, scan_id: str = Form(...), secret_v
                            db: Session = Depends(get_db)):
     """Add a custom secret found by user"""
     try:
-        # Логирование для отладки
         logger.info(f"Attempting to add custom secret for scan_id: {scan_id}")
         
         scan = db.query(Scan).filter(Scan.id == scan_id).first()
@@ -832,10 +822,8 @@ async def add_custom_secret(request: Request, scan_id: str = Form(...), secret_v
         
         normalized_path = normalize_file_path(file_path, project.repo_url)
         
-        # Добавляем приписку к значению секрета
         modified_secret_value = secret_value + " (добавлен вручную, см. context)"
         
-        # Добавляем информацию в context
         manual_context_info = "\nДанный секрет был добавлен вручную. Перед выставлением замечаний - перепроверьте существует ли данный секрет в текущей версии кода. \nЕсли данного секрета больше не существует - вы можете удалить эту запись по кнопке снизу"
         full_context = context + manual_context_info
         
@@ -849,7 +837,6 @@ async def add_custom_secret(request: Request, scan_id: str = Form(...), secret_v
         if existing_secret:
             return JSONResponse(status_code=400, content={"status": "error", "message": "Secret already exists"})
         
-        # Создаем новый секрет
         new_secret = Secret(
             scan_id=scan_id,
             path=normalized_path,
@@ -866,6 +853,9 @@ async def add_custom_secret(request: Request, scan_id: str = Form(...), secret_v
         
         db.add(new_secret)
         db.commit()
+        
+        # Обновляем денормализованные счетчики
+        update_scan_counters(db, scan_id)
         
         logger.info(f"Custom secret successfully added with ID: {new_secret.id}")
         
@@ -884,10 +874,10 @@ async def add_custom_secret(request: Request, scan_id: str = Form(...), secret_v
                 "line": secret.line or 0,
                 "secret": html.escape(secret.secret or "", quote=True),
                 "context": html.escape(secret.context or "", quote=True),
-                "severity": html.escape(secret.severity or "", quote=True),
+                "severity": secret.severity or "",
                 "type": html.escape(secret.type or "", quote=True),
                 "confidence": float(secret.confidence) if secret.confidence is not None else 1.0,
-                "status": html.escape(secret.status or "No status", quote=True),
+                "status": secret.status or "No status",
                 "is_exception": bool(secret.is_exception),
                 "exception_comment": html.escape(secret.exception_comment or "", quote=True),
                 "refuted_at": secret.refuted_at.strftime('%Y-%m-%d %H:%M') if secret.refuted_at else None,
@@ -914,7 +904,6 @@ async def add_custom_secret(request: Request, scan_id: str = Form(...), secret_v
         logger.error(f"Traceback: {traceback.format_exc()}")
         return JSONResponse(status_code=500, content={"status": "error", "message": f"Failed to add secret: {str(e)}"})
 
-# Исправление функции delete_secret в scan_routes.py
 @router.post("/secrets/{secret_id}/delete")
 async def delete_secret(secret_id: int, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     """Delete a secret from database"""
@@ -926,6 +915,9 @@ async def delete_secret(secret_id: int, current_user: str = Depends(get_current_
         scan_id = secret.scan_id
         db.delete(secret)
         db.commit()
+        
+        # Обновляем денормализованные счетчики
+        update_scan_counters(db, scan_id)
         
         # Get updated secrets data
         all_secrets_query = db.query(Secret).filter(Secret.scan_id == scan_id).order_by(
@@ -942,16 +934,16 @@ async def delete_secret(secret_id: int, current_user: str = Depends(get_current_
                 "line": secret.line or 0,
                 "secret": html.escape(secret.secret or "", quote=True),
                 "context": html.escape(secret.context or "", quote=True),
-                "severity": html.escape(secret.severity or "", quote=True),
+                "severity": secret.severity or "",
                 "type": html.escape(secret.type or "", quote=True),
-                "confidence": float(secret.confidence) if secret.confidence is not None else 1.0,  # Исправление: явное преобразование к float
-                "status": html.escape(secret.status or "No status", quote=True),
+                "confidence": float(secret.confidence) if secret.confidence is not None else 1.0,
+                "status": secret.status or "No status",
                 "is_exception": bool(secret.is_exception),
                 "exception_comment": html.escape(secret.exception_comment or "", quote=True),
                 "refuted_at": secret.refuted_at.strftime('%Y-%m-%d %H:%M') if secret.refuted_at else None,
                 "confirmed_by": secret.confirmed_by if secret.confirmed_by else None,
                 "refuted_by": secret.refuted_by if secret.refuted_by else None,
-                "previous_status": None,  # Добавлены недостающие поля
+                "previous_status": None,
                 "previous_scan_date": None
             }
             secrets_data.append(secret_obj)

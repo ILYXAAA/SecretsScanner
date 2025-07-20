@@ -23,13 +23,15 @@ class Scan(Base):
     status = Column(String, default="running")  # running, completed, failed
     started_at = Column(DateTime, default=datetime.now)
     completed_at = Column(DateTime)
-    files_scanned = Column(Integer)  # New field for tracking scanned files
+    files_scanned = Column(Integer)
     excluded_files_count = Column(Integer)
     excluded_files_list = Column(String)
-    error_message = Column(Text, default="No message")  # Add default value
+    error_message = Column(Text, default="No message")
     started_by = Column(String, nullable=True)
-    detected_languages = Column(Text, default="{}")  # JSON string for detected languages
-    detected_frameworks = Column(Text, default="{}")  # JSON string for detected frameworks
+    detected_languages = Column(Text, default="{}")
+    detected_frameworks = Column(Text, default="{}")
+    high_secrets_count = Column(Integer, default=0)
+    potential_secrets_count = Column(Integer, default=0)
 
 class Secret(Base):
     __tablename__ = "secrets"
