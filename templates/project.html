@@ -540,6 +540,164 @@
             background: #fff3cd;
             color: #856404;
         }
+
+        .language-stats {
+            margin-top: 1.5rem;
+            padding: 1.5rem;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #e1e5e9;
+            display: none; /* Скрыт по умолчанию */
+        }
+
+        .language-stats.show {
+            display: block;
+        }
+
+        .language-stats-toggle {
+            background: #4d7ee8;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 0.5rem 1rem;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+            margin-top: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .language-stats-toggle:hover {
+            background-color: #4571ce;
+        }
+
+        .language-stats-toggle .arrow {
+            transition: transform 0.2s ease;
+        }
+
+        .language-stats-toggle.expanded .arrow {
+            transform: rotate(180deg);
+        }
+
+        .language-stats-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .language-chart-container {
+            display: flex;
+            gap: 2rem;
+            align-items: flex-start;
+        }
+
+        .pie-chart {
+            position: relative;
+            width: 200px;
+            height: 200px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .language-legend {
+            flex: 1;
+            min-width: 250px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 0.5rem;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.4rem 0.6rem;
+            border: 1px solid #e1e5e9;
+            border-radius: 6px;
+            background: white;
+            transition: box-shadow 0.2s ease;
+        }
+
+        .legend-item:hover {
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .legend-color {
+            width: 18px;
+            height: 18px;
+            border-radius: 3px;
+            margin-right: 0.75rem;
+            flex-shrink: 0;
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+        }
+
+        .legend-color.has-icon {
+            background-color: transparent;
+        }
+
+        .legend-color.no-icon {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: 600;
+            color: white;
+            text-shadow: 0 1px 1px rgba(0,0,0,0.3);
+        }
+
+        .legend-label {
+            flex: 1;
+            font-weight: 500;
+            color: #333;
+            text-transform: capitalize;
+        }
+
+        .legend-stats {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 0.1rem;
+            font-size: 0.8rem;
+            color: #666;
+        }
+
+        .legend-percentage {
+            font-weight: 600;
+            color: #333;
+        }
+
+        .legend-files {
+            font-size: 0.75rem;
+        }
+
+        .no-files-message {
+            text-align: center;
+            color: #666;
+            font-style: italic;
+            padding: 2rem;
+        }
+
+        @media (max-width: 768px) {
+            .language-chart-container {
+                flex-direction: column;
+                gap: 1rem;
+            }
+            
+            .pie-chart {
+                width: 150px;
+                height: 150px;
+                margin: 0 auto;
+            }
+        }
     </style>
 </head>
 <body>
@@ -753,6 +911,107 @@
                 </div>
                 {% endif %}
             </div>
+
+            <!-- Статистики фреймворков -->
+            {% if framework_stats %}
+            <div class="frameworks-section" style="margin-bottom: 1.5rem;">
+                <div class="frameworks-header" style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;">
+                    <span style="font-size: 1.1rem; font-weight: 600; color: #333;">🎯 Обнаруженные фреймворки</span>
+                </div>
+                <div class="frameworks-list" style="display: flex; flex-wrap: wrap; gap: 0.75rem;">
+                    {% for framework, data in framework_stats.items() %}
+                    <div class="framework-item" data-framework="{{ framework }}" style="background: white; border: 1px solid #e1e5e9; border-radius: 8px; padding: 0.75rem; display: flex; align-items: center; gap: 0.5rem; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                        {% if data.icon %}
+                        <img src="/secret_scanner/{{ data.icon }}" alt="{{ framework }}" style="width: 24px; height: 24px;">
+                        {% else %}
+                        <div style="width: 24px; height: 24px; background-color: {{ data.color }}; border-radius: 4px; display: flex; align-items: center; justify-content: center; color: white; font-size: 10px; font-weight: 600;">
+                            {{ framework[:2].upper() }}
+                        </div>
+                        {% endif %}
+                        <span style="font-weight: 500;">{{ framework }}</span>
+                        <button class="framework-details-btn" onclick="toggleFrameworkDetails('{{ framework }}')" 
+                                style="background: #f0f9ff; border: 1px solid #0ea5e9; color: #0ea5e9; border-radius: 4px; padding: 0.25rem 0.5rem; font-size: 0.75rem; cursor: pointer;">
+                            📋 Подробнее
+                        </button>
+                    </div>
+                    {% endfor %}
+                </div>
+                
+                <!-- Детали фреймворков -->
+                {% for framework, data in framework_stats.items() %}
+                <div class="framework-details" id="framework-details-{{ framework }}" style="display: none; margin-top: 1rem; background: #f8f9fa; border: 1px solid #e1e5e9; border-radius: 8px; padding: 1rem;">
+                    <div style="font-weight: 600; margin-bottom: 0.75rem; color: #333;">🔍 Детали обнаружения {{ framework }}:</div>
+                    {% for detection in data.detections %}
+                    <div style="background: white; border-radius: 6px; padding: 0.75rem; margin-bottom: 0.5rem; border-left: 3px solid {{ data.color }};">
+                        <div style="font-size: 0.9rem; color: #333; margin-bottom: 0.5rem;">{{ detection.Description }}</div>
+                        <div style="font-size: 0.8rem; color: #666;">
+                            <div style="font-weight: 500; margin-bottom: 0.25rem;">📄 Файлы:</div>
+                            {% if detection.Files %}
+                                {% for file in detection.Files %}
+                                <div style="margin-left: 1rem; margin-bottom: 0.15rem;">
+                                    <a href="#" onclick="openFrameworkFile('{{ file }}', '{{ framework }}')" style="color: #0ea5e9; text-decoration: underline; cursor: pointer;">{{ file }}</a>
+                                </div>
+                                {% endfor %}
+                            {% elif detection.File %}
+                                <!-- Поддержка старого формата на случай если где-то еще используется -->
+                                <div style="margin-left: 1rem;">
+                                    <a href="#" onclick="openFrameworkFile('{{ detection.File }}', '{{ framework }}')" style="color: #0ea5e9; text-decoration: underline; cursor: pointer;">{{ detection.File }}</a>
+                                </div>
+                            {% else %}
+                                <div style="margin-left: 1rem; color: #666; font-style: italic;">Файлы не указаны</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            
+            <!-- Статистики языков -->
+            {% if language_stats %}
+            <button class="language-stats-toggle" onclick="toggleLanguageStats()">
+                <span>📊 Показать распределение по языкам</span>
+                <span class="arrow">▼</span>
+            </button>
+            <div class="language-stats" id="languageStats">
+                <div class="language-stats-title">
+                    📊 Статистика по языкам
+                </div>
+                {% if language_stats|length > 0 %}
+                <div class="language-chart-container">
+                    <div class="pie-chart" id="languagePieChart"></div>
+                    <div class="language-legend">
+                        {% for stat in language_stats %}
+                        <div class="legend-item" data-language="{{ stat.language }}" data-extensions="{{ stat.extensions | join(',') if stat.extensions else '' }}">
+                            <div style="display: flex; align-items: center;">
+                                {% if stat.icon %}
+                                <div class="legend-color has-icon" data-language="{{ stat.language }}">
+                                    <img src="/secret_scanner/{{ stat.icon }}" alt="{{ stat.language }}" style="width: 18px; height: 18px;">
+                                </div>
+                                {% else %}
+                                <div class="legend-color no-icon" data-language="{{ stat.language }}" 
+                                    style="background-color: {{ stat.color }};">
+                                    {{ stat.language[:2].upper() }}
+                                </div>
+                                {% endif %}
+                                <span class="legend-label">{{ stat.language }}</span>
+                            </div>
+                            <div class="legend-stats">
+                                <span class="legend-percentage">{{ stat.percentage }}%</span>
+                                <span class="legend-files">{{ stat.count }} файлов</span>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% else %}
+                <div class="no-files-message">
+                    Файлы с секретами не найдены
+                </div>
+                {% endif %}
+            </div>
+            {% endif %}
             
             {% if latest_scan.status == 'running' %}
             <div style="text-align: center; margin-top: 1rem;">
@@ -954,6 +1213,192 @@
                 console.error('Error deleting project:', error);
                 alert('Something went wrong.');
             });
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            // Создание круговой диаграммы
+            {% if language_stats and language_stats|length > 0 %}
+            const languageData = {{ language_stats | tojson | safe }};
+            // Диаграмма создается только при раскрытии блока
+            {% endif %}
+        });
+
+        function toggleLanguageStats() {
+            const statsBlock = document.getElementById('languageStats');
+            const toggleButton = document.querySelector('.language-stats-toggle');
+            const buttonText = toggleButton.querySelector('span:first-child');
+            
+            if (statsBlock.classList.contains('show')) {
+                // Скрываем
+                statsBlock.classList.remove('show');
+                toggleButton.classList.remove('expanded');
+                buttonText.textContent = '📊 Показать распределение по языкам';
+            } else {
+                // Показываем
+                statsBlock.classList.add('show');
+                toggleButton.classList.add('expanded');
+                buttonText.textContent = '📊 Скрыть распределение по языкам';
+                
+                // Создаем диаграмму при первом показе
+                {% if language_stats and language_stats|length > 0 %}
+                const chartElement = document.getElementById('languagePieChart');
+                if (chartElement && !chartElement.hasChildNodes()) {
+                    const languageData = {{ language_stats | tojson | safe }};
+                    console.log('Language data:', languageData);
+                    createPieChart(languageData);
+                }
+                {% endif %}
+            }
+        }
+
+        function createPieChart(data) {
+            const chartElement = document.getElementById('languagePieChart');
+            if (!chartElement || !data || data.length === 0) return;
+            
+            // Цвета для диаграммы
+            const colors = [
+                '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
+                '#06b6d4', '#f97316', '#84cc16', '#ec4899', '#6b7280',
+                '#14b8a6', '#f43f5e', '#8b5cf6', '#22d3ee', '#a3a3a3'
+            ];
+            
+            // Установка CSS переменных для цветов
+            const root = document.documentElement;
+            data.forEach((item, index) => {
+                root.style.setProperty(`--color-${index}`, colors[index % colors.length]);
+            });
+            
+            // Создание SVG
+            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            svg.setAttribute('width', '200');
+            svg.setAttribute('height', '200');
+            svg.setAttribute('viewBox', '0 0 200 200');
+            
+            const centerX = 100;
+            const centerY = 100;
+            const radius = 90;
+            
+            let currentAngle = -90; // Начинаем сверху
+            
+            data.forEach((item, index) => {
+                const angle = (item.percentage / 100) * 360;
+                const startAngle = (currentAngle * Math.PI) / 180;
+                const endAngle = ((currentAngle + angle) * Math.PI) / 180;
+                
+                const x1 = centerX + radius * Math.cos(startAngle);
+                const y1 = centerY + radius * Math.sin(startAngle);
+                const x2 = centerX + radius * Math.cos(endAngle);
+                const y2 = centerY + radius * Math.sin(endAngle);
+                
+                const largeArcFlag = angle > 180 ? 1 : 0;
+                
+                const pathData = [
+                    `M ${centerX} ${centerY}`,
+                    `L ${x1} ${y1}`,
+                    `A ${radius} ${radius} 0 ${largeArcFlag} 1 ${x2} ${y2}`,
+                    'Z'
+                ].join(' ');
+                
+                const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                path.setAttribute('d', pathData);
+                path.setAttribute('fill', colors[index % colors.length]);
+                path.setAttribute('stroke', '#ffffff');
+                path.setAttribute('stroke-width', '2');
+                
+                // Добавляем hover эффект для диаграммы
+                path.style.cursor = 'pointer';
+                
+                // Связываем элементы диаграммы и легенды
+                const legendItem = document.querySelector(`.legend-item[data-language="${item.language}"]`);
+                
+                function highlightLanguage() {
+                    path.style.opacity = '0.8';
+                    path.style.transform = 'scale(1.05)';
+                    path.style.transformOrigin = '100px 100px';
+                    
+                    if (legendItem) {
+                        legendItem.style.boxShadow = '0 4px 8px rgba(0,0,0,0.2)';
+                        legendItem.style.background = '#f0f9ff';
+                    }
+                }
+                
+                function unhighlightLanguage() {
+                    path.style.opacity = '1';
+                    path.style.transform = 'scale(1)';
+                    
+                    if (legendItem) {
+                        legendItem.style.boxShadow = '';
+                        legendItem.style.background = 'white';
+                    }
+                }
+                
+                path.addEventListener('mouseenter', highlightLanguage);
+                path.addEventListener('mouseleave', unhighlightLanguage);
+                
+                if (legendItem) {
+                    legendItem.addEventListener('mouseenter', function() {
+                        highlightLanguage();
+                        // Показать расширения в tooltip
+                        const extensions = item.extensions && item.extensions.length > 0 ? item.extensions.join(', ') : 'нет данных';
+                        legendItem.title = `Расширения: ${extensions}`;
+                    });
+                    legendItem.addEventListener('mouseleave', function() {
+                        unhighlightLanguage();
+                        legendItem.removeAttribute('title');
+                    });
+                }
+                
+                // Добавляем tooltip для диаграммы
+                const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+                const extensions = item.extensions && item.extensions.length > 0 ? item.extensions.join(', ') : 'нет данных';
+                title.textContent = `${item.language}: ${item.count} файлов (${item.percentage}%)\nРасширения: ${extensions}`;
+                path.appendChild(title);
+                
+                svg.appendChild(path);
+                currentAngle += angle;
+            });
+            
+            chartElement.appendChild(svg);
+        }
+
+        function toggleFrameworkDetails(framework) {
+            const detailsElement = document.getElementById(`framework-details-${framework}`);
+            const button = document.querySelector(`[onclick="toggleFrameworkDetails('${framework}')"]`);
+            
+            if (detailsElement.style.display === 'none') {
+                detailsElement.style.display = 'block';
+                button.textContent = '📋 Скрыть';
+                button.style.background = '#fee2e2';
+                button.style.borderColor = '#ef4444';
+                button.style.color = '#ef4444';
+            } else {
+                detailsElement.style.display = 'none';
+                button.textContent = '📋 Подробнее';
+                button.style.background = '#f0f9ff';
+                button.style.borderColor = '#0ea5e9';
+                button.style.color = '#0ea5e9';
+            }
+        }
+
+        function openFrameworkFile(filePath, framework) {
+            const projectRepoUrl = '{{ project.repo_url }}';
+            const scanCommit = '{{ latest_scan.repo_commit if latest_scan and latest_scan.repo_commit else "main" }}';
+            const hubType = '{{ HUB_TYPE }}';
+            
+            let fileUrl;
+            
+            if (projectRepoUrl.includes('devzone.local')) {
+                // DevZone/GitLab URL format
+                fileUrl = `${projectRepoUrl}/-/blob/${scanCommit}/${encodeURIComponent(filePath)}`;
+            } else if (hubType === 'Azure') {
+                // Azure DevOps URL format
+                fileUrl = `${projectRepoUrl}?path=${encodeURIComponent(filePath)}&version=GC${scanCommit}&_a=contents`;
+            } else {
+                // Default/GitHub URL format
+                fileUrl = `${projectRepoUrl}/blob/${scanCommit}/${encodeURIComponent(filePath)}`;
+            }
+            
+            window.open(fileUrl, '_blank');
         }
         
         // Auto-refresh if there's a running scan

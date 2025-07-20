@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, Form, Depends, HTTPException, File, UploadFile
+from fastapi import APIRouter, Request, Form, Depends, HTTPException, File, UploadFile, BackgroundTasks
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Response, FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -292,8 +292,275 @@ async def get_scan_status(scan_id: str, _: bool = Depends(get_current_user), db:
         "excluded_files_count": scan.excluded_files_count
     }
 
+async def process_scan_results_background(scan_id: str, data: dict, db_session: Session):
+    """Background task для обработки результатов сканирования"""
+    start_time = datetime.now(timezone.utc)
+    
+    try:
+        # Поиск скана в БД
+        scan = db_session.query(Scan).filter(Scan.id == scan_id).first()
+        if not scan:
+            logger.error(f"❌ Скан не найден в БД: {scan_id}")
+            return
+        
+        project_name = scan.project_name
+        logger.info(f"🔍 Текущий статус скана {scan_id}: {scan.status}")
+
+        # Check if scan completed with error
+        if data.get("Status") == "Error":
+            scan.status = "failed"
+            scan.completed_at = datetime.now(timezone.utc)
+            error_message = data.get("Message", "Unknown error occurred during scanning")
+            logger.error(f"💥 Скан {scan_id} завершился с ошибкой: {error_message}")
+            scan.error_message = error_message
+            db_session.commit()
+            
+            processing_time = (datetime.now(timezone.utc) - start_time).total_seconds()
+            logger.info(f"⏱️ Обработка ошибки скана {scan_id} заняла {processing_time:.2f} секунд")
+            return
+
+        # Handle partial results
+        if data.get("Status") == "partial":
+            files_scanned = data.get("AllFiles", 0)
+            excluded_files_count = data.get("FilesExcluded", 0)
+            excluded_files_list = data.get("SkippedFiles", "")
+
+            scan.files_scanned = files_scanned
+            scan.excluded_files_count = excluded_files_count
+            scan.excluded_files_list = excluded_files_list
+            db_session.commit()
+            logger.info(f"📊 Частичные результаты для scan {scan_id}: {files_scanned} файлов просканировано")
+            return
+
+        # Handle complete results
+        if data.get("Status") == "completed":
+            logger.info(f"🎉 Скан {scan_id} завершен успешно")
+            
+            # Обновляем основную информацию о скане
+            scan.status = "completed"
+            scan.repo_commit = data.get("RepoCommit")
+            scan.completed_at = datetime.now(timezone.utc)
+            scan.files_scanned = data.get("AllFiles")
+            scan.excluded_files_count = data.get("FilesExcluded")
+            scan.excluded_files_list = data.get("SkippedFiles")
+            
+            # Обработка данных о языках программирования
+            detected_languages = data.get("DetectedLanguages", {})
+            if detected_languages:
+                scan.detected_languages = json.dumps(detected_languages, ensure_ascii=False)
+                logger.info(f"🔍 Обнаружено языков: {len(detected_languages)}")
+            
+            # Обработка данных о фреймворках
+            detected_frameworks = data.get("DetectedFrameworks", {})
+            if detected_frameworks:
+                scan.detected_frameworks = json.dumps(detected_frameworks, ensure_ascii=False)
+                logger.info(f"🎯 Обнаружено фреймворков: {len(detected_frameworks)}")
+
+            db_session.commit()
+            
+            logger.info(f"📂 Итого файлов просканировано: {scan.files_scanned}. Пропущено по правилам: {scan.excluded_files_count}")
+            logger.info(f"🔗 Commit: {scan.repo_commit}")
+            
+            # Clear existing secrets for this scan
+            existing_secrets_count = db_session.query(func.count(Secret.id)).filter(Secret.scan_id == scan_id).scalar()
+            if existing_secrets_count > 0:
+                logger.info(f"🗑️ Удаляем {existing_secrets_count} существующих секретов для scan {scan_id}")
+                db_session.query(Secret).filter(Secret.scan_id == scan_id).delete()
+                db_session.commit()
+            
+            results = data.get("Results", [])
+            logger.info(f"🔍 Получено {len(results)} новых секретов для обработки")
+            
+            # Get previous scans for this project
+            previous_scans_start = datetime.now(timezone.utc)
+            previous_scans = db_session.query(Scan).filter(
+                Scan.project_name == project_name,
+                Scan.id != scan_id,
+                Scan.completed_at.is_not(None)
+            ).order_by(Scan.completed_at.desc()).limit(5).all()  # Только 5 последних сканов
+            
+            previous_scans_time = (datetime.now(timezone.utc) - previous_scans_start).total_seconds()
+            logger.info(f"📋 Найдено {len(previous_scans)} предыдущих сканов за {previous_scans_time:.2f} секунд")
+            
+            # Get manual secrets только из последнего скана
+            manual_secrets = []
+            if previous_scans:
+                most_recent_scan = previous_scans[0]
+                manual_secrets = db_session.query(Secret).filter(
+                    Secret.scan_id == most_recent_scan.id,
+                    Secret.secret.like("% (добавлен вручную, см. context)")
+                ).all()
+                logger.info(f"📝 Найдено {len(manual_secrets)} ручных секретов из предыдущего скана")
+            
+            # Создаем мапу предыдущих секретов для быстрого поиска
+            mapping_start = datetime.now(timezone.utc)
+            previous_secrets_map = {}
+            if previous_scans and len(results) < 10000:  # Только для разумного количества
+                logger.info(f"🗺️ Создаем карту предыдущих статусов для {len(results)} секретов")
+                for prev_scan in previous_scans[:2]:  # Только 2 последних скана
+                    prev_secrets = db_session.query(Secret).filter(
+                        Secret.scan_id == prev_scan.id,
+                        Secret.status != "No status"
+                    ).all()
+                    
+                    for prev_secret in prev_secrets:
+                        key = (prev_secret.path, prev_secret.line, prev_secret.secret, prev_secret.type)
+                        if key not in previous_secrets_map:
+                            previous_secrets_map[key] = prev_secret
+                
+                mapping_time = (datetime.now(timezone.utc) - mapping_start).total_seconds()
+                logger.info(f"🗺️ Карта предыдущих статусов создана за {mapping_time:.2f} секунд ({len(previous_secrets_map)} записей)")
+            else:
+                logger.info(f"⏭️ Пропускаем создание карты статусов (слишком много секретов: {len(results)})")
+            
+            # Обрабатываем секреты батчами
+            batch_size = 1000
+            total_processed = 0
+            batch_processing_start = datetime.now(timezone.utc)
+            
+            for i in range(0, len(results), batch_size):
+                batch_start = datetime.now(timezone.utc)
+                batch = results[i:i + batch_size]
+                batch_secrets = []
+                
+                logger.info(f"🔄 Обрабатываем батч {i//batch_size + 1}/{(len(results) + batch_size - 1)//batch_size} ({len(batch)} секретов)")
+                
+                # Обработка секретов в батче
+                for j, result in enumerate(batch):
+                    try:
+                        # Быстрый поиск предыдущего статуса
+                        most_recent_secret = None
+                        if previous_secrets_map:
+                            key = (result.get("path"), result.get("line"), result.get("secret"), result.get("Type", result.get("type")))
+                            most_recent_secret = previous_secrets_map.get(key)
+                        
+                        # Apply the most recent decision
+                        if most_recent_secret:
+                            if most_recent_secret.status == "Refuted":
+                                is_exception = True
+                                status = "Refuted"
+                                exception_comment = most_recent_secret.exception_comment
+                                refuted_at = most_recent_secret.refuted_at
+                            elif most_recent_secret.status == "Confirmed":
+                                is_exception = False
+                                status = "Confirmed"
+                                exception_comment = None
+                                refuted_at = None
+                            else:
+                                is_exception = False
+                                status = "No status"
+                                exception_comment = None
+                                refuted_at = None
+                            severity = most_recent_secret.severity
+                        else:
+                            is_exception = False
+                            status = "No status"
+                            exception_comment = None
+                            refuted_at = None
+                            severity = result.get("severity", result.get("Severity", "High"))
+
+                        secret = Secret(
+                            scan_id=scan_id,
+                            path=sanitize_string(result.get("path", "")),
+                            line=result.get("line", 0),
+                            secret=sanitize_string(result.get("secret", "")),
+                            context=sanitize_string(result.get("context", "")),
+                            severity=severity,
+                            confidence=result.get("confidence", 1.0),
+                            type=sanitize_string(result.get("Type", result.get("type", "Unknown"))),
+                            is_exception=is_exception,
+                            exception_comment=sanitize_string(exception_comment) if exception_comment else None,
+                            status=status,
+                            refuted_at=refuted_at,
+                            confirmed_by=most_recent_secret.confirmed_by if most_recent_secret else None,
+                            refuted_by=most_recent_secret.refuted_by if most_recent_secret else None
+                        )
+                        batch_secrets.append(secret)
+                    except Exception as e:
+                        logger.error(f"❌ Ошибка при создании объекта Secret для секрета {j} в батче {i//batch_size + 1}: {type(e).__name__}: {e}")
+                        continue
+                
+                # Сохраняем батч
+                if batch_secrets:  # Только если есть что сохранять
+                    db_session.add_all(batch_secrets)
+                    db_session.commit()
+                    total_processed += len(batch_secrets)
+                    
+                    batch_time = (datetime.now(timezone.utc) - batch_start).total_seconds()
+                    logger.info(f"✅ Батч {i//batch_size + 1} обработан за {batch_time:.2f} секунд ({len(batch_secrets)} секретов)")
+                else:
+                    logger.warning(f"⚠️ Батч {i//batch_size + 1} пуст - нечего сохранять")
+            
+            batch_processing_time = (datetime.now(timezone.utc) - batch_processing_start).total_seconds()
+            logger.info(f"📦 Все батчи обработаны за {batch_processing_time:.2f} секунд (итого: {total_processed} секретов)")
+            
+            # Add manual secrets
+            manual_secrets_start = datetime.now(timezone.utc)
+            added_manual_count = 0
+            for manual_secret in manual_secrets:
+                existing_manual = db_session.query(Secret).filter(
+                    Secret.scan_id == scan_id,
+                    Secret.secret == manual_secret.secret,
+                    Secret.path == manual_secret.path,
+                    Secret.line == manual_secret.line,
+                    Secret.type == manual_secret.type
+                ).first()
+                
+                if not existing_manual:
+                    new_manual_secret = Secret(
+                        scan_id=scan_id,
+                        path=manual_secret.path,
+                        line=manual_secret.line,
+                        secret=manual_secret.secret,
+                        context=manual_secret.context,
+                        severity=manual_secret.severity,
+                        type=manual_secret.type,
+                        status=manual_secret.status,
+                        is_exception=manual_secret.is_exception,
+                        exception_comment=manual_secret.exception_comment,
+                        confirmed_by=manual_secret.confirmed_by,
+                        refuted_by=manual_secret.refuted_by,
+                        refuted_at=manual_secret.refuted_at
+                    )
+                    db_session.add(new_manual_secret)
+                    added_manual_count += 1
+            
+            if added_manual_count > 0:
+                db_session.commit()
+                manual_secrets_time = (datetime.now(timezone.utc) - manual_secrets_start).total_seconds()
+                logger.info(f"📝 Добавлено {added_manual_count} ручных секретов за {manual_secrets_time:.2f} секунд")
+            
+            total_processing_time = (datetime.now(timezone.utc) - start_time).total_seconds()
+            logger.info(f"🎊 Скан {scan_id} полностью обработан за {total_processing_time:.2f} секунд:")
+            logger.info(f"   📊 Всего секретов: {len(results)}")
+            logger.info(f"   📝 Ручных секретов: {added_manual_count}")
+            logger.info(f"   📂 Файлов просканировано: {scan.files_scanned}")
+            logger.info(f"   📂 Файлов пропущено по правилам: {scan.excluded_files_count}")
+            logger.info(f"   🗺️ Применено предыдущих статусов: {len(previous_secrets_map)}")
+            
+            return
+
+        logger.warning(f"❓ Неизвестный статус получен для scan {scan_id}: {data.get('Status')}")
+        
+    except Exception as e:
+        logger.error(f"❌ Критическая ошибка при обработке результатов скана {scan_id}: {type(e).__name__}: {e}")
+        import traceback
+        logger.error(f"📋 Traceback: {traceback.format_exc()}")
+        
+        # Попытаемся пометить скан как failed
+        try:
+            scan = db_session.query(Scan).filter(Scan.id == scan_id).first()
+            if scan:
+                scan.status = "failed"
+                scan.completed_at = datetime.now(timezone.utc)
+                scan.error_message = f"Background processing error: {str(e)}"
+                db_session.commit()
+        except:
+            pass
+
 @router.post("/get_results/{project_name}/{scan_id}")
-async def receive_scan_results(project_name: str, scan_id: str, request: Request, db: Session = Depends(get_db)):
+async def receive_scan_results(project_name: str, scan_id: str, request: Request, 
+                              background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     start_time = datetime.now(timezone.utc)
     logger.info(f"📥 Получен callback для scan_id: {scan_id}, project: {project_name}")
     
@@ -323,7 +590,7 @@ async def receive_scan_results(project_name: str, scan_id: str, request: Request
         logger.error(f"📋 Traceback: {traceback.format_exc()}")
         return {"status": "error", "message": "Critical error processing request data"}
 
-    # Поиск скана в БД
+    # Быстрая проверка что скан существует
     try:
         scan = db.query(Scan).filter(Scan.id == scan_id).first()
         if not scan:
@@ -334,344 +601,17 @@ async def receive_scan_results(project_name: str, scan_id: str, request: Request
         logger.error(f"❌ Ошибка при поиске скана {scan_id} в БД: {type(e).__name__}: {e}")
         return {"status": "error", "message": "Database error while finding scan"}
 
-    # Check if scan completed with error
-    if data.get("Status") == "Error":
-        try:
-            scan.status = "failed"
-            scan.completed_at = datetime.now(timezone.utc)
-            error_message = data.get("Message", "Unknown error occurred during scanning")
-            logger.error(f"💥 Скан {scan_id} завершился с ошибкой: {error_message}")
-            scan.error_message = error_message
-            db.commit()
-            
-            processing_time = (datetime.now(timezone.utc) - start_time).total_seconds()
-            logger.info(f"⏱️ Обработка ошибки скана {scan_id} заняла {processing_time:.2f} секунд")
-            return {"status": "error", "message": error_message}
-        except Exception as e:
-            logger.error(f"❌ Ошибка при сохранении статуса ошибки для scan {scan_id}: {type(e).__name__}: {e}")
-            try:
-                db.rollback()
-            except:
-                pass
-            return {"status": "error", "message": "Failed to save error status"}
-
-    # Handle partial results
-    if data.get("Status") == "partial":
-        try:
-            files_scanned = data.get("AllFiles", 0)
-            excluded_files_count = data.get("FilesExcluded", 0)
-            excluded_files_list = data.get("SkippedFiles", "")
-
-            scan.files_scanned = files_scanned
-            scan.excluded_files_count = excluded_files_count
-            scan.excluded_files_list = excluded_files_list
-            db.commit()
-            logger.info(f"📊 Частичные результаты для scan {scan_id}: {files_scanned} файлов просканировано")
-            return {"status": "success", "message": "Partial results received"}
-        except Exception as e:
-            logger.error(f"❌ Ошибка при сохранении частичных результатов для scan {scan_id}: {type(e).__name__}: {e}")
-            try:
-                db.rollback()
-            except:
-                pass
-            return {"status": "error", "message": "Failed to save partial results"}
-
-    # Handle complete results
-    if data.get("Status") == "completed":
-        logger.info(f"🎉 Скан {scan_id} завершен успешно")
+    # Запускаем обработку в фоне
+    try:
+        background_tasks.add_task(process_scan_results_background, scan_id, data, db)
         
-        # Обновляем основную информацию о скане
-        try:
-            scan.status = "completed"
-            scan.repo_commit = data.get("RepoCommit")
-            scan.completed_at = datetime.now(timezone.utc)
-            scan.files_scanned = data.get("AllFiles")
-            scan.excluded_files_count = data.get("FilesExcluded")
-            scan.excluded_files_list = data.get("SkippedFiles")
-
-            db.commit()
-            
-            logger.info(f"📂 Итого файлов просканировано: {scan.files_scanned}. Пропущено по правилам: {scan.excluded_files_count}")
-            logger.info(f"🔗 Commit: {scan.repo_commit}")
-        except Exception as e:
-            logger.error(f"❌ Ошибка при обновлении информации о скане {scan_id}: {type(e).__name__}: {e}")
-            return {"status": "error", "message": "Failed to update scan information"}
+        processing_time = (datetime.now(timezone.utc) - start_time).total_seconds()
+        logger.info(f"⚡ Callback для scan {scan_id} принят и отправлен в фоновую обработку за {processing_time:.2f} секунд")
         
-        # Clear existing secrets for this scan
-        try:
-            existing_secrets_count = db.query(func.count(Secret.id)).filter(Secret.scan_id == scan_id).scalar()
-            if existing_secrets_count > 0:
-                logger.info(f"🗑️ Удаляем {existing_secrets_count} существующих секретов для scan {scan_id}")
-                db.query(Secret).filter(Secret.scan_id == scan_id).delete()
-                db.commit()
-        except Exception as e:
-            logger.error(f"❌ Ошибка при удалении существующих секретов для scan {scan_id}: {type(e).__name__}: {e}")
-            try:
-                db.rollback()
-            except:
-                pass
-            return {"status": "error", "message": "Failed to clear existing secrets"}
-        
-        try:
-            results = data.get("Results", [])
-            logger.info(f"🔍 Получено {len(results)} новых секретов для обработки")
-        except Exception as e:
-            logger.error(f"❌ Ошибка при извлечении results из данных для scan {scan_id}: {type(e).__name__}: {e}")
-            return {"status": "error", "message": "Failed to extract results from data"}
-        
-        # Get previous scans for this project
-        try:
-            previous_scans_start = datetime.now(timezone.utc)
-            previous_scans = db.query(Scan).filter(
-                Scan.project_name == project_name,
-                Scan.id != scan_id,
-                Scan.completed_at.is_not(None)
-            ).order_by(Scan.completed_at.desc()).limit(5).all()  # Только 5 последних сканов
-            
-            previous_scans_time = (datetime.now(timezone.utc) - previous_scans_start).total_seconds()
-            logger.info(f"📋 Найдено {len(previous_scans)} предыдущих сканов за {previous_scans_time:.2f} секунд")
-        except Exception as e:
-            logger.error(f"❌ Ошибка при поиске предыдущих сканов для project {project_name}: {type(e).__name__}: {e}")
-            previous_scans = []
-            logger.warning(f"⚠️ Продолжаем без предыдущих сканов")
-        
-        # Get manual secrets только из последнего скана
-        manual_secrets = []
-        try:
-            if previous_scans:
-                most_recent_scan = previous_scans[0]
-                manual_secrets = db.query(Secret).filter(
-                    Secret.scan_id == most_recent_scan.id,
-                    Secret.secret.like("% (добавлен вручную, см. context)")
-                ).all()
-                logger.info(f"📝 Найдено {len(manual_secrets)} ручных секретов из предыдущего скана")
-        except Exception as e:
-            logger.error(f"❌ Ошибка при поиске ручных секретов: {type(e).__name__}: {e}")
-            manual_secrets = []
-            logger.warning(f"⚠️ Продолжаем без ручных секретов")
-        
-        # Создаем мапу предыдущих секретов для быстрого поиска
-        mapping_start = datetime.now(timezone.utc)
-        previous_secrets_map = {}
-        try:
-            if previous_scans and len(results) < 10000:  # Только для разумного количества
-                logger.info(f"🗺️ Создаем карту предыдущих статусов для {len(results)} секретов")
-                for prev_scan in previous_scans[:2]:  # Только 2 последних скана
-                    try:
-                        prev_secrets = db.query(Secret).filter(
-                            Secret.scan_id == prev_scan.id,
-                            Secret.status != "No status"
-                        ).all()
-                        
-                        for prev_secret in prev_secrets:
-                            try:
-                                key = (prev_secret.path, prev_secret.line, prev_secret.secret, prev_secret.type)
-                                if key not in previous_secrets_map:
-                                    previous_secrets_map[key] = prev_secret
-                            except Exception as e:
-                                logger.warning(f"⚠️ Ошибка при добавлении секрета в карту: {type(e).__name__}: {e}")
-                                continue
-                    except Exception as e:
-                        logger.warning(f"⚠️ Ошибка при обработке предыдущего скана {prev_scan.id}: {type(e).__name__}: {e}")
-                        continue
-                
-                mapping_time = (datetime.now(timezone.utc) - mapping_start).total_seconds()
-                logger.info(f"🗺️ Карта предыдущих статусов создана за {mapping_time:.2f} секунд ({len(previous_secrets_map)} записей)")
-            else:
-                logger.info(f"⏭️ Пропускаем создание карты статусов (слишком много секретов: {len(results)})")
-        except Exception as e:
-            logger.error(f"❌ Критическая ошибка при создании карты предыдущих статусов: {type(e).__name__}: {e}")
-            previous_secrets_map = {}
-            logger.warning(f"⚠️ Продолжаем без карты предыдущих статусов")
-        
-        # Обрабатываем секреты батчами
-        batch_size = 1000
-        total_processed = 0
-        batch_processing_start = datetime.now(timezone.utc)
-        
-        try:
-            for i in range(0, len(results), batch_size):
-                batch_start = datetime.now(timezone.utc)
-                batch = results[i:i + batch_size]
-                batch_secrets = []
-                
-                logger.info(f"🔄 Обрабатываем батч {i//batch_size + 1}/{(len(results) + batch_size - 1)//batch_size} ({len(batch)} секретов)")
-                
-                # Обработка секретов в батче
-                for j, result in enumerate(batch):
-                    try:
-                        # Быстрый поиск предыдущего статуса
-                        most_recent_secret = None
-                        if previous_secrets_map:
-                            try:
-                                key = (result["path"], result["line"], result["secret"], result["Type"])
-                                most_recent_secret = previous_secrets_map.get(key)
-                            except KeyError as e:
-                                logger.warning(f"⚠️ Отсутствует ключ в result: {e}")
-                            except Exception as e:
-                                logger.warning(f"⚠️ Ошибка при поиске в карте статусов: {type(e).__name__}: {e}")
-                        
-                        # Apply the most recent decision
-                        try:
-                            if most_recent_secret:
-                                if most_recent_secret.status == "Refuted":
-                                    is_exception = True
-                                    status = "Refuted"
-                                    exception_comment = most_recent_secret.exception_comment
-                                    refuted_at = most_recent_secret.refuted_at
-                                elif most_recent_secret.status == "Confirmed":
-                                    is_exception = False
-                                    status = "Confirmed"
-                                    exception_comment = None
-                                    refuted_at = None
-                                else:
-                                    is_exception = False
-                                    status = "No status"
-                                    exception_comment = None
-                                    refuted_at = None
-                                severity = most_recent_secret.severity
-                            else:
-                                is_exception = False
-                                status = "No status"
-                                exception_comment = None
-                                refuted_at = None
-                                severity = result.get("severity", result.get("Severity", "High"))
-                        except Exception as e:
-                            logger.warning(f"⚠️ Ошибка при применении предыдущего статуса для секрета {j}: {type(e).__name__}: {e}")
-                            # Использовать дефолтные значения
-                            is_exception = False
-                            status = "No status"
-                            exception_comment = None
-                            refuted_at = None
-                            severity = "High"
-
-                        try:
-                            secret = Secret(
-                                scan_id=scan_id,
-                                path=sanitize_string(result.get("path", "")),
-                                line=result.get("line", 0),
-                                secret=sanitize_string(result.get("secret", "")),
-                                context=sanitize_string(result.get("context", "")),
-                                severity=severity,
-                                confidence=result.get("confidence", 1.0),
-                                type=sanitize_string(result.get("Type", result.get("type", "Unknown"))),
-                                is_exception=is_exception,
-                                exception_comment=sanitize_string(exception_comment) if exception_comment else None,
-                                status=status,
-                                refuted_at=refuted_at,
-                                confirmed_by=most_recent_secret.confirmed_by if most_recent_secret else None,
-                                refuted_by=most_recent_secret.refuted_by if most_recent_secret else None
-                            )
-                            batch_secrets.append(secret)
-                        except Exception as e:
-                            logger.error(f"❌ Ошибка при создании объекта Secret для секрета {j} в батче {i//batch_size + 1}: {type(e).name}: {e}")
-                            logger.error(f"📋 Данные секрета: {result}")
-                            continue
-                        
-                    except Exception as e:
-                        logger.error(f"❌ Критическая ошибка при обработке секрета {j} в батче {i//batch_size + 1}: {type(e).__name__}: {e}")
-                        continue
-                
-                # Сохраняем батч
-                try:
-                    if batch_secrets:  # Только если есть что сохранять
-                        db.add_all(batch_secrets)
-                        db.commit()
-                        total_processed += len(batch_secrets)
-                        
-                        batch_time = (datetime.now(timezone.utc) - batch_start).total_seconds()
-                        logger.info(f"✅ Батч {i//batch_size + 1} обработан за {batch_time:.2f} секунд ({len(batch_secrets)} секретов)")
-                    else:
-                        logger.warning(f"⚠️ Батч {i//batch_size + 1} пуст - нечего сохранять")
-                except Exception as e:
-                    logger.error(f"❌ Ошибка при сохранении батча {i//batch_size + 1}: {type(e).__name__}: {e}")
-                    try:
-                        db.rollback()
-                    except:
-                        pass
-                    # Продолжаем с следующим батчем
-                    continue
-            
-            batch_processing_time = (datetime.now(timezone.utc) - batch_processing_start).total_seconds()
-            logger.info(f"📦 Все батчи обработаны за {batch_processing_time:.2f} секунд (итого: {total_processed} секретов)")
-            
-        except Exception as e:
-            logger.error(f"❌ Критическая ошибка при обработке батчей для scan {scan_id}: {type(e).__name__}: {e}")
-            import traceback
-            logger.error(f"📋 Traceback: {traceback.format_exc()}")
-            return {"status": "error", "message": "Failed to process secrets in batches"}
-        
-        # Add manual secrets
-        try:
-            manual_secrets_start = datetime.now(timezone.utc)
-            added_manual_count = 0
-            for manual_secret in manual_secrets:
-                try:
-                    existing_manual = db.query(Secret).filter(
-                        Secret.scan_id == scan_id,
-                        Secret.secret == manual_secret.secret,
-                        Secret.path == manual_secret.path,
-                        Secret.line == manual_secret.line,
-                        Secret.type == manual_secret.type
-                    ).first()
-                    
-                    if not existing_manual:
-                        try:
-                            new_manual_secret = Secret(
-                                scan_id=scan_id,
-                                path=manual_secret.path,
-                                line=manual_secret.line,
-                                secret=manual_secret.secret,
-                                context=manual_secret.context,
-                                severity=manual_secret.severity,
-                                type=manual_secret.type,
-                                status=manual_secret.status,
-                                is_exception=manual_secret.is_exception,
-                                exception_comment=manual_secret.exception_comment,
-                                confirmed_by=manual_secret.confirmed_by,
-                                refuted_by=manual_secret.refuted_by,
-                                refuted_at=manual_secret.refuted_at
-                            )
-                            db.add(new_manual_secret)
-                            added_manual_count += 1
-                        except Exception as e:
-                            logger.error(f"❌ Ошибка при создании ручного секрета: {type(e).__name__}: {e}")
-                            continue
-                except Exception as e:
-                    logger.warning(f"⚠️ Ошибка при проверке существования ручного секрета: {type(e).__name__}: {e}")
-                    continue
-            
-            if added_manual_count > 0:
-                try:
-                    db.commit()
-                    manual_secrets_time = (datetime.now(timezone.utc) - manual_secrets_start).total_seconds()
-                    logger.info(f"📝 Добавлено {added_manual_count} ручных секретов за {manual_secrets_time:.2f} секунд")
-                except Exception as e:
-                    logger.error(f"❌ Ошибка при сохранении ручных секретов: {type(e).__name__}: {e}")
-                    try:
-                        db.rollback()
-                    except:
-                        pass
-        except Exception as e:
-            logger.error(f"❌ Критическая ошибка при обработке ручных секретов: {type(e).__name__}: {e}")
-            # Не возвращаем ошибку, так как это не критично
-        
-        try:
-            total_processing_time = (datetime.now(timezone.utc) - start_time).total_seconds()
-            logger.info(f"🎊 Скан {scan_id} полностью обработан за {total_processing_time:.2f} секунд:")
-            logger.info(f"   📊 Всего секретов: {len(results)}")
-            logger.info(f"   📝 Ручных секретов: {added_manual_count if 'added_manual_count' in locals() else 0}")
-            logger.info(f"   📂 Файлов просканировано: {scan.files_scanned}")
-            logger.info(f"   📂 Файлов пропущено по правилам: {scan.excluded_files_count}")
-            logger.info(f"   🗺️ Применено предыдущих статусов: {len(previous_secrets_map)}")
-        except Exception as e:
-            logger.warning(f"⚠️ Ошибка при выводе итоговой статистики: {type(e).__name__}: {e}")
-        
-        return {"status": "success"}
-
-    logger.warning(f"❓ Неизвестный статус получен для scan {scan_id}: {data.get('Status')}")
-    return {"status": "error", "message": "Unknown status received"}
-
+        return {"status": "accepted", "message": "Results received and queued for processing"}
+    except Exception as e:
+        logger.error(f"❌ Ошибка при добавлении задачи в фон для scan {scan_id}: {type(e).__name__}: {e}")
+        return {"status": "error", "message": "Failed to queue background processing"}
 @router.get("/scan/{scan_id}/results", response_class=HTMLResponse)
 async def scan_results(request: Request, scan_id: str, severity_filter: str = "", 
                      type_filter: str = "", show_exceptions: bool = False,

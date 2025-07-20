@@ -26,9 +26,9 @@ async def check_scan_timeouts():
     while True:
         try:
             db = SessionLocal()
-            timeout_threshold = datetime.now(timezone.utc) - timedelta(minutes=10)
+            timeout_threshold = datetime.now(timezone.utc) - timedelta(minutes=30)
             
-            # Find running scans that started more than 10 minutes ago
+            # Find running scans that started more than 30 minutes ago
             timed_out_scans = db.query(Scan).filter(
                 Scan.status == "running",
                 Scan.started_at < timeout_threshold
@@ -85,6 +85,7 @@ app = FastAPI(title="Secrets Scanner", lifespan=lifespan, root_path=BASE_URL)
 
 # Mount static files
 app.mount("/ico", StaticFiles(directory="ico"), name="ico")
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Initialize databases
 ensure_user_database()

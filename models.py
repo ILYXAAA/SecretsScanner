@@ -28,6 +28,8 @@ class Scan(Base):
     excluded_files_list = Column(String)
     error_message = Column(Text, default="No message")  # Add default value
     started_by = Column(String, nullable=True)
+    detected_languages = Column(Text, default="{}")  # JSON string for detected languages
+    detected_frameworks = Column(Text, default="{}")  # JSON string for detected frameworks
 
 class Secret(Base):
     __tablename__ = "secrets"

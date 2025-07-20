@@ -1,0 +1,171 @@
+{
+  "python": {
+    "color": "#3776ab",
+    "icon": "static/icons/python-original.svg"
+  },
+  "javascript": {
+    "color": "#f7df1e",
+    "icon": "static/icons/javascript-original.svg"
+  },
+  "typescript": {
+    "color": "#3178c6",
+    "icon": "static/icons/typescript-original.svg"
+  },
+  "java": {
+    "color": "#ed8b00",
+    "icon": "static/icons/java-original.svg"
+  },
+  "С#": {
+    "color": "#239120",
+    "icon": "static/icons/csharp-original.svg"
+  },
+  "C/С++": {
+    "color": "#00599c",
+    "icon": "static/icons/cpp-original.svg"
+  },
+  "go": {
+    "color": "#00add8",
+    "icon": "static/icons/go-original.svg"
+  },
+  "rust": {
+    "color": "#ce422b",
+    "icon": "static/icons/rust-original.svg"
+  },
+  "php": {
+    "color": "#777bb4",
+    "icon": "static/icons/php-original.svg"
+  },
+  "ruby": {
+    "color": "#cc342d",
+    "icon": "static/icons/ruby-original.svg"
+  },
+  "swift": {
+    "color": "#fa7343",
+    "icon": "static/icons/swift-original.svg"
+  },
+  "kotlin": {
+    "color": "#7f52ff",
+    "icon": "static/icons/kotlin-original.svg"
+  },
+  "scala": {
+    "color": "#dc322f",
+    "icon": "static/icons/scala-original.svg"
+  },
+  "html": {
+    "color": "#e34f26",
+    "icon": "static/icons/html-original.svg"
+  },
+  "css": {
+    "color": "#1572b6",
+    "icon": "static/icons/css-original.svg"
+  },
+  "db": {
+    "color": "#336791",
+    "icon": "static/icons/sql-original.svg"
+  },
+  "shell": {
+    "color": "#89e051",
+    "icon": "static/icons/shell-original.svg"
+  },
+  "powershell": {
+    "color": "#012456",
+    "icon": "static/icons/powershell-original.svg"
+  },
+  "markdown": {
+    "color": "#083fa1",
+    "icon": "static/icons/markdown-original.svg"
+  },
+  "dockerfile": {
+    "color": "#384d54",
+    "icon": "static/icons/dockerfile-original.svg"
+  },
+  "certs": {
+    "color": "#384d54",
+    "icon": "static/icons/certs-original.svg"
+  },
+  "perl": {
+   "color": "#39457e",
+   "icon": "static/icons/perl-original.svg"
+  },
+  "lua": {
+    "color": "#000080",
+    "icon": "static/icons/lua-original.svg"
+  },
+  "dart": {
+    "color": "#0175c2",
+    "icon": "static/icons/dart-original.svg"
+  },
+  "r": {
+    "color": "#198ce7",
+    "icon": "static/icons/r-original.svg"
+  },
+  "matlab": {
+    "color": "#e16737",
+    "icon": "static/icons/matlab-original.svg"
+  },
+  "haskell": {
+    "color": "#5e5086",
+    "icon": "static/icons/haskell-original.svg"
+  },
+  "clojure": {
+    "color": "#5881d8",
+    "icon": "static/icons/clojure-original.svg"
+  },
+  "erlang": {
+    "color": "#b83998",
+    "icon": "static/icons/erlang-original.svg"
+  },
+  "elixir": {
+    "color": "#6e4a7e",
+    "icon": "static/icons/elixir-original.svg"
+  },
+  "archive": {
+    "color": "#8d6e63",
+    "icon": "static/icons/archive-original.svg"
+  },
+  "image": {
+    "color": "#4caf50",
+    "icon": "static/icons/image-original.svg"
+  },
+  "video": {
+    "color": "#f44336",
+    "icon": "static/icons/video-original.svg"
+  },
+  "audio": {
+    "color": "#9c27b0",
+    "icon": "static/icons/audio-original.svg"
+  },
+  "document": {
+    "color": "#2196f3",
+    "icon": "static/icons/document-original.svg"
+  },
+  "fonts": {
+    "color": "#795548",
+    "icon": "static/icons/font-original.svg"
+  },
+  "backup": {
+    "color": "#607d8b",
+    "icon": "static/icons/backup-original.svg"
+  },
+  "logs": {
+    "color": "#ff9800",
+    "icon": "static/icons/log-original.svg"
+  },
+  "conf": {
+    "color": "#6d4c41",
+    "icon": "static/icons/config-original.svg"
+  },
+  
+  "angular": {
+    "color": "#6d4c41",
+    "icon": "static/icons/angular-original.svg"
+  },
+  "nestjs": {
+    "color": "#6d4c41",
+    "icon": "static/icons/nestjs-original.svg"
+  },
+  "vue": {
+    "color": "#6d4c41",
+    "icon": "static/icons/vuejs-original.svg"
+  }
+}

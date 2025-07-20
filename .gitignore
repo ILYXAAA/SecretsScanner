@@ -19,7 +19,10 @@ AllSecrets.txt
 FalseSecrets.txt
 TrueSecrets.txt
 *.zip
+problematic_secrets.txt
 tmp/
+rules.yml
+unique_extensions.txt
 
 # Distribution / packaging
 .Python

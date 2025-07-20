@@ -4,7 +4,8 @@ from sqlalchemy.orm import Session
 from urllib.parse import urlparse
 import urllib.parse
 import logging
-
+import json
+import os
 from config import get_full_url, HUB_TYPE
 from models import Project, Scan, Secret
 from services.auth import get_current_user
@@ -88,6 +89,90 @@ def validate_repo_url(repo_url: str, hub_type: str) -> str:
     
     return repo_url
 
+def load_language_patterns():
+    """Load language patterns from JSON file"""
+    try:
+        patterns_file = os.path.join("static", "languages_patterns.json")
+        with open(patterns_file, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Error loading language patterns: {e}")
+        return {}
+
+def get_language_stats_from_scan(scan):
+    """Get language statistics from scan data provided by microservice"""
+    if not scan.detected_languages:
+        return []
+    
+    try:
+        detected_languages = json.loads(scan.detected_languages)
+    except json.JSONDecodeError:
+        logger.error(f"Failed to parse detected_languages for scan {scan.id}")
+        return []
+    
+    if not detected_languages:
+        return []
+    
+    language_patterns = load_language_patterns()
+    
+    # Вычисляем общее количество файлов
+    total_files = sum(lang_data.get("Files", 0) for lang_data in detected_languages.values())
+    
+    if total_files == 0:
+        return []
+    
+    language_stats = []
+    
+    # Сортируем языки по количеству файлов
+    sorted_languages = sorted(detected_languages.items(), key=lambda x: x[1].get("Files", 0), reverse=True)
+    
+    for language, lang_data in sorted_languages:
+        file_count = lang_data.get("Files", 0)
+        extensions_list = lang_data.get("ExtensionsList", [])
+        
+        percentage = (file_count / total_files) * 100 if total_files > 0 else 0
+        
+        # Получаем метаданные языка из patterns
+        lang_config = language_patterns.get(language.lower(), {})
+        
+        language_stats.append({
+            'language': language,
+            'count': file_count,
+            'percentage': round(percentage, 1),
+            'color': lang_config.get('color', '#6b7280'),  # серый по умолчанию
+            'icon': lang_config.get('icon', None),
+            'extensions': extensions_list
+        })
+    
+    return language_stats
+
+def get_framework_stats_from_scan(scan):
+    """Get framework statistics from scan data provided by microservice"""
+    if not scan.detected_frameworks:
+        return {}
+    
+    try:
+        detected_frameworks = json.loads(scan.detected_frameworks)
+    except json.JSONDecodeError:
+        logger.error(f"Failed to parse detected_frameworks for scan {scan.id}")
+        return {}
+    
+    language_patterns = load_language_patterns()
+    
+    # Добавляем метаданные к фреймворкам
+    framework_stats = {}
+    for framework, detections in detected_frameworks.items():
+        framework_lower = framework.lower()
+        framework_config = language_patterns.get(framework_lower, {})
+        
+        framework_stats[framework] = {
+            'detections': detections,
+            'color': framework_config.get('color', '#6b7280'),
+            'icon': framework_config.get('icon', None)
+        }
+    
+    return framework_stats
+
 @router.get("/project/{project_name}", response_class=HTMLResponse)
 async def project_page(request: Request, project_name: str, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     project = db.query(Project).filter(Project.name == project_name).first()
@@ -96,6 +181,13 @@ async def project_page(request: Request, project_name: str, current_user: str = 
     
     # Get latest scan
     latest_scan = db.query(Scan).filter(Scan.project_name == project_name).order_by(Scan.started_at.desc()).first()
+    
+    # Get language and framework statistics from latest scan
+    language_stats = []
+    framework_stats = {}
+    if latest_scan:
+        language_stats = get_language_stats_from_scan(latest_scan)
+        framework_stats = get_framework_stats_from_scan(latest_scan)
     
     # Get all scans for history
     scans = db.query(Scan).filter(Scan.project_name == project_name).order_by(Scan.started_at.desc()).all()
@@ -116,6 +208,8 @@ async def project_page(request: Request, project_name: str, current_user: str = 
         "request": request,
         "project": project,
         "latest_scan": latest_scan,
+        "language_stats": language_stats,
+        "framework_stats": framework_stats,
         "scan_stats": scan_stats,
         "HUB_TYPE": HUB_TYPE,
         "current_user": current_user
@@ -166,6 +260,7 @@ async def add_project(request: Request, project_name: str = Form(...), repo_url:
     except Exception as e:
         logger.error(f"Error adding project: {e}")
         return RedirectResponse(url=get_full_url("dashboard?error=unexpected_error"), status_code=302)
+    
 @router.post("/projects/update")
 async def update_project(request: Request, project_id: int = Form(...), project_name: str = Form(...), 
                         repo_url: str = Form(...), _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
