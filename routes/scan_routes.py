@@ -638,7 +638,7 @@ async def receive_scan_results(project_name: str, scan_id: str, request: Request
 async def scan_results(request: Request, scan_id: str, severity_filter: str = "", 
                      type_filter: str = "", show_exceptions: bool = False,
                      current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
-    import time
+    #import time
     
     scan = db.query(Scan).filter(Scan.id == scan_id).first()
     if not scan:
@@ -648,16 +648,13 @@ async def scan_results(request: Request, scan_id: str, severity_filter: str = ""
     project = db.query(Project).filter(Project.name == scan.project_name).first()
     
     # Оптимизированный запрос секретов с упрощенной сортировкой
-    start = time.time()
+    #start = time.time()
     all_secrets_query = db.query(Secret).filter(Secret.scan_id == scan_id).order_by(
-        Secret.severity,  # Убрали сложное выражение
+        Secret.severity == 'Potential',  # Вернуть оригинальное выражение
         Secret.path,
         Secret.line
     ).all()
-    print(f"Секреты загружены за: {time.time() - start:.2f}с")
-    
-    # Сортируем в Python для правильного порядка (High сначала, потом Potential)
-    all_secrets_query.sort(key=lambda x: (x.severity == 'Potential', x.path or '', x.line or 0))
+    #print(f"Секреты загружены за: {time.time() - start:.2f}с")
     
     # Используем денормализованные счетчики из таблицы scans
     high_secrets = scan.high_secrets_count or 0
@@ -673,32 +670,72 @@ async def scan_results(request: Request, scan_id: str, severity_filter: str = ""
     
     # Инициализируем переменные
     secrets_data = []
+    previous_secrets_map = {}
+    previous_scans = []
     
-    # Обработка секретов без поиска предыдущих статусов для больших наборов
-    start = time.time()
+    # Оптимизированный поиск предыдущих статусов только для небольших наборов
+    if all_secrets_query and len(all_secrets_query) < 500:  # Только для небольших наборов
+        # Получить все предыдущие сканы одним запросом
+        previous_scans = db.query(Scan.id, Scan.completed_at).filter(
+            Scan.project_name == scan.project_name,
+            Scan.id != scan_id,
+            Scan.completed_at < scan.completed_at
+        ).order_by(Scan.completed_at.desc()).all()
+        
+        previous_scan_ids = [s.id for s in previous_scans]
+        
+        # Получить все предыдущие секреты одним запросом
+        if previous_scan_ids:
+            previous_secrets = db.query(Secret).filter(
+                Secret.scan_id.in_(previous_scan_ids),
+                Secret.status != "No status"
+            ).all()
+            
+            # Создать карту для быстрого поиска
+            for prev_secret in previous_secrets:
+                key = (prev_secret.path, prev_secret.line, prev_secret.secret, prev_secret.type)
+                if key not in previous_secrets_map:
+                    previous_secrets_map[key] = prev_secret
+    
+    # Обработка секретов
+    #start = time.time()
     for secret in all_secrets_query:
-        # Упрощенное создание объекта секрета
+        previous_status = None
+        previous_scan_date = None
+        
+        if previous_secrets_map:
+            key = (secret.path, secret.line, secret.secret, secret.type)
+            if key in previous_secrets_map:
+                prev_secret = previous_secrets_map[key]
+                previous_status = prev_secret.status
+                # Найти дату скана для этого секрета
+                for scan_info in previous_scans:
+                    if prev_secret.scan_id == scan_info.id:
+                        previous_scan_date = scan_info.completed_at.strftime('%Y-%m-%d %H:%M')
+                        break
+        
+        # БЕЗОПАСНОЕ создание объекта секрета с экранированием
         secret_obj = {
             "id": secret.id,
-            "path": secret.path or "",
+            "path": html.escape(secret.path or "", quote=True),
             "line": secret.line or 0,
-            "secret": secret.secret or "",
-            "context": secret.context or "",
-            "severity": secret.severity or "",
-            "type": secret.type or "",
+            "secret": html.escape(secret.secret or "", quote=True),
+            "context": html.escape(secret.context or "", quote=True),
+            "severity": html.escape(secret.severity or "", quote=True),
+            "type": html.escape(secret.type or "", quote=True),
             "confidence": float(secret.confidence) if secret.confidence is not None else 1.0,
-            "status": secret.status or "No status",
+            "status": html.escape(secret.status or "No status", quote=True),
             "is_exception": bool(secret.is_exception),
-            "exception_comment": secret.exception_comment or "",
+            "exception_comment": html.escape(secret.exception_comment or "", quote=True),
             "refuted_at": secret.refuted_at.strftime('%Y-%m-%d %H:%M') if secret.refuted_at else None,
             "confirmed_by": secret.confirmed_by if secret.confirmed_by else None,
             "refuted_by": secret.refuted_by if secret.refuted_by else None,
-            "previous_status": None,  # Отключили для производительности
-            "previous_scan_date": None
+            "previous_status": html.escape(previous_status or "", quote=True) if previous_status else None,
+            "previous_scan_date": previous_scan_date
         }
         secrets_data.append(secret_obj)
     
-    print(f"Обработка секретов: {time.time() - start:.2f}с")
+    #print(f"Обработка секретов: {time.time() - start:.2f}с")
 
     return templates.TemplateResponse("scan_results.html", {
         "request": request,

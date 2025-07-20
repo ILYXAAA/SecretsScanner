@@ -9,13 +9,13 @@ from models import Project, Scan, Secret
 from services.auth import get_current_user
 from services.database import get_db
 from services.templates import templates
-import time
+#import time
 
 router = APIRouter()
 
 @router.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request, page: int = 1, search: str = "", current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
-    start = time.time()
+    #start = time.time()
     per_page = 10
     offset = (page - 1) * per_page
     
@@ -88,8 +88,8 @@ async def dashboard(request: Request, page: int = 1, search: str = "", current_u
     projects_data.sort(key=lambda x: x["latest_scan_date"], reverse=True)
     total_pages = (total_projects + per_page - 1) // per_page
 
-    end = time.time()
-    print(f"Время выполнения: {end - start:.4f} секунд")
+    #end = time.time()
+    #print(f"Время выполнения: {end - start:.4f} секунд")
     
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
