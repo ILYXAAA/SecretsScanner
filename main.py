@@ -6,7 +6,7 @@ import asyncio
 import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-
+import os
 # Import configuration
 from config import BASE_URL, APP_HOST, APP_PORT
 
@@ -85,7 +85,16 @@ app = FastAPI(title="Secrets Scanner", lifespan=lifespan, root_path=BASE_URL)
 
 # Mount static files
 app.mount("/ico", StaticFiles(directory="ico"), name="ico")
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# app.mount("/static", StaticFiles(directory="static"), name="static")
+
+@app.get("/static/{file_path:path}")
+async def serve_static(file_path: str):
+    file_location = os.path.join("static", file_path)
+    if os.path.exists(file_location):
+        return FileResponse(file_location)
+    else:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="File not found")
 
 # Initialize databases
 ensure_user_database()
@@ -122,6 +131,8 @@ async def favicon():
     else:
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Favicon not found")
+
+
 
 if __name__ == "__main__":
     import uvicorn

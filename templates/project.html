@@ -922,7 +922,7 @@
                     {% for framework, data in framework_stats.items() %}
                     <div class="framework-item" data-framework="{{ framework }}" style="background: white; border: 1px solid #e1e5e9; border-radius: 8px; padding: 0.75rem; display: flex; align-items: center; gap: 0.5rem; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
                         {% if data.icon %}
-                        <img src="/secret_scanner/{{ data.icon }}" alt="{{ framework }}" style="width: 24px; height: 24px;">
+                        <img src="{{ '/secret_scanner/' + data.icon if data.icon else '' }}" alt="{{ framework }}" style="width: 24px; height: 24px;">
                         {% else %}
                         <div style="width: 24px; height: 24px; background-color: {{ data.color }}; border-radius: 4px; display: flex; align-items: center; justify-content: center; color: white; font-size: 10px; font-weight: 600;">
                             {{ framework[:2].upper() }}
@@ -987,7 +987,7 @@
                             <div style="display: flex; align-items: center;">
                                 {% if stat.icon %}
                                 <div class="legend-color has-icon" data-language="{{ stat.language }}">
-                                    <img src="/secret_scanner/{{ stat.icon }}" alt="{{ stat.language }}" style="width: 18px; height: 18px;">
+                                    <img src="{{ '/secret_scanner/' + stat.icon if stat.icon else '' }}" alt="{{ stat.language }}" style="width: 18px; height: 18px;">
                                 </div>
                                 {% else %}
                                 <div class="legend-color no-icon" data-language="{{ stat.language }}" 
