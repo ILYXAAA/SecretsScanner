@@ -171,5 +171,9 @@
   "binary": {
     "color": "#6d4c41",
     "icon": "static/icons/binary-original.svg"
+  },
+  "forbidden": {
+    "color": "#6d4c41",
+    "icon": "static/icons/warning.svg"
   }
 }
