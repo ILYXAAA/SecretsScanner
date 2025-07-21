@@ -167,5 +167,9 @@
   "vue": {
     "color": "#6d4c41",
     "icon": "static/icons/vuejs-original.svg"
+  },
+  "binary": {
+    "color": "#6d4c41",
+    "icon": "static/icons/binary-original.svg"
   }
 }
