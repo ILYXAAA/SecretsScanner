@@ -323,6 +323,7 @@ async def multi_scan(request: Request, current_user: str = Depends(get_current_u
           status_code=500,
           content={"status": "error", "message": "Внутренняя ошибка сервера"}
       )
+
 @router.get("/api/multi-scans")
 async def get_user_multi_scans(current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     """Get all multi-scans for current user"""

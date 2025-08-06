@@ -532,6 +532,7 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
                 logger.info(f"📝 Добавлено {added_manual_count} ручных секретов за {manual_secrets_time:.2f} секунд")
             
             total_processing_time = (datetime.now(timezone.utc) - start_time).total_seconds()
+            update_scan_counters(db_session, scan_id)
             logger.info(f"🎊 Скан {scan_id} полностью обработан за {total_processing_time:.2f} секунд:")
             logger.info(f"   📊 Всего секретов: {len(results)}")
             logger.info(f"   📝 Ручных секретов: {added_manual_count}")
@@ -560,24 +561,27 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
             pass
 
 def update_scan_counters(db: Session, scan_id: str):
-    """Update denormalized counters in scans table"""
-    high_count = db.query(func.count(Secret.id)).filter(
-        Secret.scan_id == scan_id,
-        Secret.severity == "High",
-        Secret.is_exception == False
-    ).scalar() or 0
-    
-    potential_count = db.query(func.count(Secret.id)).filter(
-        Secret.scan_id == scan_id,
-        Secret.severity == "Potential", 
-        Secret.is_exception == False
-    ).scalar() or 0
-    
-    scan = db.query(Scan).filter(Scan.id == scan_id).first()
-    if scan:
-        scan.high_secrets_count = high_count
-        scan.potential_secrets_count = potential_count
-        db.commit()
+    try:
+        """Update denormalized counters in scans table"""
+        high_count = db.query(func.count(Secret.id)).filter(
+            Secret.scan_id == scan_id,
+            Secret.severity == "High",
+            Secret.is_exception == False
+        ).scalar() or 0
+        
+        potential_count = db.query(func.count(Secret.id)).filter(
+            Secret.scan_id == scan_id,
+            Secret.severity == "Potential", 
+            Secret.is_exception == False
+        ).scalar() or 0
+        
+        scan = db.query(Scan).filter(Scan.id == scan_id).first()
+        if scan:
+            scan.high_secrets_count = high_count
+            scan.potential_secrets_count = potential_count
+            db.commit()
+    except Exception as error:
+        logger.error(error)
 
 @router.post("/get_results/{project_name}/{scan_id}")
 async def receive_scan_results(project_name: str, scan_id: str, request: Request, 
@@ -639,7 +643,7 @@ async def scan_results(request: Request, scan_id: str, severity_filter: str = ""
                      type_filter: str = "", show_exceptions: bool = False,
                      current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     #import time
-    
+    update_scan_counters(db, scan_id)
     scan = db.query(Scan).filter(Scan.id == scan_id).first()
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")

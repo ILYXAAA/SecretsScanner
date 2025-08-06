@@ -6,12 +6,14 @@ import asyncio
 import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+import json
 import os
+from services.database import SessionLocal
+from datetime import datetime, timezone, timedelta
 # Import configuration
-from config import BASE_URL, APP_HOST, APP_PORT
-
+from config import BASE_URL, APP_HOST, APP_PORT, TIMEOUT
 # Import models and database setup
-from models import AuthenticationException
+from models import AuthenticationException, Scan, MultiScan
 from services.database import initialize_database
 from services.auth import ensure_user_database, auth_exception_handler
 from services.backup_service import backup_scheduler
@@ -19,30 +21,43 @@ from services.backup_service import backup_scheduler
 # Import background tasks
 async def check_scan_timeouts():
     """Background task to check for timed out scans"""
-    from datetime import datetime, timezone, timedelta
-    from services.database import SessionLocal
-    from models import Scan
-    
     while True:
         try:
             db = SessionLocal()
-            timeout_threshold = datetime.now(timezone.utc) - timedelta(minutes=30)
             
-            # Find running scans that started more than 30 minutes ago
-            timed_out_scans = db.query(Scan).filter(
-                Scan.status == "running",
-                Scan.started_at < timeout_threshold
-            ).all()
+            # Find all running scans
+            running_scans = db.query(Scan).filter(Scan.status == "running").all()
             
-            for scan in timed_out_scans:
-                scan.status = "timeout"
-                scan.completed_at = datetime.now(timezone.utc)
+            for scan in running_scans:
+                # Check if scan is part of multi-scan
+                multi_scan = db.query(MultiScan).filter(
+                    MultiScan.scan_ids.like(f'%"{scan.id}"%')
+                ).first()
+                
+                if multi_scan:
+                    # Parse scan_ids and find position
+                    scan_ids = json.loads(multi_scan.scan_ids)
+                    try:
+                        position = scan_ids.index(scan.id)
+                        # Calculate dynamic timeout: base_timeout * (position + 1)
+                        timeout_minutes = TIMEOUT * (position + 1)
+                    except ValueError:
+                        # Fallback if scan_id not found in list
+                        timeout_minutes = TIMEOUT
+                else:
+                    # Regular scan - use base timeout
+                    timeout_minutes = TIMEOUT
+                
+                # Check if scan has timed out
+                timeout_threshold = datetime.now(timezone.utc) - timedelta(minutes=timeout_minutes)
+                
+                if scan.started_at.replace(tzinfo=timezone.utc) < timeout_threshold:
+                    scan.status = "timeout"
+                    scan.completed_at = datetime.now(timezone.utc)
             
-            if timed_out_scans:
-                db.commit()
-                logger.warning(f"Marked {len(timed_out_scans)} scans as timed out")
-            
+            db.commit()
             db.close()
+            
         except Exception as e:
             logger.error(f"Error checking scan timeouts: {e}")
         

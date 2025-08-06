@@ -48,6 +48,9 @@ Path(BACKUP_DIR).mkdir(exist_ok=True)
 Path("templates").mkdir(exist_ok=True)
 Path("ico").mkdir(exist_ok=True)
 
+# Other
+TIMEOUT = 30
+
 def get_auth_headers():
     """Get headers with API key for microservice requests"""
     load_dotenv(override=True)
