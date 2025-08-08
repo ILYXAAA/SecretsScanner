@@ -2243,7 +2243,8 @@
                 fileUrl = `${projectRepoUrl}?path=${encodeURIComponent(secretData.path || '')}&version=GC${scanCommit}&line=${secretData.line}&lineEnd=${secretData.line}&lineStartColumn=${startColumn}&lineEndColumn=${endColumn}&_a=contents`;
             } else {
                 // Default/GitHub URL format
-                fileUrl = `${projectRepoUrl}/blob/${scanCommit}${encodeURIComponent(secretData.path || '')}?plain=1#L${secretData.line}`;
+                const safePath = (secretData.path || '').split('/').map(encodeURIComponent).join('/');
+                fileUrl = `${projectRepoUrl}/blob/${scanCommit}${safePath}?plain=1#L${secretData.line}`;
             }
             } catch (error) {
             console.error('Error building file URL:', error);
