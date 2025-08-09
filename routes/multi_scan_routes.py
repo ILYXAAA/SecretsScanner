@@ -8,7 +8,7 @@ import uuid
 import json
 import logging
 
-from config import MICROSERVICE_URL, APP_HOST, APP_PORT, get_auth_headers
+from config import MICROSERVICE_URL, APP_HOST, APP_PORT, HUB_TYPE, get_auth_headers
 from models import Scan, Secret, MultiScan
 from services.auth import get_current_user
 from services.database import get_db
@@ -38,7 +38,8 @@ def get_scan_statistics(db: Session, scan_id: str):
 async def multi_scan_page(request: Request, current_user: str = Depends(get_current_user)):
     return templates.TemplateResponse("multi_scan.html", {
         "request": request,
-        "current_user": current_user
+        "current_user": current_user,
+        "HUB_TYPE": HUB_TYPE
     })
 
 @router.post("/multi_scan")

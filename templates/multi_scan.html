@@ -543,19 +543,32 @@
                 <div class="form-group">
                     <label for="repoUrls">Ссылки на репозитории</label>
                     <div class="form-description">
+                        {% if HUB_TYPE == "Azure" %}
                         Введите ссылки на репозитории Azure DevOps, по одной на строку.<br>
                         Если для репозитория не будет найден проект - будет предложено автоматически его создать.<br><br>
                         Поддерживаемые форматы:<br>
                         • <strong>Ветка:</strong> http://server/collection/project/_git/repo<span style="color: #3b82f6;">?version=GBmain</span><br>
                         • <strong>Тег:</strong> http://server/collection/project/_git/repo<span style="color: #3b82f6;">?version=GTv1.0.0</span><br>
                         • <strong>Коммит:</strong> http://server/collection/project/_git/repo<span style="color: #3b82f6;">?version=GCabc123def456</span><br>
-                        • <strong>Коммит (альтернативный формат):</strong> http://server/collection/project/_git/repo<span style="color: #3b82f6;">/commit/abc123def456</span>
-                        <br><br>⚠️ <strong>Внимание:</strong> репозитории DevZone не поддерживаются мультисканированием<br>
+                        • <strong>Коммит (альтернативный формат):</strong> http://server/collection/project/_git/repo<span style="color: #3b82f6;">/commit/abc123def456</span><br>
+                        <br>⚠️ <strong>Внимание:</strong> репозитории DevZone не поддерживаются мультисканированием<br>
+                        {% else %}
+                        Введите ссылки на репозитории Git, по одной на строку.<br>
+                        Если для репозитория не будет найден проект - будет предложено автоматически его создать.<br><br>
+                        Поддерживаемые форматы:<br>
+                        • <strong>Коммит:</strong> https://github.com/owner/repo<span style="color: #3b82f6;">/commit/abc123def456</span><br>
+                        • <strong>Ветка:</strong> https://github.com/owner/repo<span style="color: #3b82f6;">/tree/branch-name</span><br>
+                        • <strong>Тег:</strong> https://github.com/owner/repo<span style="color: #3b82f6;">/releases/tag/v1.0.0</span><br>
+                        {% endif %}
                     </div>
                     <textarea 
                         id="repoUrls" 
                         name="repoUrls" 
-                        placeholder="http://server/collection/project/_git/repo1?version=GBmain&#10;http://server/collection/project/_git/repo2?version=GTv1.0.0&#10;http://server/collection/project/_git/repo3?version=GCabc123def456"
+                        {% if HUB_TYPE == "Azure" %}
+                            placeholder="http://server/collection/project/_git/repo1?version=GBmain&#10;http://server/collection/project/_git/repo2?version=GTv1.0.0&#10;http://server/collection/project/_git/repo3?version=GCabc123def456"
+                        {% else %}
+                            placeholder="https://github.com/owner/repo1/commit/abc123def456&#10;https://github.com/owner/repo2/tree/main&#10;https://github.com/owner/repo3/releases/tag/v1.0.0"
+                        {% endif %}
                         required></textarea>
                 </div>
                 <div class="form-actions">
@@ -613,6 +626,57 @@
     <script>
         function parseAzureDevOpsUrl(repoUrl) {
             const urlObj = new URL(repoUrl);
+            
+            // Check if it's a GitHub URL
+            if (urlObj.hostname === 'github.com') {
+                const pathParts = urlObj.pathname.split('/').filter(part => part !== '');
+                
+                if (pathParts.length < 2) {
+                    throw new Error('GitHub URL должен содержать владельца и имя репозитория');
+                }
+                
+                const owner = pathParts[0];
+                const repository = pathParts[1];
+                
+                // Parse ref information from GitHub URL
+                let refType = 'branch';
+                let ref = 'main';
+                
+                // Check for commit in path (format: /commit/hash)
+                const commitIndex = pathParts.indexOf('commit');
+                if (commitIndex !== -1 && commitIndex === 2) {
+                    refType = 'commit';
+                    ref = pathParts[3];
+                    if (!ref) {
+                        throw new Error('URL некорректен: отсутствует хеш коммита после "/commit/"');
+                    }
+                }
+                // Check for tree (branch) or tag
+                else if (pathParts.length > 3) {
+                    if (pathParts[2] === 'tree') {
+                        refType = 'branch';
+                        ref = pathParts.slice(3).join('/');
+                    } else if (pathParts[2] === 'releases' && pathParts[3] === 'tag') {
+                        refType = 'tag';
+                        ref = pathParts[4];
+                    }
+                }
+                
+                // Clean base repo URL - remove commit/tree/tag paths
+                const baseRepoUrl = `${urlObj.protocol}//${urlObj.host}/${owner}/${repository}`;
+                
+                return {
+                    server: urlObj.hostname,
+                    collection: owner,
+                    project: `${owner}_${repository}`,
+                    repository: repository,
+                    refType: refType,
+                    ref: ref,
+                    baseRepoUrl: baseRepoUrl
+                };
+            }
+            
+            // Original Azure DevOps parsing logic
             const server = urlObj.hostname;
             const pathParts = urlObj.pathname.split('/').filter(part => part !== '');
             
