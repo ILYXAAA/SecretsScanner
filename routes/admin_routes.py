@@ -14,7 +14,7 @@ import uuid
 import re
 from services.auth import get_admin_user, get_user_db, get_password_hash
 from services.backup_service import create_database_backup, get_backup_status, list_backups
-from models import User, Secret
+from models import User, Secret, Scan, Project
 from services.templates import templates
 from services.database import get_db
 
@@ -243,19 +243,45 @@ async def admin_panel(request: Request, _: str = Depends(get_admin_user)):
     })
 
 @router.get("/admin/users")
-async def list_users(_: str = Depends(get_admin_user), user_db: Session = Depends(get_user_db)):
-    """Get list of all users"""
+async def list_users(page: int = 1, _: str = Depends(get_admin_user), 
+                    user_db: Session = Depends(get_user_db), db: Session = Depends(get_db)):
+    """Get list of all users with pagination and scan statistics"""
     try:
-        users = user_db.query(User).order_by(User.created_at.desc()).all()
+        page_size = 15
+        offset = (page - 1) * page_size
+        
+        # Get total users count
+        total_users = user_db.query(User).count()
+        total_pages = (total_users + page_size - 1) // page_size
+        
+        # Get users for current page
+        users = user_db.query(User).order_by(User.created_at.desc()).offset(offset).limit(page_size).all()
         
         users_data = []
         for user in users:
+            # Count scans by this user
+            scan_count = db.query(Scan).filter(Scan.started_by == user.username).count()
+            
+            # Count projects created by this user
+            project_count = db.query(Project).filter(Project.created_by == user.username).count()
+            
             users_data.append({
                 "username": user.username,
-                "created_at": user.created_at.strftime("%d.%m.%Y %H:%M") if user.created_at else "Unknown"
+                "created_at": user.created_at.strftime("%d.%m.%Y %H:%M") if user.created_at else "Unknown",
+                "scan_count": scan_count,
+                "project_count": project_count
             })
         
-        return {"status": "success", "users": users_data}
+        return {
+            "status": "success", 
+            "users": users_data,
+            "pagination": {
+                "current_page": page,
+                "total_pages": total_pages,
+                "total_users": total_users,
+                "page_size": page_size
+            }
+        }
     except Exception as e:
         logger.error(f"Error listing users: {e}")
         return {"status": "error", "message": str(e)}

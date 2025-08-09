@@ -7,7 +7,7 @@ import logging
 import os
 
 from config import DATABASE_URL, BACKUP_RETENTION_DAYS
-from services.auth import get_current_user, get_user_db, get_password_hash, verify_password
+from services.auth import get_current_user, get_user_db, get_password_hash, verify_password, get_admin_user
 from services.microservice_client import (
     get_pat_token, set_pat_token, get_rules_info, get_rules_content, update_rules,
     get_fp_rules_info, get_fp_rules_content, update_fp_rules,
@@ -162,7 +162,7 @@ async def change_password(request: Request, current_password: str = Form(...),
         return RedirectResponse(url="/secret_scanner/settings?error=password_change_failed", status_code=302)
 
 @router.post("/settings/update-api-key")
-async def update_api_key(request: Request, api_key: str = Form(...), _: bool = Depends(get_current_user)):
+async def update_api_key(request: Request, api_key: str = Form(...), _: str = Depends(get_admin_user)):
     try:
         if update_api_key_in_env(api_key):
             return RedirectResponse(url="/secret_scanner/settings?success=api_key_updated", status_code=302)
@@ -173,7 +173,7 @@ async def update_api_key(request: Request, api_key: str = Form(...), _: bool = D
         return RedirectResponse(url="/secret_scanner/settings?error=api_key_update_failed", status_code=302)
 
 @router.post("/settings/update-token")
-async def update_token(request: Request, token: str = Form(...), _: bool = Depends(get_current_user)):
+async def update_token(request: Request, token: str = Form(...), _: str = Depends(get_admin_user)):
     try:
         if await set_pat_token(token):
             return RedirectResponse(url="/secret_scanner/settings?success=token_updated", status_code=302)

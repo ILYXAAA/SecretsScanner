@@ -9,7 +9,7 @@ from pathlib import Path
 import json
 import os
 from services.database import SessionLocal
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 # Import configuration
 from config import BASE_URL, APP_HOST, APP_PORT, TIMEOUT
 # Import models and database setup
@@ -39,8 +39,8 @@ async def check_scan_timeouts():
                     scan_ids = json.loads(multi_scan.scan_ids)
                     try:
                         position = scan_ids.index(scan.id)
-                        # Calculate dynamic timeout: base_timeout * (position + 1)
-                        timeout_minutes = TIMEOUT * (position + 1)
+                        # Для мультисканов - каждому последующему скану +10 минут таймаута
+                        timeout_minutes = TIMEOUT + (position * 10)
                     except ValueError:
                         # Fallback if scan_id not found in list
                         timeout_minutes = TIMEOUT
@@ -49,11 +49,11 @@ async def check_scan_timeouts():
                     timeout_minutes = TIMEOUT
                 
                 # Check if scan has timed out
-                timeout_threshold = datetime.now(timezone.utc) - timedelta(minutes=timeout_minutes)
+                timeout_threshold = datetime.now() - timedelta(minutes=timeout_minutes)
                 
-                if scan.started_at.replace(tzinfo=timezone.utc) < timeout_threshold:
+                if scan.started_at < timeout_threshold:
                     scan.status = "timeout"
-                    scan.completed_at = datetime.now(timezone.utc)
+                    scan.completed_at = datetime.now()
             
             db.commit()
             db.close()
@@ -62,7 +62,7 @@ async def check_scan_timeouts():
             logger.error(f"Error checking scan timeouts: {e}")
         
         # Check every minute
-        await asyncio.sleep(60)
+        await asyncio.sleep(10)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

@@ -635,6 +635,12 @@
             const collectionParts = pathParts.slice(0, gitIndex - 1);
             const collection = collectionParts.join('/');
             
+            // Проверяем, что проект не является UUID
+            const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+            if (uuidPattern.test(project)) {
+                throw new Error('URL содержит UUID в качестве имени проекта. Используйте URL с читаемым именем проекта вместо UUID.');
+            }
+            
             // Parse ref information
             let refType = 'branch';
             let ref = 'main';

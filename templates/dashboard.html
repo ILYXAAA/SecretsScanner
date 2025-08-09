@@ -873,11 +873,15 @@
             
             {% if total_pages > 1 %}
             <div class="pagination">
-                {% if has_prev %}
-                <a href="?page={{ current_page - 1 }}&search={{ search }}">&larr; Previous</a>
+                {% set current_group = ((current_page - 1) // 10) %}
+                {% set start_page = current_group * 10 + 1 %}
+                {% set end_page = [start_page + 9, total_pages] | min %}
+                
+                {% if current_group > 0 %}
+                <a href="?page={{ start_page - 1 }}&search={{ search }}">&larr; Previous</a>
                 {% endif %}
                 
-                {% for page_num in range(1, total_pages + 1) %}
+                {% for page_num in range(start_page, end_page + 1) %}
                     {% if page_num == current_page %}
                     <a href="#" class="current">{{ page_num }}</a>
                     {% else %}
@@ -885,8 +889,8 @@
                     {% endif %}
                 {% endfor %}
                 
-                {% if has_next %}
-                <a href="?page={{ current_page + 1 }}&search={{ search }}">Next &rarr;</a>
+                {% if end_page < total_pages %}
+                <a href="?page={{ end_page + 1 }}&search={{ search }}">Next &rarr;</a>
                 {% endif %}
             </div>
             {% endif %}

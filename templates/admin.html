@@ -423,6 +423,8 @@
                         <tr>
                             <th>Пользователь</th>
                             <th>Дата создания</th>
+                            <th>Запущено сканов</th>
+                            <th>Создано проектов</th>
                             <th>Действия</th>
                         </tr>
                     </thead>
@@ -430,6 +432,20 @@
                         <!-- Users will be loaded here -->
                     </tbody>
                 </table>
+                
+                <!-- Pagination -->
+                <div id="pagination" style="display: none; margin-top: 1rem; text-align: center;">
+                    <div style="display: flex; justify-content: center; align-items: center; gap: 0.5rem;">
+                        <button type="button" class="btn btn-primary" id="prevPage" onclick="changePage(-1)" style="padding: 0.5rem 1rem;">
+                            ← Предыдущая
+                        </button>
+                        <span id="pageInfo" style="padding: 0 1rem; font-weight: 600;"></span>
+                        <button type="button" class="btn btn-primary" id="nextPage" onclick="changePage(1)" style="padding: 0.5rem 1rem;">
+                            Следующая →
+                        </button>
+                    </div>
+                    <div id="totalInfo" style="margin-top: 0.5rem; color: #666; font-size: 0.9rem;"></div>
+                </div>
             </div>
         </div>
         
@@ -516,21 +532,26 @@
     </div>
     
     <script>
+        let currentPage = 1;
+        let totalPages = 1;
+
         // Load users on page load
         document.addEventListener('DOMContentLoaded', function() {
             loadUsers();
         });
         
-        async function loadUsers() {
+        async function loadUsers(page = 1) {
             const loading = document.getElementById('usersLoading');
             const table = document.getElementById('usersTable');
             const tbody = document.getElementById('usersTableBody');
+            const pagination = document.getElementById('pagination');
             
             loading.style.display = 'block';
             table.style.display = 'none';
+            pagination.style.display = 'none';
             
             try {
-                const response = await fetch('/secret_scanner/admin/users');
+                const response = await fetch(`/secret_scanner/admin/users?page=${page}`);
                 const data = await response.json();
                 
                 if (data.status === 'success') {
@@ -539,7 +560,7 @@
                     if (data.users.length === 0) {
                         tbody.innerHTML = `
                             <tr>
-                                <td colspan="3" class="empty-state">
+                                <td colspan="5" class="empty-state">
                                     <div>Пользователи не найдены</div>
                                 </td>
                             </tr>
@@ -562,6 +583,12 @@
                                     <div class="user-date">${user.created_at}</div>
                                 </td>
                                 <td>
+                                    <span style="font-weight: 600; color: #333;">${user.scan_count}</span>
+                                </td>
+                                <td>
+                                    <span style="font-weight: 600; color: #333;">${user.project_count}</span>
+                                </td>
+                                <td>
                                     ${user.username === 'admin' ? 
                                         '<span style="color: #666; font-style: italic;">Администратор</span>' :
                                         `<button type="button" class="btn btn-danger" onclick="deleteUser('${user.username}')">Удалить</button>`
@@ -572,11 +599,27 @@
                         });
                     }
                     
+                    // Update pagination
+                    if (data.pagination.total_pages > 1) {
+                        currentPage = data.pagination.current_page;
+                        totalPages = data.pagination.total_pages;
+                        
+                        document.getElementById('pageInfo').textContent = 
+                            `Страница ${currentPage} из ${totalPages}`;
+                        document.getElementById('totalInfo').textContent = 
+                            `Всего пользователей: ${data.pagination.total_users}`;
+                        
+                        document.getElementById('prevPage').disabled = currentPage <= 1;
+                        document.getElementById('nextPage').disabled = currentPage >= totalPages;
+                        
+                        pagination.style.display = 'block';
+                    }
+                    
                     table.style.display = 'table';
                 } else {
                     tbody.innerHTML = `
                         <tr>
-                            <td colspan="3" class="empty-state">
+                            <td colspan="4" class="empty-state">
                                 <div style="color: #dc3545;">Ошибка загрузки пользователей</div>
                             </td>
                         </tr>
@@ -587,7 +630,7 @@
                 console.error('Error loading users:', error);
                 tbody.innerHTML = `
                     <tr>
-                        <td colspan="3" class="empty-state">
+                        <td colspan="4" class="empty-state">
                             <div style="color: #dc3545;">Ошибка соединения</div>
                         </td>
                     </tr>
@@ -597,7 +640,14 @@
                 loading.style.display = 'none';
             }
         }
-        
+
+        function changePage(direction) {
+            const newPage = currentPage + direction;
+            if (newPage >= 1 && newPage <= totalPages) {
+                loadUsers(newPage);
+            }
+        }
+
         async function deleteUser(username) {
             if (!confirm(`Вы уверены, что хотите удалить пользователя "${username}"?`)) {
                 return;

@@ -681,12 +681,13 @@ excluded_files:
         </div>
         
         <div class="settings-section">
-            <h2 class="section-title">🔑 API Configuration & Security</h2>
+            <h2 class="section-title">🔑 Security</h2>
             <p style="color: #666; margin-bottom: 2rem;">
                 Настройка токенов, ключей и безопасности аккаунта.
             </p>
             
             <div class="config-tabs">
+                {% if current_user == "admin" %}
                 <button class="config-tab active" data-tab="api-key">
                     🔐 API Key
                 </button>
@@ -696,10 +697,16 @@ excluded_files:
                 <button class="config-tab" data-tab="pat-token">
                     🔑 PAT Token
                 </button>
+                {% else %}
+                <button class="config-tab active" data-tab="password-change">
+                    🔒 Смена пароля
+                </button>
+                {% endif %}
             </div>
 
             <div class="tab-content-wrapper">
                 <!-- API Key Tab -->
+                 {% if current_user == "admin" %}
                 <div class="config-content active" id="api-key-content">
                     <div class="config-header">
                         <div class="config-description">
@@ -727,6 +734,7 @@ excluded_files:
                         </button>
                     </form>
                 </div>
+                {% endif %}
 
                 <!-- Password Change Tab -->
                 <div class="config-content" id="password-change-content">
@@ -761,6 +769,7 @@ excluded_files:
                 </div>
 
                 <!-- PAT Token Tab -->
+                 {% if current_user == "admin" %}
                 <div class="config-content" id="pat-token-content">
                     <div class="config-header">
                         <div class="config-description">
@@ -785,6 +794,7 @@ excluded_files:
                         </button>
                     </form>
                 </div>
+                {% endif %}
             </div>
         </div>
         

@@ -48,6 +48,8 @@ def validate_repo_url(repo_url: str, hub_type: str) -> str:
             raise ValueError("❌ Некорректный формат URL для devzone")
     
     if hub_type == "Azure":
+        import re
+        
         parsed = urlparse(repo_url)
         
         if not parsed.netloc:
@@ -76,6 +78,11 @@ def validate_repo_url(repo_url: str, hub_type: str) -> str:
         
         if not collection or not project or not repository:
             raise ValueError("❌ URL содержит пустые компоненты")
+        
+        # Проверяем, что проект не является UUID
+        uuid_pattern = r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        if re.match(uuid_pattern, project, re.IGNORECASE):
+            raise ValueError("❌ URL содержит UUID в качестве имени проекта. Используйте URL с читаемым именем проекта вместо UUID.")
         
         return repo_url
     

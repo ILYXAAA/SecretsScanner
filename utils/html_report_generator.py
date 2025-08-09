@@ -310,7 +310,8 @@ def generate_html_report(scan, project, secrets, HubType):
             border: 1px solid #e9ecef;
             word-break: break-all;
             font-size: 0.85rem;
-            max-width: 200px;
+            width: 150px;
+            text-align: center;
         }}
         
         .file-link {{
@@ -472,11 +473,13 @@ def generate_html_report(scan, project, secrets, HubType):
                 # Дополнительная санитизация URL
                 file_url = sanitize_url(file_url)
                 
-                # Mask secret value (show only first 4 characters)
-                if len(secret.secret) > 4:
-                    masked_secret = secret_value[:4] + '*' * (len(secret.secret) - 4)
+                FIXED_MASK_LENGTH = 16  # Фиксированная длина для всех секретов
+                PREFIX_LENGTH = 4       # Количество символов для показа в начале
+
+                if len(secret.secret) > PREFIX_LENGTH:
+                    masked_secret = secret_value[:PREFIX_LENGTH] + '*' * (FIXED_MASK_LENGTH - PREFIX_LENGTH)
                 else:
-                    masked_secret = '*' * len(secret.secret)
+                    masked_secret = secret_value + '*' * (FIXED_MASK_LENGTH - len(secret.secret))
                 
                 html_content += f"""
                             <tr>

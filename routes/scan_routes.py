@@ -2,7 +2,7 @@ from fastapi import APIRouter, Request, Form, Depends, HTTPException, File, Uplo
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Response, FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
 import urllib.parse
 import uuid
@@ -295,7 +295,7 @@ async def get_scan_status(scan_id: str, _: bool = Depends(get_current_user), db:
 
 async def process_scan_results_background(scan_id: str, data: dict, db_session: Session):
     """Background task для обработки результатов сканирования"""
-    start_time = datetime.now(timezone.utc)
+    start_time = datetime.now()
     
     try:
         # Поиск скана в БД
@@ -310,13 +310,13 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
         # Check if scan completed with error
         if data.get("Status") == "Error":
             scan.status = "failed"
-            scan.completed_at = datetime.now(timezone.utc)
+            scan.completed_at = datetime.now()
             error_message = data.get("Message", "Unknown error occurred during scanning")
             logger.error(f"💥 Скан {scan_id} завершился с ошибкой: {error_message}")
             scan.error_message = error_message
             db_session.commit()
             
-            processing_time = (datetime.now(timezone.utc) - start_time).total_seconds()
+            processing_time = (datetime.now() - start_time).total_seconds()
             logger.info(f"⏱️ Обработка ошибки скана {scan_id} заняла {processing_time:.2f} секунд")
             return
 
@@ -340,7 +340,7 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
             # Обновляем основную информацию о скане
             scan.status = "completed"
             scan.repo_commit = data.get("RepoCommit")
-            scan.completed_at = datetime.now(timezone.utc)
+            scan.completed_at = datetime.now()
             scan.files_scanned = data.get("AllFiles")
             scan.excluded_files_count = data.get("FilesExcluded")
             scan.excluded_files_list = data.get("SkippedFiles")
@@ -373,14 +373,14 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
             logger.info(f"🔍 Получено {len(results)} новых секретов для обработки")
             
             # Get previous scans for this project
-            previous_scans_start = datetime.now(timezone.utc)
+            previous_scans_start = datetime.now()
             previous_scans = db_session.query(Scan).filter(
                 Scan.project_name == project_name,
                 Scan.id != scan_id,
                 Scan.completed_at.is_not(None)
             ).order_by(Scan.completed_at.desc()).limit(5).all()  # Только 5 последних сканов
             
-            previous_scans_time = (datetime.now(timezone.utc) - previous_scans_start).total_seconds()
+            previous_scans_time = (datetime.now() - previous_scans_start).total_seconds()
             logger.info(f"📋 Найдено {len(previous_scans)} предыдущих сканов за {previous_scans_time:.2f} секунд")
             
             # Get manual secrets только из последнего скана
@@ -394,7 +394,7 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
                 logger.info(f"📝 Найдено {len(manual_secrets)} ручных секретов из предыдущего скана")
             
             # Создаем мапу предыдущих секретов для быстрого поиска
-            mapping_start = datetime.now(timezone.utc)
+            mapping_start = datetime.now()
             previous_secrets_map = {}
             if previous_scans and len(results) < 10000:  # Только для разумного количества
                 logger.info(f"🗺️ Создаем карту предыдущих статусов для {len(results)} секретов")
@@ -409,7 +409,7 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
                         if key not in previous_secrets_map:
                             previous_secrets_map[key] = prev_secret
                 
-                mapping_time = (datetime.now(timezone.utc) - mapping_start).total_seconds()
+                mapping_time = (datetime.now() - mapping_start).total_seconds()
                 logger.info(f"🗺️ Карта предыдущих статусов создана за {mapping_time:.2f} секунд ({len(previous_secrets_map)} записей)")
             else:
                 logger.info(f"⏭️ Пропускаем создание карты статусов (слишком много секретов: {len(results)})")
@@ -417,10 +417,10 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
             # Обрабатываем секреты батчами
             batch_size = 1000
             total_processed = 0
-            batch_processing_start = datetime.now(timezone.utc)
+            batch_processing_start = datetime.now()
             
             for i in range(0, len(results), batch_size):
-                batch_start = datetime.now(timezone.utc)
+                batch_start = datetime.now()
                 batch = results[i:i + batch_size]
                 batch_secrets = []
                 
@@ -487,16 +487,16 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
                     db_session.commit()
                     total_processed += len(batch_secrets)
                     
-                    batch_time = (datetime.now(timezone.utc) - batch_start).total_seconds()
+                    batch_time = (datetime.now() - batch_start).total_seconds()
                     logger.info(f"✅ Батч {i//batch_size + 1} обработан за {batch_time:.2f} секунд ({len(batch_secrets)} секретов)")
                 else:
                     logger.warning(f"⚠️ Батч {i//batch_size + 1} пуст - нечего сохранять")
             
-            batch_processing_time = (datetime.now(timezone.utc) - batch_processing_start).total_seconds()
+            batch_processing_time = (datetime.now() - batch_processing_start).total_seconds()
             logger.info(f"📦 Все батчи обработаны за {batch_processing_time:.2f} секунд (итого: {total_processed} секретов)")
             
             # Add manual secrets
-            manual_secrets_start = datetime.now(timezone.utc)
+            manual_secrets_start = datetime.now()
             added_manual_count = 0
             for manual_secret in manual_secrets:
                 existing_manual = db_session.query(Secret).filter(
@@ -528,10 +528,10 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
             
             if added_manual_count > 0:
                 db_session.commit()
-                manual_secrets_time = (datetime.now(timezone.utc) - manual_secrets_start).total_seconds()
+                manual_secrets_time = (datetime.now() - manual_secrets_start).total_seconds()
                 logger.info(f"📝 Добавлено {added_manual_count} ручных секретов за {manual_secrets_time:.2f} секунд")
             
-            total_processing_time = (datetime.now(timezone.utc) - start_time).total_seconds()
+            total_processing_time = (datetime.now() - start_time).total_seconds()
             update_scan_counters(db_session, scan_id)
             logger.info(f"🎊 Скан {scan_id} полностью обработан за {total_processing_time:.2f} секунд:")
             logger.info(f"   📊 Всего секретов: {len(results)}")
@@ -554,7 +554,7 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
             scan = db_session.query(Scan).filter(Scan.id == scan_id).first()
             if scan:
                 scan.status = "failed"
-                scan.completed_at = datetime.now(timezone.utc)
+                scan.completed_at = datetime.now()
                 scan.error_message = f"Background processing error: {str(e)}"
                 db_session.commit()
         except:
@@ -586,7 +586,7 @@ def update_scan_counters(db: Session, scan_id: str):
 @router.post("/get_results/{project_name}/{scan_id}")
 async def receive_scan_results(project_name: str, scan_id: str, request: Request, 
                               background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
-    start_time = datetime.now(timezone.utc)
+    start_time = datetime.now()
     logger.info(f"📥 Получен callback для scan_id: {scan_id}, project: {project_name}")
     
     try:
@@ -630,7 +630,7 @@ async def receive_scan_results(project_name: str, scan_id: str, request: Request
     try:
         background_tasks.add_task(process_scan_results_background, scan_id, data, db)
         
-        processing_time = (datetime.now(timezone.utc) - start_time).total_seconds()
+        processing_time = (datetime.now() - start_time).total_seconds()
         logger.info(f"⚡ Callback для scan {scan_id} принят и отправлен в фоновую обработку за {processing_time:.2f} секунд")
         
         return {"status": "accepted", "message": "Results received and queued for processing"}
@@ -774,7 +774,7 @@ async def update_secret_status(secret_id: int, status: str = Form(...),
     if status == "Refuted":
         secret.is_exception = True
         secret.exception_comment = comment
-        secret.refuted_at = datetime.now(timezone.utc)
+        secret.refuted_at = datetime.now()
         secret.refuted_by = current_user
         secret.confirmed_by = None
     elif status == "Confirmed":
@@ -816,7 +816,7 @@ async def bulk_secret_action(request: Request, current_user: str = Depends(get_c
             if value == "Refuted":
                 secret.is_exception = True
                 secret.exception_comment = comment
-                secret.refuted_at = datetime.now(timezone.utc)
+                secret.refuted_at = datetime.now()
                 secret.refuted_by = current_user
                 secret.confirmed_by = None
             elif value == "Confirmed":
