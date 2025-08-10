@@ -519,9 +519,9 @@ function renderTable() {
 
 function getStatusHTML(secret) {
     if (secret.status === 'Confirmed') {
-        return '<span class="status-confirmed">✅ Подтвержденный</span>';
+        return '<span class="status-confirmed">✅ Confirmed</span>';
     } else if (secret.status === 'Refuted') {
-        let html = '<span class="status-refuted">❌ Опровергнут</span>';
+        let html = '<span class="status-refuted">❌ Refuted</span>';
         if (secret.refuted_at) {
             html += `<div class="refuted-date">${escapeHtml(secret.refuted_at)}</div>`;
         }
