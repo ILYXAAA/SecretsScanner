@@ -127,6 +127,7 @@ from routes.settings_routes import router as settings_router
 from routes.multi_scan_routes import router as multi_scan_router
 from routes.admin_routes import router as admin_router
 from routes.logs_routes import router as logs_router
+from routes.secrets_history_routes import router as secrets_history_router
 
 app.include_router(auth_router)
 app.include_router(dashboard_router)
@@ -136,6 +137,7 @@ app.include_router(settings_router)
 app.include_router(multi_scan_router)
 app.include_router(admin_router)
 app.include_router(logs_router)
+app.include_router(secrets_history_router)
 
 # Favicon route
 @app.get("/favicon.ico")

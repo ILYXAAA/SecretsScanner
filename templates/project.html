@@ -1018,8 +1018,9 @@
                 <a href="/secret_scanner/scan/{{ latest_scan.id }}" class="btn btn-primary">Посмотреть отчет</a>
             </div>
             {% elif latest_scan.status == 'completed' %}
-            <div style="text-align: center; margin-top: 1rem;">
+            <div style="text-align: center; margin-top: 1rem; display: flex; gap: 1rem; justify-content: center;">
                 <a href="/secret_scanner/scan/{{ latest_scan.id }}/results" class="btn btn-primary">Посмотреть отчет</a>
+                <a href="/secret_scanner/project/{{ project.name }}/secrets-history" class="btn btn-secondary">📋 История секретов (beta)</a>
             </div>
             {% endif %}
         </div>
