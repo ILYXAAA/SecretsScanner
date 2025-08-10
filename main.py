@@ -106,7 +106,10 @@ app.mount("/ico", StaticFiles(directory="ico"), name="ico")
 async def serve_static(file_path: str):
     file_location = os.path.join("static", file_path)
     if os.path.exists(file_location):
-        return FileResponse(file_location)
+        response = FileResponse(file_location)
+        # Кеширование на неделю (7 дней = 604800 секунд)
+        response.headers["Cache-Control"] = "public, max-age=604800"
+        return response
     else:
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="File not found")
