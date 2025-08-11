@@ -1,6 +1,18 @@
 # 🔐 Secrets Scanner
 
 Веб-приложение для автоматического поиска и анализа секретов (API ключей, токенов, паролей) в исходном коде репозиториев.
+## Скриншоты
+
+<img width="2519" height="1134" alt="image" src="https://github.com/user-attachments/assets/ccc937c5-cec9-488f-b479-65ed7f80f923" />
+
+<img width="2509" height="1253" alt="image" src="https://github.com/user-attachments/assets/942d7c91-3758-48e1-ba16-79578d18f3e7" />
+
+<img width="1679" height="1200" alt="image" src="https://github.com/user-attachments/assets/b2605ba8-5df6-4be6-9cdf-ead71e88f789" />
+
+<img width="2553" height="1261" alt="image" src="https://github.com/user-attachments/assets/f5d472a8-36cf-4639-8e24-adbb3341c1b6" />
+
+<img width="2473" height="1241" alt="image" src="https://github.com/user-attachments/assets/0b333f7b-7516-4a17-802c-c4aca0c22a25" />
+
 
 ## 🏗️ Архитектура
 
