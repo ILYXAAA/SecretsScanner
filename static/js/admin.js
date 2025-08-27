@@ -2,9 +2,188 @@ let currentPage = 1;
 let totalPages = 1;
 
 // Load users on page load
+// Load API tokens on page load
 document.addEventListener('DOMContentLoaded', function() {
     loadUsers();
+    loadApiTokens();
+    
+    // Handle form submission for permissions
+    const form = document.querySelector('form[action="/secret_scanner/admin/create-api-token"]');
+    if (form) {
+        form.addEventListener('submit', function(e) {
+            const checkboxes = form.querySelectorAll('input[name^="perm_"]');
+            const permissions = {};
+            
+            checkboxes.forEach(cb => {
+                const permName = cb.name.replace('perm_', '');
+                permissions[permName] = cb.checked;
+            });
+            
+            // Create hidden input with permissions JSON
+            const hiddenInput = document.createElement('input');
+            hiddenInput.type = 'hidden';
+            hiddenInput.name = 'permissions';
+            hiddenInput.value = JSON.stringify(permissions);
+            form.appendChild(hiddenInput);
+        });
+    }
 });
+
+async function loadApiTokens() {
+    const loading = document.getElementById('tokensLoading');
+    const table = document.getElementById('tokensTable');
+    const tbody = document.getElementById('tokensTableBody');
+    
+    loading.style.display = 'block';
+    table.style.display = 'none';
+    
+    try {
+        const response = await fetch('/secret_scanner/admin/api-tokens');
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+            tbody.innerHTML = '';
+            
+            if (data.tokens.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="9" class="empty-state">
+                            <div>API токены не найдены</div>
+                        </td>
+                    </tr>
+                `;
+            } else {
+                data.tokens.forEach(token => {
+                    const permissions = Object.entries(token.permissions)
+                        .filter(([key, value]) => value)
+                        .map(([key]) => key.replace('_', ' '))
+                        .join(', ') || 'Нет';
+                    
+                    const statusColor = token.is_active ? '#28a745' : '#dc3545';
+                    const statusText = token.is_active ? 'Активен' : 'Отключен';
+                    
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td><strong>${token.name}</strong></td>
+                        <td><code style="font-size: 0.85rem;">${token.prefix}</code></td>
+                        <td>${token.created_at}<br><small>${token.created_by}</small></td>
+                        <td>${token.expires_at || 'Бессрочный'}</td>
+                        <td>${token.last_used_at}</td>
+                        <td><span style="color: ${statusColor}; font-weight: 600;">${statusText}</span></td>
+                        <td style="font-size: 0.85rem;">${permissions}</td>
+                        <td style="font-size: 0.85rem;">
+                            ${token.requests_per_minute}/мин<br>
+                            ${token.requests_per_hour}/час<br>
+                            ${token.requests_per_day}/день
+                        </td>
+                        <td>
+                            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                                <button type="button" class="btn ${token.is_active ? 'btn-warning' : 'btn-success'}" 
+                                        onclick="toggleApiToken(${token.id})" style="padding: 0.25rem 0.5rem; font-size: 0.85rem;">
+                                    ${token.is_active ? 'Отключить' : 'Включить'}
+                                </button>
+                                <button type="button" class="btn btn-danger" 
+                                        onclick="deleteApiToken(${token.id}, '${token.name}')" style="padding: 0.25rem 0.5rem; font-size: 0.85rem;">
+                                    Удалить
+                                </button>
+                            </div>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            }
+            
+            table.style.display = 'table';
+        } else {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="9" class="empty-state">
+                        <div style="color: #dc3545;">Ошибка загрузки токенов</div>
+                    </td>
+                </tr>
+            `;
+            table.style.display = 'table';
+        }
+    } catch (error) {
+        console.error('Error loading API tokens:', error);
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="9" class="empty-state">
+                    <div style="color: #dc3545;">Ошибка соединения</div>
+                </td>
+            </tr>
+        `;
+        table.style.display = 'table';
+    } finally {
+        loading.style.display = 'none';
+    }
+}
+
+async function deleteApiToken(tokenId, tokenName) {
+    if (!confirm(`Вы уверены, что хотите удалить API токен "${tokenName}"?`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/secret_scanner/admin/delete-api-token/${tokenId}`, {
+            method: 'POST'
+        });
+        
+        if (response.ok) {
+            loadApiTokens(); // Reload tokens list
+        } else {
+            alert('Ошибка при удалении токена');
+        }
+    } catch (error) {
+        console.error('Error deleting API token:', error);
+        alert('Ошибка соединения');
+    }
+}
+
+async function toggleApiToken(tokenId) {
+    try {
+        const response = await fetch(`/secret_scanner/admin/toggle-api-token/${tokenId}`, {
+            method: 'POST'
+        });
+        
+        if (response.ok) {
+            loadApiTokens(); // Reload tokens list
+        } else {
+            alert('Ошибка при изменении статуса токена');
+        }
+    } catch (error) {
+        console.error('Error toggling API token:', error);
+        alert('Ошибка соединения');
+    }
+}
+
+function toggleCollapsible(id) {
+    const content = document.getElementById(id);
+    const header = content.previousElementSibling;
+    const chevron = header.querySelector('.chevron');
+    
+    if (content.classList.contains('active')) {
+        content.classList.remove('active');
+        header.classList.remove('active');
+        chevron.classList.remove('down');
+    } else {
+        content.classList.add('active');
+        header.classList.add('active');
+        chevron.classList.add('down');
+    }
+}
+
+function copyToClipboard(text) {
+    navigator.clipboard.writeText(text).then(() => {
+        // Временно изменить текст кнопки
+        const button = event.target;
+        const originalText = button.textContent;
+        button.textContent = 'Скопировано!';
+        setTimeout(() => {
+            button.textContent = originalText;
+        }, 2000);
+    });
+}
 
 async function loadUsers(page = 1) {
     const loading = document.getElementById('usersLoading');

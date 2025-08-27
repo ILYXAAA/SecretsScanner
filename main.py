@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 from contextlib import asynccontextmanager
 import asyncio
 import logging
@@ -17,6 +18,9 @@ from models import AuthenticationException, Scan, MultiScan
 from services.database import initialize_database
 from services.auth import ensure_user_database, auth_exception_handler
 from services.backup_service import backup_scheduler
+
+# Import API middleware
+from api.middleware import log_api_request, cleanup_rate_limits
 
 # Import background tasks
 async def check_scan_timeouts():
@@ -64,23 +68,40 @@ async def check_scan_timeouts():
         # Check every minute
         await asyncio.sleep(10)
 
+async def cleanup_api_data():
+    """Background task to cleanup API rate limiting data"""
+    while True:
+        try:
+            cleanup_rate_limits()
+        except Exception as e:
+            logger.error(f"Error cleaning up API data: {e}")
+        
+        # Cleanup every 5 minutes
+        await asyncio.sleep(300)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     task1 = asyncio.create_task(check_scan_timeouts())
     task2 = asyncio.create_task(backup_scheduler())
+    task3 = asyncio.create_task(cleanup_api_data())
     
     yield
     
     # Shutdown
     task1.cancel()
     task2.cancel()
+    task3.cancel()
     try:
         await task1
     except asyncio.CancelledError:
         pass
     try:
         await task2
+    except asyncio.CancelledError:
+        pass
+    try:
+        await task3
     except asyncio.CancelledError:
         pass
 
@@ -98,9 +119,11 @@ logger = logging.getLogger("main")
 # Initialize FastAPI app
 app = FastAPI(title="Secrets Scanner", lifespan=lifespan, root_path=BASE_URL)
 
+# Add API logging middleware (must be before other middleware)
+app.add_middleware(BaseHTTPMiddleware, dispatch=log_api_request)
+
 # Mount static files
 app.mount("/ico", StaticFiles(directory="ico"), name="ico")
-# app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/static/{file_path:path}")
 async def serve_static(file_path: str):
@@ -132,6 +155,10 @@ from routes.admin_routes import router as admin_router
 from routes.logs_routes import router as logs_router
 from routes.secrets_history_routes import router as secrets_history_router
 
+# Import API router
+from api import router as api_router
+
+# Include all routers
 app.include_router(auth_router)
 app.include_router(dashboard_router)
 app.include_router(project_router)
@@ -142,6 +169,9 @@ app.include_router(admin_router)
 app.include_router(logs_router)
 app.include_router(secrets_history_router)
 
+# Include API router
+app.include_router(api_router)
+
 # Favicon route
 @app.get("/favicon.ico")
 async def favicon():
@@ -151,8 +181,6 @@ async def favicon():
     else:
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Favicon not found")
-
-
 
 if __name__ == "__main__":
     import uvicorn

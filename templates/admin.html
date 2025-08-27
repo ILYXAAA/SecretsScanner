@@ -52,6 +52,25 @@
             <div class="alert alert-success">Пользователь успешно удален.</div>
             {% elif 'success=secret_key_updated' in request.url.query %}
             <div class="alert alert-success">SECRET_KEY успешно обновлен. Все пользователи будут выходить из системы.</div>
+            {% elif 'error=api_token_exists' in request.url.query %}
+            <div class="alert alert-error">API токен с таким названием уже существует.</div>
+            {% elif 'error=api_token_creation_failed' in request.url.query %}
+            <div class="alert alert-error">Не удалось создать API токен.</div>
+            {% elif 'success=api_token_created' in request.url.query %}
+            <div class="api-token-display">
+                <div class="token-header">
+                    🎉 API токен успешно создан для команды "{{ request.query_params.get('token_name', '') }}"
+                </div>
+                <div class="token-value">
+                    {{ request.query_params.get('token', '') }}
+                    <button type="button" class="copy-button" onclick="copyToClipboard('{{ request.query_params.get('token', '') }}')">
+                        Копировать
+                    </button>
+                </div>
+                <div class="token-warning">
+                    ⚠️ Важно: Сохраните токен в безопасном месте. Он больше не будет показан в интерфейсе.
+                </div>
+            </div>
             {% endif %}
         {% endif %}
         
@@ -150,6 +169,112 @@
                         <button type="submit" class="btn btn-warning">Обновить SECRET_KEY</button>
                     </div>
                 </form>
+            </div>
+        </div>
+
+        <!-- API Tokens Management Section -->
+        <div class="section">
+            <h2 class="section-title">
+                <span>🔑</span>
+                Управление API токенами
+            </h2>
+            
+            <!-- Collapsible Create Token Form -->
+            <div class="collapsible-section">
+                <div class="collapsible-header" onclick="toggleCollapsible('createTokenForm')">
+                    <span>➕ Создать новый API токен</span>
+                    <span class="chevron">▼</span>
+                </div>
+                <div id="createTokenForm" class="collapsible-content">
+                    <form method="post" action="/secret_scanner/admin/create-api-token">
+                        <div class="form-section">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="api_name">Название токена (команда) *</label>
+                                    <input type="text" id="api_name" name="name" required 
+                                           placeholder="Например: DevTeam1, QATeam, Frontend">
+                                    <div class="help-text">Используйте понятные названия для идентификации команд</div>
+                                </div>
+                                <div class="form-group">
+                                    <label for="expires_days">Срок действия (дней)</label>
+                                    <input type="number" id="expires_days" name="expires_days" value="365" min="0" max="3650">
+                                    <div class="help-text">0 = без ограничений по времени</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-section">
+                            <h4>Лимиты запросов</h4>
+                            <div class="rate-limits-grid">
+                                <div class="form-group">
+                                    <label for="requests_per_minute">В минуту</label>
+                                    <input type="number" id="requests_per_minute" name="requests_per_minute" value="60" min="1" max="1000">
+                                </div>
+                                <div class="form-group">
+                                    <label for="requests_per_hour">В час</label>
+                                    <input type="number" id="requests_per_hour" name="requests_per_hour" value="1000" min="1" max="10000">
+                                </div>
+                                <div class="form-group">
+                                    <label for="requests_per_day">В день</label>
+                                    <input type="number" id="requests_per_day" name="requests_per_day" value="10000" min="1" max="100000">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-section">
+                            <h4>Разрешения API</h4>
+                            <div class="permissions-grid">
+                                <div class="permission-item">
+                                    <input type="checkbox" id="perm_project_add" name="perm_project_add" value="1">
+                                    <label for="perm_project_add">Создание проектов</label>
+                                </div>
+                                <div class="permission-item">
+                                    <input type="checkbox" id="perm_project_check" name="perm_project_check" value="1" checked>
+                                    <label for="perm_project_check">Проверка проектов</label>
+                                </div>
+                                <div class="permission-item">
+                                    <input type="checkbox" id="perm_scan" name="perm_scan" value="1">
+                                    <label for="perm_scan">Запуск сканов</label>
+                                </div>
+                                <div class="permission-item">
+                                    <input type="checkbox" id="perm_multi_scan" name="perm_multi_scan" value="1">
+                                    <label for="perm_multi_scan">Мульти-сканы</label>
+                                </div>
+                                <div class="permission-item">
+                                    <input type="checkbox" id="perm_scan_results" name="perm_scan_results" value="1" checked>
+                                    <label for="perm_scan_results">Получение результатов</label>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-success">Создать токен</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            
+            <div style="margin-top: 2rem;">
+                <h3 style="margin-bottom: 1rem;">📋 Список API токенов</h3>
+                <div class="loading" id="tokensLoading">Загрузка токенов...</div>
+                <table class="users-table tokens-table" id="tokensTable">
+                    <thead>
+                        <tr>
+                            <th>Название</th>
+                            <th>Токен</th>
+                            <th>Создан</th>
+                            <th>Истекает</th>
+                            <th>Использован</th>
+                            <th>Статус</th>
+                            <th>Разрешения</th>
+                            <th>Лимиты</th>
+                            <th>Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tokensTableBody">
+                        <!-- Tokens will be loaded here -->
+                    </tbody>
+                </table>
             </div>
         </div>
 

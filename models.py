@@ -59,6 +59,38 @@ class MultiScan(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     name = Column(String)
 
+# API Token models
+class ApiToken(Base):
+    __tablename__ = "api_tokens"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)  # Team/client name
+    token_hash = Column(String, unique=True, nullable=False, index=True)  # SHA256 hash of token
+    prefix = Column(String, nullable=False)  # First 8 chars for identification (ss_live_)
+    created_by = Column(String, nullable=False)  # Admin who created the token
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    expires_at = Column(DateTime(timezone=True), nullable=True)  # None = never expires
+    is_active = Column(Boolean, default=True)
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+    
+    # Rate limits
+    requests_per_minute = Column(Integer, default=60)
+    requests_per_hour = Column(Integer, default=1000) 
+    requests_per_day = Column(Integer, default=10000)
+    
+    # Permissions as JSON string
+    permissions = Column(Text, default='{}')  # {"project_add": true, "scan": true, etc}
+
+class ApiUsage(Base):
+    __tablename__ = "api_usage"
+    id = Column(Integer, primary_key=True, index=True)
+    token_id = Column(Integer, nullable=False, index=True)
+    endpoint = Column(String, nullable=False)  # e.g., "POST /api/v1/scan"
+    timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    response_status = Column(Integer)  # HTTP status code
+    response_time_ms = Column(Integer)  # Response time in milliseconds
+    ip_address = Column(String, nullable=True)
+    user_agent = Column(String, nullable=True)
+
 # Separate Base for users (different database)
 UserBase = declarative_base()
 

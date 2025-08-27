@@ -17,6 +17,8 @@ from services.backup_service import create_database_backup, get_backup_status, l
 from models import User, Secret, Scan, Project
 from services.templates import templates
 from services.database import get_db
+import json
+from datetime import datetime
 
 logger = logging.getLogger("main")
 
@@ -484,3 +486,177 @@ async def manual_backup(_: bool = Depends(get_admin_user)):
 async def list_backups_route(_: bool = Depends(get_admin_user)):
     """List available backups"""
     return list_backups()
+
+@router.get("/admin/api-tokens")
+async def list_api_tokens(_: str = Depends(get_admin_user), db: Session = Depends(get_db)):
+    """Get list of all API tokens"""
+    try:
+        from models import ApiToken
+        tokens = db.query(ApiToken).order_by(ApiToken.created_at.desc()).all()
+        
+        tokens_data = []
+        for token in tokens:
+            # Parse permissions
+            try:
+                permissions = json.loads(token.permissions)
+            except:
+                permissions = {}
+            
+            tokens_data.append({
+                "id": token.id,
+                "name": token.name,
+                "prefix": token.prefix,
+                "created_by": token.created_by,
+                "created_at": token.created_at.strftime("%d.%m.%Y %H:%M") if token.created_at else "Unknown",
+                "expires_at": token.expires_at.strftime("%d.%m.%Y %H:%M") if token.expires_at else None,
+                "last_used_at": token.last_used_at.strftime("%d.%m.%Y %H:%M") if token.last_used_at else "Never",
+                "is_active": token.is_active,
+                "permissions": permissions,
+                "requests_per_minute": token.requests_per_minute,
+                "requests_per_hour": token.requests_per_hour,
+                "requests_per_day": token.requests_per_day
+            })
+        
+        return {"status": "success", "tokens": tokens_data}
+        
+    except Exception as e:
+        logger.error(f"Error listing API tokens: {e}")
+        return {"status": "error", "message": str(e)}
+
+@router.post("/admin/create-api-token")
+async def create_api_token(
+    request: Request, 
+    name: str = Form(...),
+    expires_days: int = Form(default=365),
+    permissions: str = Form(default="{}"),
+    requests_per_minute: int = Form(default=60),
+    requests_per_hour: int = Form(default=1000),
+    requests_per_day: int = Form(default=10000),
+    admin_user: str = Depends(get_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Create new API token - admin only"""
+    try:
+        from models import ApiToken
+        from api.utils import generate_api_token, get_token_prefix, validate_permissions
+        from datetime import timedelta
+        
+        # Check if token with this name already exists
+        existing_token = db.query(ApiToken).filter(ApiToken.name == name).first()
+        if existing_token:
+            return RedirectResponse(url="/secret_scanner/admin?error=api_token_exists", status_code=302)
+        
+        # Generate token
+        full_token, token_hash = generate_api_token()
+        token_prefix = get_token_prefix(full_token)
+        
+        # Parse and validate permissions
+        try:
+            permissions_dict = json.loads(permissions)
+            permissions_dict = validate_permissions(permissions_dict)
+        except:
+            permissions_dict = {"project_add": False, "project_check": True, "scan": False, "multi_scan": False, "scan_results": True}
+        
+        # Calculate expiration date
+        expires_at = None
+        if expires_days > 0:
+            expires_at = datetime.now() + timedelta(days=expires_days)
+        
+        # Create token record
+        api_token = ApiToken(
+            name=name,
+            token_hash=token_hash,
+            prefix=token_prefix,
+            created_by=admin_user,
+            expires_at=expires_at,
+            is_active=True,
+            requests_per_minute=requests_per_minute,
+            requests_per_hour=requests_per_hour,
+            requests_per_day=requests_per_day,
+            permissions=json.dumps(permissions_dict)
+        )
+        
+        db.add(api_token)
+        db.commit()
+        
+        logger.info(f"API token created: {name} by {admin_user}")
+        
+        # Redirect with token in query param for display (one-time only)
+        import urllib.parse
+        encoded_token = urllib.parse.quote(full_token)
+        return RedirectResponse(
+            url=f"/secret_scanner/admin?success=api_token_created&token={encoded_token}&token_name={urllib.parse.quote(name)}", 
+            status_code=302
+        )
+        
+    except Exception as e:
+        logger.error(f"Error creating API token: {e}")
+        return RedirectResponse(url="/secret_scanner/admin?error=api_token_creation_failed", status_code=302)
+
+@router.post("/admin/delete-api-token/{token_id}")
+async def delete_api_token(
+    token_id: int, 
+    _: str = Depends(get_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Delete API token - admin only"""
+    try:
+        from models import ApiToken, ApiUsage
+        
+        token = db.query(ApiToken).filter(ApiToken.id == token_id).first()
+        if not token:
+            return JSONResponse(
+                status_code=404,
+                content={"status": "error", "message": "API token not found"}
+            )
+        
+        token_name = token.name
+        
+        # Delete related usage records
+        db.query(ApiUsage).filter(ApiUsage.token_id == token_id).delete()
+        
+        # Delete token
+        db.delete(token)
+        db.commit()
+        
+        logger.info(f"API token deleted: {token_name}")
+        return {"status": "success", "message": "API token deleted successfully"}
+        
+    except Exception as e:
+        logger.error(f"Error deleting API token: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": str(e)}
+        )
+
+@router.post("/admin/toggle-api-token/{token_id}")
+async def toggle_api_token(
+    token_id: int,
+    _: str = Depends(get_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Toggle API token active status - admin only"""
+    try:
+        from models import ApiToken
+        
+        token = db.query(ApiToken).filter(ApiToken.id == token_id).first()
+        if not token:
+            return JSONResponse(
+                status_code=404,
+                content={"status": "error", "message": "API token not found"}
+            )
+        
+        token.is_active = not token.is_active
+        db.commit()
+        
+        status = "activated" if token.is_active else "deactivated"
+        logger.info(f"API token {status}: {token.name}")
+        
+        return {"status": "success", "message": f"API token {status} successfully", "is_active": token.is_active}
+        
+    except Exception as e:
+        logger.error(f"Error toggling API token: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": str(e)}
+        )
