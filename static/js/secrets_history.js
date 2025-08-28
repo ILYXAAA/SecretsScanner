@@ -435,7 +435,7 @@ function showSecretDetails(secretId) {
                             const org = urlParts[3];
                             const project = urlParts[4];
                             const repo = urlParts[6];
-                            compareUrl = `https://dev.azure.com/${org}/${project}/_git/${repo}/compare/commit/${item.commit}...${latestCommit}?path=${encodeURIComponent(secret.path)}`;
+                            compareUrl = `${projectRepoUrl}?_a=compare&path=${encodeURIComponent(secret.path)}&mversion=GC${item.commit}&oversion=GC${latestCommit}`;
                         }
                     } else if (projectRepoUrl && projectRepoUrl.includes('github.com')) {
                         compareUrl = `${projectRepoUrl}/compare/${item.commit}...${latestCommit}`;

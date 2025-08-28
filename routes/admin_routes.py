@@ -245,19 +245,26 @@ async def admin_panel(request: Request, _: str = Depends(get_admin_user)):
     })
 
 @router.get("/admin/users")
-async def list_users(page: int = 1, _: str = Depends(get_admin_user), 
+async def list_users(page: int = 1, search: str = "", _: str = Depends(get_admin_user), 
                     user_db: Session = Depends(get_user_db), db: Session = Depends(get_db)):
-    """Get list of all users with pagination and scan statistics"""
+    """Get list of all users with pagination, search and scan statistics"""
     try:
         page_size = 15
         offset = (page - 1) * page_size
         
-        # Get total users count
-        total_users = user_db.query(User).count()
+        # Base query
+        query = user_db.query(User)
+        
+        # Apply search filter
+        if search.strip():
+            query = query.filter(User.username.ilike(f"%{search.strip()}%"))
+        
+        # Get total users count with search applied
+        total_users = query.count()
         total_pages = (total_users + page_size - 1) // page_size
         
         # Get users for current page
-        users = user_db.query(User).order_by(User.created_at.desc()).offset(offset).limit(page_size).all()
+        users = query.order_by(User.created_at.desc()).offset(offset).limit(page_size).all()
         
         users_data = []
         for user in users:
@@ -287,7 +294,6 @@ async def list_users(page: int = 1, _: str = Depends(get_admin_user),
     except Exception as e:
         logger.error(f"Error listing users: {e}")
         return {"status": "error", "message": str(e)}
-
 @router.post("/admin/create-user")
 async def create_user(request: Request, username: str = Form(...), password: str = Form(...),
                      _: str = Depends(get_admin_user), user_db: Session = Depends(get_user_db)):
@@ -298,6 +304,7 @@ async def create_user(request: Request, username: str = Form(...), password: str
             return RedirectResponse(url="/secret_scanner/admin?error=user_exists", status_code=302)
         
         password_hash = get_password_hash(password)
+        username = username.replace(":", ".").replace("/", ".")
         new_user = User(username=username, password_hash=password_hash)
         user_db.add(new_user)
         user_db.commit()
@@ -488,11 +495,27 @@ async def list_backups_route(_: bool = Depends(get_admin_user)):
     return list_backups()
 
 @router.get("/admin/api-tokens")
-async def list_api_tokens(_: str = Depends(get_admin_user), db: Session = Depends(get_db)):
-    """Get list of all API tokens"""
+async def list_api_tokens(page: int = 1, search: str = "", _: str = Depends(get_admin_user), db: Session = Depends(get_db)):
+    """Get list of all API tokens with pagination and search"""
     try:
         from models import ApiToken
-        tokens = db.query(ApiToken).order_by(ApiToken.created_at.desc()).all()
+        
+        page_size = 10
+        offset = (page - 1) * page_size
+        
+        # Base query
+        query = db.query(ApiToken)
+        
+        # Apply search filter
+        if search.strip():
+            query = query.filter(ApiToken.name.ilike(f"%{search.strip()}%"))
+        
+        # Get total tokens count with search applied
+        total_tokens = query.count()
+        total_pages = (total_tokens + page_size - 1) // page_size
+        
+        # Get tokens for current page
+        tokens = query.order_by(ApiToken.created_at.desc()).offset(offset).limit(page_size).all()
         
         tokens_data = []
         for token in tokens:
@@ -517,12 +540,21 @@ async def list_api_tokens(_: str = Depends(get_admin_user), db: Session = Depend
                 "requests_per_day": token.requests_per_day
             })
         
-        return {"status": "success", "tokens": tokens_data}
+        return {
+            "status": "success", 
+            "tokens": tokens_data,
+            "pagination": {
+                "current_page": page,
+                "total_pages": total_pages,
+                "total_tokens": total_tokens,
+                "page_size": page_size
+            }
+        }
         
     except Exception as e:
         logger.error(f"Error listing API tokens: {e}")
         return {"status": "error", "message": str(e)}
-
+    
 @router.post("/admin/create-api-token")
 async def create_api_token(
     request: Request, 

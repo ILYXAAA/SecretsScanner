@@ -753,7 +753,7 @@ async def scan_results(request: Request, scan_id: str, severity_filter: str = ""
         "total_secrets": total_secrets,
         "high_secrets": high_secrets,
         "potential_secrets": potential_secrets,
-        "hub_type": HUB_TYPE,
+        "HUB_TYPE": HUB_TYPE,
         "current_filters": {
             "severity": severity_filter,
             "type": type_filter,

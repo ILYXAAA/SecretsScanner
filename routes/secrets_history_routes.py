@@ -54,7 +54,7 @@ async def project_secrets_history(request: Request, project_name: str,
             "total_all": 0,
             "unique_commits_count": 0,
             "latest_scan": None,
-            "hub_type": HUB_TYPE,
+            "HUB_TYPE": HUB_TYPE,
             "current_user": current_user
         })
     
@@ -266,6 +266,6 @@ async def project_secrets_history(request: Request, project_name: str,
         "total_all": len(secrets_list_all),
         "unique_commits_count": len(all_commits),
         "latest_scan": latest_scan,
-        "hub_type": HUB_TYPE,
+        "HUB_TYPE": HUB_TYPE,
         "current_user": current_user
     })

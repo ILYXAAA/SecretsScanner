@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.security import HTTPBearer
 from starlette.middleware.base import BaseHTTPMiddleware
 from contextlib import asynccontextmanager
 import asyncio
@@ -116,8 +117,65 @@ logging.basicConfig(
 )
 logger = logging.getLogger("main")
 
-# Initialize FastAPI app
-app = FastAPI(title="Secrets Scanner", lifespan=lifespan, root_path=BASE_URL)
+# Initialize FastAPI app with comprehensive documentation
+app = FastAPI(
+    title="Secrets Scanner API",
+    description="API for scanning repositories for secrets and credentials",
+    version="1.0.0",
+    lifespan=lifespan, 
+    root_path=BASE_URL,
+    docs_url=None,  # Disable default docs
+    redoc_url=None,  # Disable default redoc
+    openapi_url=f"/api/openapi.json"
+)
+
+# Custom Swagger UI with enhanced settings
+from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
+from fastapi.openapi.utils import get_openapi
+
+@app.get("/api/openapi.json", include_in_schema=False)
+async def get_openapi():
+    """Return OpenAPI schema"""
+    # Используем стандартную схему FastAPI
+    return app.openapi()
+
+@app.get("/api/swagger", include_in_schema=False)
+async def custom_swagger_ui_html():
+    return get_swagger_ui_html(
+        openapi_url=f"{BASE_URL}/api/openapi.json",
+        title=f"{app.title} - Interactive API Documentation",
+        oauth2_redirect_url=app.swagger_ui_oauth2_redirect_url,
+        swagger_js_url=f"{BASE_URL}/static/swagger-ui/swagger-ui-bundle.js",
+        swagger_css_url=f"{BASE_URL}/static/swagger-ui/swagger-ui.css",
+        swagger_ui_parameters={
+            "deepLinking": True,
+            "displayOperationId": False,
+            "defaultModelsExpandDepth": 2,
+            "defaultModelExpandDepth": 2,
+            "defaultModelRendering": "model",
+            "displayRequestDuration": True,
+            "docExpansion": "list",
+            "filter": True,
+            "operationsSorter": "method",
+            "showExtensions": True,
+            "showCommonExtensions": True,
+            "tryItOutEnabled": True,
+            "persistAuthorization": True,
+            "layout": "BaseLayout",
+            "servers": [
+                {"url": f"{BASE_URL}", "description": "Production server"}
+            ]
+        }
+    )
+
+@app.get("/api/redoc", include_in_schema=False)
+async def redoc_html():
+    return get_redoc_html(
+        openapi_url=f"{BASE_URL}/api/openapi.json",
+        title=f"{app.title} - API Documentation",
+        redoc_js_url=f"{BASE_URL}/static/redoc/redoc.standalone.js",
+        with_google_fonts=False
+    )
 
 # Add API logging middleware (must be before other middleware)
 app.add_middleware(BaseHTTPMiddleware, dispatch=log_api_request)
@@ -130,7 +188,6 @@ async def serve_static(file_path: str):
     file_location = os.path.join("static", file_path)
     if os.path.exists(file_location):
         response = FileResponse(file_location)
-        # Кеширование на неделю (7 дней = 604800 секунд)
         response.headers["Cache-Control"] = "public, max-age=604800"
         return response
     else:
@@ -172,6 +229,145 @@ app.include_router(secrets_history_router)
 # Include API router
 app.include_router(api_router)
 
+def custom_api_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    
+    from fastapi.routing import APIRoute
+    from fastapi.openapi.utils import get_openapi
+    
+    # Get ALL routes first to understand the structure
+    all_routes = []
+    for route in app.routes:
+        if isinstance(route, APIRoute):
+            all_routes.append(route)
+    
+    # Filter only API routes - more precise filtering
+    api_routes = []
+    for route in all_routes:
+        # Check if route path contains /api/v1 and is not excluded
+        if (route.path.startswith("/api/v1") or "/api/v1/" in route.path) and not route.include_in_schema == False:
+            api_routes.append(route)
+    
+    # If no API routes found, create empty schema
+    if not api_routes:
+        openapi_schema = {
+            "openapi": "3.0.2",
+            "info": {
+                "title": "Secrets Scanner API",
+                "version": "1.0.0",
+                "description": "API для сканирования репозиториев на предмет нескрытых секретов."
+            },
+            "paths": {},
+            "components": {
+                "securitySchemes": {
+                    "BearerAuth": {
+                        "type": "http",
+                        "scheme": "bearer",
+                        "bearerFormat": "API Key",
+                        "description": "Enter your API token (e.g., ss_live_abc123...)"
+                    }
+                }
+            }
+        }
+    else:
+        # Create a temporary FastAPI app with only API routes
+        from fastapi import FastAPI
+        temp_app = FastAPI()
+        
+        # Add only API routes to temp app
+        for route in api_routes:
+            temp_app.router.routes.append(route)
+        
+        # Generate schema from temp app
+        try:
+            openapi_schema = get_openapi(
+                title="Secrets Scanner API",
+                version="1.0.0", 
+                description="API для сканирования репозиториев на предмет нескрытых секретов.",
+                routes=temp_app.router.routes
+            )
+        except TypeError:
+            # Fallback for older FastAPI versions
+            openapi_schema = {
+                "openapi": "3.0.2",
+                "info": {
+                    "title": "Secrets Scanner API",
+                    "version": "1.0.0",
+                    "description": "API для сканирования репозиториев на предмет нескрытых секретов."
+                },
+                "paths": {},
+                "components": {}
+            }
+    
+    # Ensure components section exists
+    if "components" not in openapi_schema:
+        openapi_schema["components"] = {}
+    
+    # Add Bearer token security scheme
+    openapi_schema["components"]["securitySchemes"] = {
+        "BearerAuth": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "API Key", 
+            "description": "Enter your API token (e.g., ss_live_abc123...)"
+        }
+    }
+
+    openapi_schema["servers"] = [
+        {
+            "url": f"{BASE_URL}",
+            "description": "Production server"
+        }
+    ]
+    
+    # Apply security to all paths
+    if "paths" in openapi_schema:
+        for path_key in openapi_schema["paths"]:
+            path_obj = openapi_schema["paths"][path_key]
+            for method in path_obj:
+                if method.lower() in ["get", "post", "put", "delete", "patch"]:
+                    if "security" not in path_obj[method]:
+                        path_obj[method]["security"] = [{"BearerAuth": []}]
+    
+    # Add metadata
+    if "info" not in openapi_schema:
+        openapi_schema["info"] = {}
+        
+    openapi_schema["info"].update({
+        "contact": {
+            "name": "Secrets Scanner API Support",
+            "url": "https://github.com/your-org/secrets-scanner"
+        },
+        "license": {
+            "name": "MIT License", 
+            "url": "https://opensource.org/licenses/MIT"
+        }
+    })
+    
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+# Set custom OpenAPI schema
+app.openapi = custom_api_openapi
+
+# Health check endpoint for API monitoring
+@app.get("/api/health", include_in_schema=False)
+async def api_health_check():
+    """Health check endpoint for monitoring"""
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "version": "1.0.0"
+    }
+
+# API documentation redirect
+@app.get("/api", include_in_schema=False)
+async def api_redirect():
+    """Redirect /api to Swagger documentation"""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url=f"{BASE_URL}/api/swagger")
+
 # Favicon route
 @app.get("/favicon.ico")
 async def favicon():
@@ -182,6 +378,19 @@ async def favicon():
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Favicon not found")
 
+# Root endpoint redirects to dashboard (restore original behavior)
+@app.get("/", include_in_schema=False)
+async def root():
+    """Redirect to dashboard"""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url=f"{BASE_URL}/dashboard")
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host=APP_HOST, port=APP_PORT)
+    uvicorn.run(
+        app, 
+        host=APP_HOST, 
+        port=APP_PORT,
+        log_level="info",
+        access_log=True
+    )

@@ -232,6 +232,52 @@ body {
     background: #f8f9fa;
 }
 
+.users-table.compact th,
+.users-table.compact td {
+    padding: 0.5rem 1rem; /* Уменьшено с 1rem до 0.5rem по вертикали */
+    vertical-align: middle;
+}
+
+.users-table.compact .user-avatar {
+    width: 32px;  /* Уменьшено с 40px */
+    height: 32px; /* Уменьшено с 40px */
+    font-size: 1rem; /* Уменьшено с 1.2rem */
+}
+
+.users-table.compact .user-details {
+    line-height: 1.2; /* Уменьшить межстрочный интервал */
+}
+
+.users-table.compact .user-date {
+    font-size: 0.8rem; /* Немного уменьшить шрифт даты */
+    line-height: 1.2;
+}
+
+.users-table .btn,
+.tokens-table .btn {
+    padding: 0.45rem 0.8rem;  /* Уменьшено с 0.75rem 1.5rem */
+    font-size: 0.8rem;        /* Уменьшено с 1rem */
+    min-height: auto;
+}
+
+.users-table .btn-danger,
+.tokens-table .btn-danger {
+    padding: 0.45rem 0.8rem;
+    font-size: 0.8rem;
+}
+
+.users-table .btn-warning,
+.tokens-table .btn-warning {
+    padding: 0.45rem 0.8rem;
+    font-size: 0.8rem;
+}
+
+.users-table .btn-success,
+.tokens-table .btn-success {
+    padding: 0.45rem 0.8rem;
+    font-size: 0.8rem;
+}
+
 .form-container {
     background: #f8f9fa;
     border-radius: 8px;
@@ -268,8 +314,8 @@ body {
 }
 
 .user-avatar {
-    width: 40px;
-    height: 40px;
+    width: 30px;   /* Уменьшено с 40px */
+    height: 30px;  /* Уменьшено с 40px */
     background: #28a745;
     border-radius: 50%;
     display: flex;
@@ -277,13 +323,13 @@ body {
     justify-content: center;
     color: white;
     font-weight: 600;
-    font-size: 1.2rem;
+    font-size: 0.9rem;  /* Уменьшено с 1.2rem */
 }
 
 .user-info {
     display: flex;
     align-items: center;
-    gap: 1rem;
+    gap: 0.75rem;  /* Уменьшено с 1rem */
 }
 
 .user-details {
@@ -564,7 +610,7 @@ select:focus {
 }
 
 .action-buttons .btn {
-    padding: 0.35rem 0.7rem;
+    padding: 0.45rem 0.8rem;
     font-size: 0.8rem;
     min-width: auto;
 }

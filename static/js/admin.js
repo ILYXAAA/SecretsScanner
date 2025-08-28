@@ -1,5 +1,9 @@
 let currentPage = 1;
 let totalPages = 1;
+let currentTokensPage = 1;
+let totalTokensPages = 1;
+let currentUserSearch = '';
+let currentTokenSearch = '';
 
 // Load users on page load
 // Load API tokens on page load
@@ -29,16 +33,23 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
-async function loadApiTokens() {
+async function loadApiTokens(page = 1, search = '') {
     const loading = document.getElementById('tokensLoading');
     const table = document.getElementById('tokensTable');
     const tbody = document.getElementById('tokensTableBody');
+    const pagination = document.getElementById('tokensPagination');
     
     loading.style.display = 'block';
     table.style.display = 'none';
+    pagination.style.display = 'none';
     
     try {
-        const response = await fetch('/secret_scanner/admin/api-tokens');
+        const params = new URLSearchParams({
+            page: page.toString(),
+            search: search
+        });
+        
+        const response = await fetch(`/secret_scanner/admin/api-tokens?${params}`);
         const data = await response.json();
         
         if (data.status === 'success') {
@@ -48,7 +59,7 @@ async function loadApiTokens() {
                 tbody.innerHTML = `
                     <tr>
                         <td colspan="9" class="empty-state">
-                            <div>API токены не найдены</div>
+                            <div>${search ? 'API токены не найдены по запросу' : 'API токены не найдены'}</div>
                         </td>
                     </tr>
                 `;
@@ -93,6 +104,22 @@ async function loadApiTokens() {
                 });
             }
             
+            // Update pagination for tokens
+            if (data.pagination && data.pagination.total_pages > 1) {
+                currentTokensPage = data.pagination.current_page;
+                totalTokensPages = data.pagination.total_pages;
+                
+                document.getElementById('tokensPageInfo').textContent = 
+                    `Страница ${currentTokensPage} из ${totalTokensPages}`;
+                document.getElementById('tokensTotalInfo').textContent = 
+                    `Всего токенов: ${data.pagination.total_tokens}`;
+                
+                document.getElementById('prevTokensPage').disabled = currentTokensPage <= 1;
+                document.getElementById('nextTokensPage').disabled = currentTokensPage >= totalTokensPages;
+                
+                pagination.style.display = 'block';
+            }
+            
             table.style.display = 'table';
         } else {
             tbody.innerHTML = `
@@ -119,6 +146,46 @@ async function loadApiTokens() {
     }
 }
 
+function changeTokensPage(direction) {
+    const newPage = currentTokensPage + direction;
+    if (newPage >= 1 && newPage <= totalTokensPages) {
+        loadApiTokens(newPage, currentTokenSearch);
+    }
+}
+
+let userSearchTimeout = null;
+let tokenSearchTimeout = null;
+
+function searchUsers() {
+    // Очистить предыдущий таймер
+    if (userSearchTimeout) {
+        clearTimeout(userSearchTimeout);
+    }
+    
+    // Установить новый таймер с задержкой 500ms
+    userSearchTimeout = setTimeout(() => {
+        const searchInput = document.getElementById('userSearch');
+        currentUserSearch = searchInput.value.trim();
+        currentPage = 1; // Reset to first page
+        loadUsers(1, currentUserSearch);
+    }, 500);
+}
+
+function searchTokens() {
+    // Очистить предыдущий таймер
+    if (tokenSearchTimeout) {
+        clearTimeout(tokenSearchTimeout);
+    }
+    
+    // Установить новый таймер с задержкой 500ms
+    tokenSearchTimeout = setTimeout(() => {
+        const searchInput = document.getElementById('tokenSearch');
+        currentTokenSearch = searchInput.value.trim();
+        currentTokensPage = 1; // Reset to first page
+        loadApiTokens(1, currentTokenSearch);
+    }, 500);
+}
+
 async function deleteApiToken(tokenId, tokenName) {
     if (!confirm(`Вы уверены, что хотите удалить API токен "${tokenName}"?`)) {
         return;
@@ -130,7 +197,7 @@ async function deleteApiToken(tokenId, tokenName) {
         });
         
         if (response.ok) {
-            loadApiTokens(); // Reload tokens list
+            loadApiTokens(currentTokensPage, currentTokenSearch); // Reload with current search
         } else {
             alert('Ошибка при удалении токена');
         }
@@ -147,7 +214,7 @@ async function toggleApiToken(tokenId) {
         });
         
         if (response.ok) {
-            loadApiTokens(); // Reload tokens list
+            loadApiTokens(currentTokensPage, currentTokenSearch); // Reload with current search
         } else {
             alert('Ошибка при изменении статуса токена');
         }
@@ -185,7 +252,7 @@ function copyToClipboard(text) {
     });
 }
 
-async function loadUsers(page = 1) {
+async function loadUsers(page = 1, search = '') {
     const loading = document.getElementById('usersLoading');
     const table = document.getElementById('usersTable');
     const tbody = document.getElementById('usersTableBody');
@@ -196,7 +263,12 @@ async function loadUsers(page = 1) {
     pagination.style.display = 'none';
     
     try {
-        const response = await fetch(`/secret_scanner/admin/users?page=${page}`);
+        const params = new URLSearchParams({
+            page: page.toString(),
+            search: search
+        });
+        
+        const response = await fetch(`/secret_scanner/admin/users?${params}`);
         const data = await response.json();
         
         if (data.status === 'success') {
@@ -206,7 +278,7 @@ async function loadUsers(page = 1) {
                 tbody.innerHTML = `
                     <tr>
                         <td colspan="5" class="empty-state">
-                            <div>Пользователи не найдены</div>
+                            <div>${search ? 'Пользователи не найдены по запросу' : 'Пользователи не найдены'}</div>
                         </td>
                     </tr>
                 `;
@@ -289,7 +361,7 @@ async function loadUsers(page = 1) {
 function changePage(direction) {
     const newPage = currentPage + direction;
     if (newPage >= 1 && newPage <= totalPages) {
-        loadUsers(newPage);
+        loadUsers(newPage, currentUserSearch);
     }
 }
 
@@ -304,7 +376,7 @@ async function deleteUser(username) {
         });
         
         if (response.ok) {
-            loadUsers(); // Reload users list
+            loadUsers(currentPage, currentUserSearch); // Reload with current search
             // Show success message
             window.location.href = '/secret_scanner/admin?success=user_deleted';
         } else {

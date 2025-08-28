@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Panel - Secrets Scanner</title>
-    <link rel="stylesheet" href="/static/css/admin.css">
+    <link rel="stylesheet" href="/secret_scanner/static/css/admin.css">
 </head>
 <body>
     <header class="header">
@@ -104,8 +104,16 @@
             
             <div style="margin-top: 2rem;">
                 <h3 style="margin-bottom: 1rem;">📋 Список пользователей</h3>
+                <div style="margin-bottom: 1rem;">
+                    <div class="form-group">
+                        <label for="userSearch">Поиск пользователей</label>
+                        <input type="text" id="userSearch" placeholder="Введите имя пользователя..." 
+                            style="width: 100%; padding: 0.75rem; border: 2px solid #e1e5e9; border-radius: 8px; font-size: 1rem;"
+                            oninput="searchUsers()">
+                    </div>
+                </div>
                 <div class="loading" id="usersLoading">Загрузка пользователей...</div>
-                <table class="users-table" id="usersTable">
+                <table class="users-table compact" id="usersTable">
                     <thead>
                         <tr>
                             <th>Пользователь</th>
@@ -208,15 +216,15 @@
                             <div class="rate-limits-grid">
                                 <div class="form-group">
                                     <label for="requests_per_minute">В минуту</label>
-                                    <input type="number" id="requests_per_minute" name="requests_per_minute" value="60" min="1" max="1000">
+                                    <input type="number" id="requests_per_minute" name="requests_per_minute" value="10" min="1" max="60">
                                 </div>
                                 <div class="form-group">
                                     <label for="requests_per_hour">В час</label>
-                                    <input type="number" id="requests_per_hour" name="requests_per_hour" value="1000" min="1" max="10000">
+                                    <input type="number" id="requests_per_hour" name="requests_per_hour" value="50" min="1" max="200">
                                 </div>
                                 <div class="form-group">
                                     <label for="requests_per_day">В день</label>
-                                    <input type="number" id="requests_per_day" name="requests_per_day" value="10000" min="1" max="100000">
+                                    <input type="number" id="requests_per_day" name="requests_per_day" value="200" min="1" max="600">
                                 </div>
                             </div>
                         </div>
@@ -225,23 +233,23 @@
                             <h4>Разрешения API</h4>
                             <div class="permissions-grid">
                                 <div class="permission-item">
-                                    <input type="checkbox" id="perm_project_add" name="perm_project_add" value="1">
+                                    <input type="checkbox" id="perm_project_add" name="perm_project_add" value="1" checked>
                                     <label for="perm_project_add">Создание проектов</label>
                                 </div>
                                 <div class="permission-item">
                                     <input type="checkbox" id="perm_project_check" name="perm_project_check" value="1" checked>
-                                    <label for="perm_project_check">Проверка проектов</label>
+                                    <label for="perm_project_check">Проверка проектов (exists)</label>
                                 </div>
                                 <div class="permission-item">
-                                    <input type="checkbox" id="perm_scan" name="perm_scan" value="1">
+                                    <input type="checkbox" id="perm_scan" name="perm_scan" value="1" checked>
                                     <label for="perm_scan">Запуск сканов</label>
                                 </div>
                                 <div class="permission-item">
-                                    <input type="checkbox" id="perm_multi_scan" name="perm_multi_scan" value="1">
+                                    <input type="checkbox" id="perm_multi_scan" name="perm_multi_scan" value="1" checked>
                                     <label for="perm_multi_scan">Мульти-сканы</label>
                                 </div>
                                 <div class="permission-item">
-                                    <input type="checkbox" id="perm_scan_results" name="perm_scan_results" value="1" checked>
+                                    <input type="checkbox" id="perm_scan_results" name="perm_scan_results" value="1">
                                     <label for="perm_scan_results">Получение результатов</label>
                                 </div>
                             </div>
@@ -256,6 +264,14 @@
             
             <div style="margin-top: 2rem;">
                 <h3 style="margin-bottom: 1rem;">📋 Список API токенов</h3>
+                <div style="margin-bottom: 1rem;">
+                    <div class="form-group">
+                        <label for="tokenSearch">Поиск API токенов</label>
+                        <input type="text" id="tokenSearch" placeholder="Введите название токена..." 
+                            style="width: 100%; padding: 0.75rem; border: 2px solid #e1e5e9; border-radius: 8px; font-size: 1rem;"
+                            oninput="searchTokens()">
+                    </div>
+                </div>
                 <div class="loading" id="tokensLoading">Загрузка токенов...</div>
                 <table class="users-table tokens-table" id="tokensTable">
                     <thead>
@@ -275,6 +291,19 @@
                         <!-- Tokens will be loaded here -->
                     </tbody>
                 </table>
+                <!-- Pagination for API tokens -->
+                <div id="tokensPagination" style="display: none; margin-top: 1rem; text-align: center;">
+                <div style="display: flex; justify-content: center; align-items: center; gap: 0.5rem;">
+                    <button type="button" class="btn btn-primary" id="prevTokensPage" onclick="changeTokensPage(-1)" style="padding: 0.5rem 1rem;">
+                        ← Предыдущая
+                    </button>
+                    <span id="tokensPageInfo" style="padding: 0 1rem; font-weight: 600;"></span>
+                    <button type="button" class="btn btn-primary" id="nextTokensPage" onclick="changeTokensPage(1)" style="padding: 0.5rem 1rem;">
+                        Следующая →
+                    </button>
+                </div>
+                <div id="tokensTotalInfo" style="margin-top: 0.5rem; color: #666; font-size: 0.9rem;"></div>
+            </div>
             </div>
         </div>
 
@@ -323,6 +352,6 @@
             </div>
         </div>
     </div>
-    <script src="/static/js/admin.js"></script>
+    <script src="/secret_scanner/static/js/admin.js"></script>
 </body>
 </html>

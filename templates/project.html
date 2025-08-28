@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ project.name }} - Secrets Scanner</title>
-    <link rel="stylesheet" href="/static/css/project.css">
+    <link rel="stylesheet" href="/secret_scanner/static/css/project.css">
 </head>
 <body data-language-stats='{{ language_stats | tojson if language_stats else "[]" }}' 
       data-project-repo-url="{{ project.repo_url }}" 
@@ -402,6 +402,6 @@
         {% endif %}
     </div>
     </div>
-    <script src="/static/js/project.js"></script>
+    <script src="/secret_scanner/static/js/project.js"></script>
 </body>
 </html>
