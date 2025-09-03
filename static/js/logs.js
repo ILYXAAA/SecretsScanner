@@ -8,14 +8,29 @@ let linesLimit = 500;
 let searchTerm = '';
 let currentLogLevel = '';
 let lastDisplayedLines = [];
-let lastLogHash = ''; // Для более точного сравнения изменений
+let lastLogHash = '';
 let currentLogSource = 'main';
+let selectedStartDate = '';
+let selectedEndDate = '';
 
 // Initialize
 document.addEventListener('DOMContentLoaded', function() {
+    initializeDatePickers();
     startAutoRefresh();
     refreshLogs();
 });
+
+function initializeDatePickers() {
+    const startDateInput = document.getElementById('startDate');
+    const endDateInput = document.getElementById('endDate');
+    
+    // Set default dates (last 7 days)
+    const today = new Date();
+    const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+    
+    startDateInput.value = weekAgo.toISOString().split('T')[0];
+    endDateInput.value = today.toISOString().split('T')[0];
+}
 
 function startAutoRefresh() {
     if (refreshInterval) {
@@ -31,17 +46,14 @@ function changeLogSource() {
     const select = document.getElementById('logSourceSelect');
     currentLogSource = select.value;
     
-    // Обновляем информацию о файле
     const logInfo = document.getElementById('logInfo');
     logInfo.textContent = currentLogSource === 'main' ? 'secrets_scanner.log' : 'microservice.log';
     
-    // Очищаем текущие логи и перезагружаем
     clearDisplay();
     currentLogLines = [];
     lastDisplayedLines = [];
     lastLogHash = '';
     
-    // Обновляем логи для нового источника
     refreshLogs();
 }
 
@@ -82,8 +94,117 @@ function toggleAutoScroll() {
 
 function setLinesLimit() {
     const select = document.getElementById('linesLimit');
-    linesLimit = select.value === 'all' ? 'all' : parseInt(select.value);
+    linesLimit = select.value === 'all' ? 0 : parseInt(select.value);
     filterLogs();
+}
+
+function showDatePicker() {
+    const modal = document.getElementById('datePickerModal');
+    modal.classList.add('visible');
+}
+
+function hideDatePicker() {
+    const modal = document.getElementById('datePickerModal');
+    modal.classList.remove('visible');
+}
+
+function applyDateFilter() {
+    const startDate = document.getElementById('startDate').value;
+    const endDate = document.getElementById('endDate').value;
+    
+    if (startDate && endDate && startDate > endDate) {
+        alert('Начальная дата не может быть позже конечной даты');
+        return;
+    }
+    
+    selectedStartDate = startDate;
+    selectedEndDate = endDate;
+    
+    // Update UI to show selected dates
+    updateDateDisplays();
+    
+    hideDatePicker();
+    
+    // Clear current data and refresh with date filter
+    clearDisplay();
+    currentLogLines = [];
+    lastDisplayedLines = [];
+    lastLogHash = '';
+    refreshLogs();
+}
+
+function clearDateFilter() {
+    selectedStartDate = '';
+    selectedEndDate = '';
+    
+    // Clear the date inputs
+    document.getElementById('startDate').value = '';
+    document.getElementById('endDate').value = '';
+    
+    updateDateDisplays();
+    hideDatePicker();
+    
+    // Refresh without date filter
+    clearDisplay();
+    currentLogLines = [];
+    lastDisplayedLines = [];
+    lastLogHash = '';
+    refreshLogs();
+}
+
+function updateDateDisplays() {
+    const dateRangeInfo = document.getElementById('dateRangeInfo');
+    if (selectedStartDate || selectedEndDate) {
+        let rangeText = 'Filtered: ';
+        if (selectedStartDate && selectedEndDate) {
+            rangeText += selectedStartDate + ' — ' + selectedEndDate;
+        } else if (selectedStartDate) {
+            rangeText += 'from ' + selectedStartDate;
+        } else if (selectedEndDate) {
+            rangeText += 'until ' + selectedEndDate;
+        }
+        dateRangeInfo.textContent = rangeText;
+        dateRangeInfo.style.display = 'block';
+    } else {
+        dateRangeInfo.style.display = 'none';
+    }
+}
+
+function downloadLogs() {
+    const apiLogs = document.body.dataset.apiLogs;
+    const apiMicroserviceLogs = document.body.dataset.apiMicroserviceLogs;
+    
+    // Determine which endpoint to use
+    const baseEndpoint = currentLogSource === 'main' 
+        ? apiLogs.replace('/api/logs', '/api/download-logs')
+        : apiMicroserviceLogs.replace('/api/microservice-logs', '/api/download-microservice-logs');
+    
+    // Build query parameters for date filtering
+    const params = new URLSearchParams();
+    if (selectedStartDate) {
+        params.append('start_date', selectedStartDate);
+    }
+    if (selectedEndDate) {
+        params.append('end_date', selectedEndDate);
+    }
+    
+    const downloadUrl = params.toString() ? baseEndpoint + '?' + params : baseEndpoint;
+    
+    // Show loading indicator
+    updateStatus('Preparing download...');
+    
+    // Create temporary link to trigger download
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    // Update status
+    setTimeout(function() {
+        updateStatus('Download initiated');
+    }, 1000);
 }
 
 function updateStatus(message) {
@@ -99,7 +220,6 @@ function showLoading(show) {
     }
 }
 
-// Создаем простой хеш для сравнения содержимого
 function createHash(lines) {
     return lines.join('').length + '_' + (lines.length > 0 ? lines[lines.length - 1].substring(0, 50) : '');
 }
@@ -113,7 +233,22 @@ async function refreshLogs() {
         
         const endpoint = currentLogSource === 'main' ? apiLogs : apiMicroserviceLogs;
         
-        const response = await fetch(endpoint);
+        // Build query parameters
+        const params = new URLSearchParams();
+        if (linesLimit > 0) {
+            params.append('lines', linesLimit);
+        } else {
+            params.append('lines', '0'); // 0 means all lines
+        }
+        
+        if (selectedStartDate) {
+            params.append('start_date', selectedStartDate);
+        }
+        if (selectedEndDate) {
+            params.append('end_date', selectedEndDate);
+        }
+        
+        const response = await fetch(endpoint + '?' + params);
         const data = await response.json();
         
         if (data.status === 'success') {
@@ -125,23 +260,18 @@ async function refreshLogs() {
             document.getElementById('fileSize').textContent = formatFileSize(newSize);
             document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString();
             
-            // Проверяем, действительно ли изменились данные
             if (newHash !== lastLogHash) {
                 lastLogHash = newHash;
                 const oldLinesCount = currentLogLines.length;
                 currentLogLines = newLines;
                 
-                // Применяем фильтры
                 const newFilteredLines = applyFilters(newLines);
                 
-                // Проверяем, есть ли новые строки для добавления
                 const newLinesCount = newFilteredLines.length - lastDisplayedLines.length;
                 
                 if (newLinesCount > 0 && canAppendNewLines(lastDisplayedLines, newFilteredLines)) {
-                    // Добавляем только новые строки
                     appendNewLines(newFilteredLines.slice(-newLinesCount));
                 } else if (!arraysEqual(newFilteredLines, lastDisplayedLines)) {
-                    // Полная перерисовка только если действительно нужно
                     displayLogs(newFilteredLines, true);
                 }
                 
@@ -170,13 +300,11 @@ function arraysEqual(a, b) {
 }
 
 function canAppendNewLines(oldLines, newLines) {
-    // Проверяем, можно ли просто добавить новые строки
     if (newLines.length <= oldLines.length) return false;
     
     const overlap = Math.min(oldLines.length, newLines.length);
     if (overlap === 0) return true;
     
-    // Проверяем совпадение последних строк
     for (let i = 0; i < overlap; i++) {
         if (oldLines[oldLines.length - 1 - i] !== newLines[newLines.length - 1 - i - (newLines.length - oldLines.length)]) {
             return false;
@@ -189,27 +317,23 @@ function appendNewLines(newLines) {
     const container = document.getElementById('logContent');
     const wasAtBottom = isScrolledToBottom();
     
-    // Создаем fragment для эффективной вставки
     const fragment = document.createDocumentFragment();
     
-    newLines.forEach((line) => {
-        const lineDiv = createLogLineElement(line, true); // Помечаем как новую строку
+    newLines.forEach(function(line) {
+        const lineDiv = createLogLineElement(line, true);
         fragment.appendChild(lineDiv);
     });
     
     container.appendChild(fragment);
     
-    // Обновляем счетчик
     document.getElementById('totalLines').textContent = lastDisplayedLines.length;
     
-    // Удаляем старые строки если превышен лимит
-    if (linesLimit !== 'all') {
+    if (linesLimit > 0) {
         while (container.children.length > linesLimit) {
             container.removeChild(container.firstChild);
         }
     }
     
-    // Auto-scroll если нужно
     if (autoScrollEnabled && wasAtBottom) {
         scrollToBottom();
     }
@@ -218,21 +342,16 @@ function appendNewLines(newLines) {
 function applyFilters(lines) {
     let filteredLines = [...lines];
     
-    // Apply log level filter
     if (currentLogLevel) {
-        filteredLines = filteredLines.filter(line => line.includes(`- ${currentLogLevel} -`));
+        filteredLines = filteredLines.filter(function(line) {
+            return line.includes('- ' + currentLogLevel + ' -');
+        });
     }
     
-    // Apply search filter
     if (searchTerm) {
-        filteredLines = filteredLines.filter(line => 
-            line.toLowerCase().includes(searchTerm.toLowerCase())
-        );
-    }
-    
-    // Apply lines limit
-    if (linesLimit !== 'all') {
-        filteredLines = filteredLines.slice(-linesLimit);
+        filteredLines = filteredLines.filter(function(line) {
+            return line.toLowerCase().includes(searchTerm.toLowerCase());
+        });
     }
     
     return filteredLines;
@@ -245,44 +364,65 @@ function filterLogs() {
     document.getElementById('totalLines').textContent = newFilteredLines.length;
 }
 
-function createLogLineElement(line, isNew = false) {
+function createLogLineElement(line, isNew) {
+    if (isNew === undefined) isNew = false;
+    
     const lineDiv = document.createElement('div');
     lineDiv.className = 'log-line';
     
-    // Добавляем анимацию только для действительно новых строк
     if (isNew) {
         lineDiv.classList.add('new-line');
-        // Убираем класс после завершения анимации
-        setTimeout(() => {
+        setTimeout(function() {
             lineDiv.classList.remove('new-line');
         }, 1500);
     }
     
-    // Detect log level and apply appropriate class
+    // Handle multi-line log entries
+    const lines = line.split('\n');
+    const firstLine = lines[0];
+    
+    // Detect log level from the first line
     let logLevel = '';
-    if (line.includes(' - INFO - ')) logLevel = 'INFO';
-    else if (line.includes(' - WARNING - ')) logLevel = 'WARNING';
-    else if (line.includes(' - ERROR - ')) logLevel = 'ERROR';
-    else if (line.includes(' - DEBUG - ')) logLevel = 'DEBUG';
-    else if (line.includes(' - CRITICAL - ')) logLevel = 'CRITICAL';
+    if (firstLine.includes(' - INFO - ')) logLevel = 'INFO';
+    else if (firstLine.includes(' - WARNING - ')) logLevel = 'WARNING';
+    else if (firstLine.includes(' - ERROR - ')) logLevel = 'ERROR';
+    else if (firstLine.includes(' - DEBUG - ')) logLevel = 'DEBUG';
+    else if (firstLine.includes(' - CRITICAL - ')) logLevel = 'CRITICAL';
     
     if (logLevel) {
         lineDiv.classList.add(logLevel);
     }
     
-    // Format line with syntax highlighting
-    let formattedLine = formatLogLine(line);
+    // Format the entire log entry (including multiline parts)
+    let formattedContent = '';
+    lines.forEach(function(singleLine, index) {
+        if (index === 0) {
+            // Format the main log line
+            formattedContent += formatLogLine(singleLine);
+        } else {
+            // Additional lines (stack traces, etc.)
+            formattedContent += '<br><span class="additional-line">' + escapeHtml(singleLine) + '</span>';
+        }
+    });
     
     // Apply search highlighting
     if (searchTerm) {
-        formattedLine = highlightSearch(formattedLine, searchTerm);
+        formattedContent = highlightSearch(formattedContent, searchTerm);
     }
     
-    lineDiv.innerHTML = formattedLine;
+    lineDiv.innerHTML = formattedContent;
     return lineDiv;
 }
 
-function displayLogs(lines, preserveScroll = true) {
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function displayLogs(lines, preserveScroll) {
+    if (preserveScroll === undefined) preserveScroll = true;
+    
     const container = document.getElementById('logContent');
     const wasAtBottom = preserveScroll ? isScrolledToBottom() : false;
     const scrollTop = preserveScroll ? container.scrollTop : 0;
@@ -292,24 +432,20 @@ function displayLogs(lines, preserveScroll = true) {
         return;
     }
     
-    // Используем DocumentFragment для эффективной вставки
     const fragment = document.createDocumentFragment();
     
-    lines.forEach((line) => {
-        const lineDiv = createLogLineElement(line, false); // Не помечаем как новые при полной перерисовке
+    lines.forEach(function(line) {
+        const lineDiv = createLogLineElement(line, false);
         fragment.appendChild(lineDiv);
     });
     
-    // Одна операция замены содержимого
     container.innerHTML = '';
     container.appendChild(fragment);
     
-    // Восстанавливаем позицию скролла
     if (preserveScroll && !wasAtBottom) {
         container.scrollTop = scrollTop;
     }
     
-    // Auto-scroll если нужно
     if (autoScrollEnabled && (wasAtBottom || !preserveScroll)) {
         scrollToBottom();
     }
@@ -320,17 +456,20 @@ function formatLogLine(line) {
     const match = line.match(logPattern);
     
     if (match) {
-        const [, timestamp, loggerName, level, message] = match;
-        return `<span class="timestamp">${timestamp.trim()}</span><span class="logger-name">${loggerName.trim()}</span><strong>${level.trim()}</strong> - ${message}`;
+        const timestamp = match[1];
+        const loggerName = match[2];
+        const level = match[3];
+        const message = match[4];
+        return '<span class="timestamp">' + timestamp.trim() + '</span><span class="logger-name">' + loggerName.trim() + '</span><strong>' + level.trim() + '</strong> - ' + escapeHtml(message);
     }
     
-    return line;
+    return escapeHtml(line);
 }
 
 function highlightSearch(text, term) {
     if (!term) return text;
     
-    const regex = new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    const regex = new RegExp('(' + term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
     return text.replace(regex, '<span class="search-highlight">$1</span>');
 }
 
@@ -345,7 +484,9 @@ function scrollToBottom() {
     
     const indicator = document.getElementById('autoScrollIndicator');
     indicator.classList.add('visible');
-    setTimeout(() => indicator.classList.remove('visible'), 1000);
+    setTimeout(function() {
+        indicator.classList.remove('visible');
+    }, 1000);
 }
 
 function searchLogs() {
@@ -358,7 +499,6 @@ function filterLogsByLevel() {
     filterLogs();
 }
 
-// Bind the filter function to the select element
 document.getElementById('logLevelFilter').addEventListener('change', filterLogsByLevel);
 
 function clearDisplay() {
@@ -383,6 +523,13 @@ document.getElementById('logContent').addEventListener('scroll', function() {
     
     if (autoScrollEnabled && !isScrolledToBottom()) {
         indicator.classList.remove('visible');
+    }
+});
+
+// Close modal when clicking outside
+document.getElementById('datePickerModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        hideDatePicker();
     }
 });
 

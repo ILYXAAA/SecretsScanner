@@ -35,6 +35,8 @@
             </div>
         </div>
 
+        <div class="date-range-info" id="dateRangeInfo"></div>
+
         <div class="controls">
             <div class="control-group">
                 <label>Auto-refresh:</label>
@@ -59,7 +61,7 @@
             </div>
             
             <div class="control-group">
-                <label>Lines to show:</label>
+                <label>Показ строк:</label>
                 <select id="linesLimit" onchange="setLinesLimit()">
                     <option value="100">Last 100</option>
                     <option value="500" selected>Last 500</option>
@@ -69,7 +71,7 @@
             </div>
 
             <div class="control-group">
-                <label>Log Source:</label>
+                <label>Источник:</label>
                 <select id="logSourceSelect" onchange="changeLogSource()">
                     <option value="main">Main Service</option>
                     <option value="microservice">Microservice</option>
@@ -77,12 +79,14 @@
             </div>
             
             <div class="control-group">
-                <label>Search:</label>
-                <input type="text" id="searchInput" placeholder="Search in logs..." onkeyup="searchLogs()">
+                <label>Поиск:</label>
+                <input type="text" id="searchInput" placeholder="Поиск в логах..." onkeyup="searchLogs()">
             </div>
             
-            <button class="btn" onclick="refreshLogs()">🔄 Refresh</button>
-            <button class="btn" onclick="clearDisplay()">🗑️ Clear Display</button>
+            <button class="btn date-picker-btn" onclick="showDatePicker()">📅 Выбрать даты</button>
+            <button class="btn download-btn" onclick="downloadLogs()">💾 Скачать</button>
+            <button class="btn" onclick="refreshLogs()">🔄 Обновить</button>
+            <button class="btn" onclick="clearDisplay()">🗑️ Очистить экран</button>
         </div>
 
         <div class="log-container">
@@ -104,6 +108,35 @@
             </div>
         </div>
     </div>
+
+    <!-- Date Picker Modal -->
+    <div class="modal" id="datePickerModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Выбор дат</h3>
+                <p>Выберите диапазон дат для фильтрации логов.</p>
+            </div>
+            
+            <div class="date-inputs">
+                <div class="date-input-group">
+                    <label for="startDate">Начальная дата</label>
+                    <input type="date" id="startDate">
+                </div>
+                
+                <div class="date-input-group">
+                    <label for="endDate">Конечная дата</label>
+                    <input type="date" id="endDate">
+                </div>
+            </div>
+            
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="hideDatePicker()">Отмена</button>
+                <button class="btn btn-danger" onclick="clearDateFilter()">Очистить</button>
+                <button class="btn btn-primary" onclick="applyDateFilter()">Применить</button>
+            </div>
+        </div>
+    </div>
+
     <script src="/secret_scanner/static/js/logs.js"></script>
 </body>
 </html>

@@ -95,6 +95,28 @@ body {
     color: white;
 }
 
+.btn.date-picker-btn {
+    background-color: #059669;
+    border-color: #059669;
+    color: white;
+}
+
+.btn.date-picker-btn:hover {
+    background-color: #047857;
+    border-color: #047857;
+}
+
+.btn.download-btn {
+    background-color: #7c3aed;
+    border-color: #7c3aed;
+    color: white;
+}
+
+.btn.download-btn:hover {
+    background-color: #6d28d9;
+    border-color: #6d28d9;
+}
+
 select, input {
     padding: 8px 12px;
     border: 1px solid #374151;
@@ -116,7 +138,7 @@ select:focus, input:focus {
     border-radius: 8px;
     overflow: hidden;
     position: relative;
-    height: 70vh; /* Фиксированная высота контейнера */
+    height: 70vh;
     display: flex;
     flex-direction: column;
 }
@@ -128,8 +150,8 @@ select:focus, input:focus {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    flex-shrink: 0; /* Не сжимается */
-    min-height: 48px; /* Фиксированная минимальная высота */
+    flex-shrink: 0;
+    min-height: 48px;
 }
 
 .log-info {
@@ -138,12 +160,12 @@ select:focus, input:focus {
 }
 
 .log-header-right {
-    min-width: 80px; /* Резервируем место для Loading */
+    min-width: 80px;
     text-align: right;
 }
 
 .log-content {
-    flex: 1; /* Занимает оставшееся место */
+    flex: 1;
     overflow-y: auto;
     padding: 16px;
     font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
@@ -160,7 +182,6 @@ select:focus, input:focus {
     border-radius: 2px;
 }
 
-/* Анимация только для новых строк */
 .log-line.new-line {
     animation: new-line-highlight 1.5s ease-out forwards;
 }
@@ -193,6 +214,13 @@ select:focus, input:focus {
 .logger-name {
     color: #34d399;
     margin-right: 8px;
+}
+
+/* Additional lines (stack traces, etc.) */
+.additional-line {
+    color: #9ca3af;
+    font-style: italic;
+    margin-left: 20px;
 }
 
 /* Auto-scroll indicator */
@@ -229,7 +257,7 @@ select:focus, input:focus {
     font-size: 14px;
     opacity: 0;
     transition: opacity 0.3s ease;
-    min-height: 20px; /* Фиксированная высота */
+    min-height: 20px;
     display: flex;
     align-items: center;
 }
@@ -244,6 +272,7 @@ select:focus, input:focus {
     gap: 20px;
     margin-bottom: 15px;
     font-size: 14px;
+    flex-wrap: wrap;
 }
 
 .stat-item {
@@ -253,6 +282,140 @@ select:focus, input:focus {
 .stat-value {
     color: #e0e0e0;
     font-weight: 600;
+}
+
+/* Date picker modal */
+.modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.7);
+    z-index: 1000;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.modal.visible {
+    display: flex;
+    opacity: 1;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-content {
+    background-color: #1f2937;
+    border: 1px solid #374151;
+    border-radius: 12px;
+    padding: 24px;
+    max-width: 400px;
+    width: 90%;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8);
+}
+
+.modal-header {
+    margin-bottom: 20px;
+}
+
+.modal-header h3 {
+    color: #ffffff;
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.modal-header p {
+    color: #9ca3af;
+    font-size: 14px;
+}
+
+.date-inputs {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.date-input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.date-input-group label {
+    color: #d1d5db;
+    font-weight: 500;
+    font-size: 14px;
+}
+
+.date-input-group input {
+    padding: 10px 12px;
+    border: 1px solid #4b5563;
+    border-radius: 6px;
+    background-color: #111827;
+    color: #e0e0e0;
+    font-size: 14px;
+}
+
+.date-input-group input:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.modal-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+}
+
+.modal-actions .btn {
+    min-width: 80px;
+}
+
+.btn-secondary {
+    background-color: #374151;
+    border-color: #4b5563;
+}
+
+.btn-secondary:hover {
+    background-color: #4b5563;
+}
+
+.btn-danger {
+    background-color: #dc2626;
+    border-color: #dc2626;
+    color: white;
+}
+
+.btn-danger:hover {
+    background-color: #b91c1c;
+    border-color: #b91c1c;
+}
+
+.btn-primary {
+    background-color: #3b82f6;
+    border-color: #3b82f6;
+    color: white;
+}
+
+.btn-primary:hover {
+    background-color: #2563eb;
+    border-color: #2563eb;
+}
+
+/* Date range info */
+.date-range-info {
+    color: #10b981;
+    font-size: 14px;
+    font-weight: 500;
+    display: none;
+    padding: 8px 12px;
+    background-color: rgba(16, 185, 129, 0.1);
+    border: 1px solid rgba(16, 185, 129, 0.2);
+    border-radius: 6px;
+    margin-bottom: 15px;
 }
 
 /* Responsive */
@@ -270,6 +433,16 @@ select:focus, input:focus {
     .controls {
         flex-direction: column;
         align-items: flex-start;
+        gap: 10px;
+    }
+    
+    .control-group {
+        flex-wrap: wrap;
+    }
+    
+    .stats {
+        flex-direction: column;
+        gap: 8px;
     }
     
     .log-container {
@@ -278,5 +451,18 @@ select:focus, input:focus {
     
     .log-content {
         font-size: 12px;
+    }
+    
+    .modal-content {
+        margin: 20px;
+        padding: 20px;
+    }
+    
+    .modal-actions {
+        flex-direction: column;
+    }
+    
+    .modal-actions .btn {
+        width: 100%;
     }
 }
