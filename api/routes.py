@@ -388,7 +388,7 @@ async def api_scan(
                         db.commit()
                         
                         response_time = int((time.time() - start_time) * 1000)
-                        logger.info(f"[API: {token.name}] Scan started: {scan_id} ({response_time}ms)")
+                        logger.info(f"[API: {token.name}] Scan started: '{scan_id}' ({response_time}ms)")
                         user_logger.info(f"API token '{token.name}' started scan for project '{project.name}' (commit: {request.commit})")
                         
                         return ScanResponse(
@@ -744,7 +744,7 @@ async def api_scan_status(
         scan = db.query(Scan).filter(Scan.id == scan_id).first()
         
         if not scan:
-            logger.info(f"[API: {token.name}] Scan not found: {scan_id}")
+            logger.warning(f"[API: {token.name}] Scan not found: '{scan_id}'")
             return ScanStatusResponse(
                 scan_id=scan_id,
                 status="not_found", 
@@ -752,7 +752,7 @@ async def api_scan_status(
             )
         
         if scan.started_by != f"API:{token.name}":
-            logger.info(f"[API: {token.name}] Access to scan not permitted: {scan_id}")
+            logger.error(f"[API: {token.name}] Access to scan not permitted: '{scan_id}'")
             return ScanStatusResponse(
                 scan_id=scan_id,
                 status="not_found", 
@@ -773,7 +773,7 @@ async def api_scan_status(
         else:
             message = f"Scan status: {scan.status}"
         
-        logger.info(f"[API: {token.name}] Scan status checked: {scan_id} -> {scan.status} ({response_time}ms)")
+        logger.info(f"[API: {token.name}] Scan status checked: '{scan_id}' -> '{scan.status}' ({response_time}ms)")
         
         return ScanStatusResponse(
             scan_id=scan_id,
@@ -858,14 +858,14 @@ async def api_scan_results(
         scan = db.query(Scan).filter(Scan.id == scan_id).first()
         
         if not scan:
-            logger.info(f"[API: {token.name}] Scan not found: {scan_id}")
+            logger.warning(f"[API: {token.name}] Scan not found: '{scan_id}'")
             return ScanResultsResponse(
                 scan_id=scan_id,
                 status="not_found"
             )
         
         if scan.started_by != f"API:{token.name}":
-            logger.info(f"[API: {token.name}] Access to scan not permitted: {scan_id}")
+            logger.error(f"[API: {token.name}] Access to scan not permitted: '{scan_id}'")
             return ScanResultsResponse(
                 scan_id=scan_id,
                 status="not_found"
@@ -892,7 +892,7 @@ async def api_scan_results(
             })
         
         response_time = int((time.time() - start_time) * 1000)
-        logger.info(f"[API: {token.name}] Scan results retrieved: {scan_id} -> {len(results)} secrets ({response_time}ms)")
+        logger.info(f"[API: {token.name}] Scan results retrieved: '{scan_id}' -> {len(results)} secrets ({response_time}ms)")
         
         return ScanResultsResponse(
             scan_id=scan_id,

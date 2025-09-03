@@ -114,7 +114,7 @@ async def get_api_token(request: Request, db: Session = Depends(get_db)) -> ApiT
     token_string = extract_bearer_token(request)
     
     if not token_string:
-        logger.warning(f"[API] Missing or invalid Authorization header from {request.client.host}")
+        logger.error(f"[API] Missing or invalid Authorization header from '{request.client.host}'")
         raise HTTPException(
             status_code=401,
             detail={"success": False, "message": "Missing or invalid Authorization header"}
@@ -124,7 +124,7 @@ async def get_api_token(request: Request, db: Session = Depends(get_db)) -> ApiT
     token = get_token_by_hash(db, token_string)
     
     if not token:
-        logger.warning(f"[API] Invalid token attempt from {request.client.host}")
+        logger.error(f"[API] Invalid token attempt from '{request.client.host}'")
         raise HTTPException(
             status_code=401,
             detail={"success": False, "message": "Invalid API token"}
@@ -132,7 +132,7 @@ async def get_api_token(request: Request, db: Session = Depends(get_db)) -> ApiT
     
     # Check if token is active
     if not token.is_active:
-        logger.warning(f"[API: {token.name}] Inactive token used from {request.client.host}")
+        logger.error(f"[API: {token.name}] Inactive token used from '{request.client.host}'")
         raise HTTPException(
             status_code=401,
             detail={"success": False, "message": "API token is inactive"}
@@ -140,7 +140,7 @@ async def get_api_token(request: Request, db: Session = Depends(get_db)) -> ApiT
     
     # Check if token is expired
     if is_token_expired(token):
-        logger.warning(f"[API: {token.name}] Expired token used from {request.client.host}")
+        logger.error(f"[API: {token.name}] Expired token used from '{request.client.host}'")
         raise HTTPException(
             status_code=401,
             detail={"success": False, "message": "API token has expired"}
@@ -149,7 +149,7 @@ async def get_api_token(request: Request, db: Session = Depends(get_db)) -> ApiT
     # Check rate limits
     is_allowed, error_message = check_rate_limits(token)
     if not is_allowed:
-        logger.warning(f"[API: {token.name}] Rate limit exceeded from {request.client.host}: {error_message}")
+        logger.error(f"[API: {token.name}] Rate limit exceeded from '{request.client.host}': {error_message}")
         raise HTTPException(
             status_code=429,
             detail={"success": False, "message": error_message}
@@ -163,7 +163,7 @@ async def get_api_token(request: Request, db: Session = Depends(get_db)) -> ApiT
     
     # Log successful authentication
     processing_time = int((time.time() - start_time) * 1000)
-    logger.info(f"[API: {token.name}] Authenticated request to {request.method} {request.url.path} from {request.client.host} (auth: {processing_time}ms)")
+    logger.info(f"[API: {token.name}] Authenticated request to '{request.method}' {request.url.path} from '{request.client.host}' (auth: {processing_time}ms)")
     
     return token
 
@@ -176,7 +176,7 @@ def require_permission(permission: str):
     """Dependency factory for checking specific permissions"""
     async def permission_dependency(token: ApiToken = Depends(get_api_token)) -> ApiToken:
         if not check_permission(token, permission):
-            logger.warning(f"[API: {token.name}] Permission denied: {permission}")
+            logger.error(f"[API: {token.name}] Permission denied: '{permission}'")
             raise HTTPException(
                 status_code=403,
                 detail={"success": False, "message": f"Insufficient permissions: {permission} required"}
@@ -242,7 +242,7 @@ async def log_api_request(request: Request, call_next):
                 logger.error(f"Failed to log API usage: {e}")
         
         # Log to application logs
-        logger.info(f"[API: {token_name}] {endpoint} -> {response.status_code} ({response_time}ms)")
+        logger.info(f"[API: {token_name}] '{endpoint}' -> '{response.status_code}' ({response_time}ms)")
         
         return response
         
@@ -251,7 +251,7 @@ async def log_api_request(request: Request, call_next):
         response_time = int((time.time() - start_time) * 1000)
         endpoint = f"{request.method} {request.url.path}"
         
-        logger.error(f"[API] {endpoint} failed after {response_time}ms: {str(e)}")
+        logger.error(f"[API] '{endpoint}' failed after {response_time}ms: {str(e)}")
         
         # Re-raise the exception
         raise

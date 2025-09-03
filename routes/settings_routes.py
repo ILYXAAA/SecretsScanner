@@ -64,6 +64,7 @@ async def settings(request: Request, current_user: str = Depends(get_current_use
        current_token = await get_pat_token()
    else:
        current_token = "Error: microservice unavailable"
+       logger.error("GET 'pat_token': microservice unavailable")
    
    # Get rules info and content
    rules_info = None
@@ -75,6 +76,7 @@ async def settings(request: Request, current_user: str = Depends(get_current_use
            current_rules_content = await get_rules_content()
    else:
        rules_info = {"error": "microservice_unavailable"}
+       logger.error("GET 'rules_info': microservice unavailable")
    
    # Get False-Positive rules info and content
    fp_rules_info = None
@@ -86,6 +88,7 @@ async def settings(request: Request, current_user: str = Depends(get_current_use
            current_fp_rules_content = await get_fp_rules_content()
    else:
        fp_rules_info = {"error": "microservice_unavailable"}
+       logger.error("GET 'fp_rules_info': microservice unavailable")
    
    # Get excluded extensions info and content
    excluded_extensions_info = None
@@ -97,6 +100,7 @@ async def settings(request: Request, current_user: str = Depends(get_current_use
            current_excluded_extensions_content = await get_excluded_extensions_content()
    else:
        excluded_extensions_info = {"error": "microservice_unavailable"}
+       logger.error("GET 'excluded_extensions_info': microservice unavailable")
    
    # Get excluded files info and content
    excluded_files_info = None
@@ -108,6 +112,7 @@ async def settings(request: Request, current_user: str = Depends(get_current_use
            current_excluded_files_content = await get_excluded_files_content()
    else:
        excluded_files_info = {"error": "microservice_unavailable"}
+       logger.error("GET 'excluded_files_info': microservice unavailable")
    
    # Ensure all content variables are strings
    if current_rules_content is None:
@@ -155,7 +160,7 @@ async def change_password(request: Request, current_password: str = Form(...),
         
         user.password_hash = get_password_hash(new_password)
         user_db.commit()
-        user_logger.info(f"User '{current_user}' changed their password")
+        user_logger.warning(f"User '{current_user}' changed their password")
         
         return RedirectResponse(url="/secret_scanner/settings?success=password_changed", status_code=302)
         
@@ -167,7 +172,7 @@ async def change_password(request: Request, current_password: str = Form(...),
 async def update_api_key(request: Request, api_key: str = Form(...), _: str = Depends(get_admin_user)):
     try:
         if update_api_key_in_env(api_key):
-            user_logger.info(f"Admin user updated API key")
+            user_logger.warning(f"'admin' updated API key")
             return RedirectResponse(url="/secret_scanner/settings?success=api_key_updated", status_code=302)
         else:
             return RedirectResponse(url="/secret_scanner/settings?error=api_key_update_failed", status_code=302)
@@ -179,7 +184,7 @@ async def update_api_key(request: Request, api_key: str = Form(...), _: str = De
 async def update_token(request: Request, token: str = Form(...), _: str = Depends(get_admin_user)):
     try:
         if await set_pat_token(token):
-            user_logger.info(f"Admin user updated PAT token")
+            user_logger.warning(f"'admin' updated PAT token")
             return RedirectResponse(url="/secret_scanner/settings?success=token_updated", status_code=302)
         else:
             return RedirectResponse(url="/secret_scanner/settings?error=token_update_failed", status_code=302)
@@ -195,7 +200,7 @@ async def update_rules_route(request: Request, rules_content: str = Form(...), c
         response = await update_rules(rules_content)
         
         if response.status_code == 200:
-            user_logger.info(f"User '{current_user}' updated scanning rules configuration")
+            user_logger.warning(f"User '{current_user}' updated scanning rules configuration")
             return RedirectResponse(url="/secret_scanner/settings?success=rules_updated", status_code=302)
         else:
             try:
@@ -224,7 +229,7 @@ async def update_fp_rules_route(request: Request, fp_rules_content: str = Form(.
         response = await update_fp_rules(fp_rules_content)
         
         if response.status_code == 200:
-            user_logger.info(f"User '{current_user}' updated false-positive rules configuration")
+            user_logger.warning(f"User '{current_user}' updated false-positive rules configuration")
             return RedirectResponse(url="/secret_scanner/settings?success=fp_rules_updated", status_code=302)
         else:
             try:
@@ -253,7 +258,7 @@ async def update_excluded_extensions_route(request: Request, excluded_extensions
         response = await update_excluded_extensions(excluded_extensions_content)
         
         if response.status_code == 200:
-            user_logger.info(f"User '{current_user}' updated excluded extensions configuration")
+            user_logger.warning(f"User '{current_user}' updated excluded extensions configuration")
             return RedirectResponse(url="/secret_scanner/settings?success=excluded_extensions_updated", status_code=302)
         else:
             try:
@@ -282,7 +287,7 @@ async def update_excluded_files_route(request: Request, excluded_files_content: 
         response = await update_excluded_files(excluded_files_content)
         
         if response.status_code == 200:
-            user_logger.info(f"User '{current_user}' updated excluded files configuration")
+            user_logger.warning(f"User '{current_user}' updated excluded files configuration")
             return RedirectResponse(url="/secret_scanner/settings?success=excluded_files_updated", status_code=302)
         else:
             try:

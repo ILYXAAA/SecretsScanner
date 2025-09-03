@@ -41,9 +41,9 @@ async def login_page(request: Request):
         
         # Токен невалиден или пользователь не существует - удаляем cookie
         if username:
-            user_logger.warning(f"Invalid or expired token for user '{username}', clearing cookie")
+            user_logger.error(f"Invalid or expired token for user '{username}', clearing cookie")
         else:
-            user_logger.warning(f"Service got an invalid or expired token")
+            user_logger.error(f"Service got an invalid or expired token")
         response = templates.TemplateResponse("login.html", {"request": request})
         response.delete_cookie(key="auth_token")
         return response
@@ -68,7 +68,7 @@ async def login(request: Request, username: str = Form(...), password: str = For
         )
         user_logger.info(f"User '{username}' successfully logged in")
         return response
-    user_logger.warning(f"Failed login attempt for username: '{username}'")
+    user_logger.error(f"Failed login attempt for username: '{username}'")
     return templates.TemplateResponse("login.html", {"request": request, "error": "Invalid credentials"})
 
 @router.get("/logout")

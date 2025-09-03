@@ -307,7 +307,7 @@ async def create_user(request: Request, username: str = Form(...), password: str
         user_db.add(new_user)
         user_db.commit()
         
-        logger.info(f"New user created: {username}")
+        logger.warning(f"New user created: '{username}'")
         return RedirectResponse(url="/secret_scanner/admin?success=user_created", status_code=302)
         
     except Exception as e:
@@ -335,7 +335,7 @@ async def delete_user(username: str, _: str = Depends(get_admin_user),
         user_db.delete(user)
         user_db.commit()
         
-        logger.info(f"User deleted: {username}")
+        logger.warning(f"User deleted: '{username}'")
         return {"status": "success", "message": "User deleted successfully"}
         
     except Exception as e:
@@ -353,7 +353,7 @@ async def update_secret_key(request: Request, secret_key: str = Form(""),
         new_key = secret_key.strip() if secret_key.strip() else None
         
         if update_secret_key_in_env(new_key):
-            logger.warning("SECRET_KEY updated by admin")
+            logger.warning("SECRET_KEY updated by 'admin'")
             return RedirectResponse(url="/secret_scanner/admin?success=secret_key_updated", status_code=302)
         else:
             return RedirectResponse(url="/secret_scanner/admin?error=secret_key_update_failed", status_code=302)
@@ -610,7 +610,7 @@ async def create_api_token(
         db.add(api_token)
         db.commit()
         
-        logger.info(f"API token created: {name} by {admin_user}")
+        logger.warning(f"API token created: '{name}' by '{admin_user}'")
         
         # Redirect with token in query param for display (one-time only)
         import urllib.parse
@@ -650,7 +650,7 @@ async def delete_api_token(
         db.delete(token)
         db.commit()
         
-        logger.info(f"API token deleted: {token_name}")
+        logger.warning(f"API token deleted: '{token_name}'")
         return {"status": "success", "message": "API token deleted successfully"}
         
     except Exception as e:
@@ -681,7 +681,7 @@ async def toggle_api_token(
         db.commit()
         
         status = "activated" if token.is_active else "deactivated"
-        logger.info(f"API token {status}: {token.name}")
+        logger.warning(f"API token '{status}': '{token.name}'")
         
         return {"status": "success", "message": f"API token {status} successfully", "is_active": token.is_active}
         

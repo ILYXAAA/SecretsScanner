@@ -147,7 +147,7 @@ async def multi_scan(request: Request, current_user: str = Depends(get_current_u
                           if i < len(scan_requests):
                               scan_data["BaseRepoUrl"] = scan_requests[i]["RepoUrl"]
                       
-                      user_logger.info(f"Multi-scan {multi_scan_id} successfully queued for user '{current_user}' - {len(scan_data_list)} repositories")
+                      user_logger.info(f"Multi-scan '{multi_scan_id}' successfully queued for user '{current_user}' - {len(scan_data_list)} repositories")
                       return JSONResponse(
                           status_code=200,
                           content={

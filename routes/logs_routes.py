@@ -203,7 +203,7 @@ async def download_logs(
                 date_suffix = f"_until_{end_date}"
             
             filename = f"secrets_scanner{date_suffix}_{timestamp}.log"
-            user_logger.warning(f"Log file {filename} exported by user '{current_user}' (.log)")
+            user_logger.warning(f"Log file '{filename}' exported by user '{current_user}' (.log)")
 
             return FileResponse(
                 path=temp_file.name,
@@ -214,7 +214,7 @@ async def download_logs(
         else:
             # Return original file
             filename = f"secrets_scanner_{timestamp}.log"
-            user_logger.warning(f"Log file {filename} exported by user '{current_user}' (.log)")
+            user_logger.warning(f"Log file '{filename}' exported by user '{current_user}' (.log)")
             return FileResponse(
                 path=log_file_path,
                 filename=filename,
@@ -285,7 +285,7 @@ async def download_microservice_logs(
                 date_suffix = f"_until_{end_date}"
             
             filename = f"microservice{date_suffix}_{timestamp}.log"
-            user_logger.warning(f"Log file {filename} exported by user '{current_user}' (.log)")
+            user_logger.warning(f"Log file '{filename}' exported by user '{current_user}' (.log)")
 
             return FileResponse(
                 path=temp_file.name,
@@ -296,7 +296,7 @@ async def download_microservice_logs(
         else:
             # Return original file
             filename = f"microservice_{timestamp}.log"
-            user_logger.warning(f"Log file {filename} exported by user '{current_user}' (.log)")
+            user_logger.warning(f"Log file '{filename}' exported by user '{current_user}' (.log)")
 
             return FileResponse(
                 path=microservice_log_path,
@@ -500,7 +500,7 @@ async def download_user_actions_logs(
                 date_suffix = f"_until_{end_date}"
             
             filename = f"user_actions{date_suffix}_{timestamp}.log"
-            user_logger.warning(f"Log file {filename} exported by user '{current_user}' (.log)")
+            user_logger.warning(f"Log file '{filename}' exported by user '{current_user}' (.log)")
 
             return FileResponse(
                 path=temp_file.name,
@@ -511,7 +511,7 @@ async def download_user_actions_logs(
         else:
             # Return original file
             filename = f"user_actions_{timestamp}.log"
-            user_logger.warning(f"Log file {filename} exported by user '{current_user}' (.log)")
+            user_logger.warning(f"Log file '{filename}' exported by user '{current_user}' (.log)")
             return FileResponse(
                 path=log_file_path,
                 filename=filename,

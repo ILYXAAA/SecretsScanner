@@ -418,6 +418,15 @@ select:focus, input:focus {
     margin-bottom: 15px;
 }
 
+.log-line .quoted-text {
+    font-weight: bold;
+    color: #1d4ed8; /* глубокий синий */
+    background-color: #dbeafe; /* нежно-голубой */
+    padding: 0.5px 4px; /* убрали вертикальный отступ, оставили только горизонтальный */
+    border-radius: 3px; /* чуть мягкие углы */
+}
+
+
 /* Responsive */
 @media (max-width: 768px) {
     .container {

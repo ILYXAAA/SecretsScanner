@@ -476,14 +476,32 @@ function formatLogLine(line) {
     const match = line.match(logPattern);
     
     if (match) {
-        const timestamp = match[1];
+        let timestamp = match[1].trim();
         const loggerName = match[2];
         const level = match[3];
-        const message = match[4];
-        return '<span class="timestamp">' + timestamp.trim() + '</span><span class="logger-name">' + loggerName.trim() + '</span><strong>' + level.trim() + '</strong> - ' + escapeHtml(message);
+        let message = match[4];
+        
+        // Преобразуем формат времени из 2025-09-03 18:23:07,693 в 03.09.2025 18:23:07
+        const timeMatch = timestamp.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}:\d{2}:\d{2})/);
+        if (timeMatch) {
+            const year = timeMatch[1];
+            const month = timeMatch[2];
+            const day = timeMatch[3];
+            const time = timeMatch[4];
+            timestamp = `${day}.${month}.${year} ${time}`;
+        }
+        
+        // Выделяем слова в одинарных кавычках жирным без самих кавычек
+        message = message.replace(/'([^']+)'/g, '<span class="quoted-text">$1</span>');
+        
+        return '<span class="timestamp">' + timestamp + '</span><span class="logger-name">' + loggerName.trim() + '</span><strong>' + level.trim() + '</strong> - ' + message;
     }
     
-    return escapeHtml(line);
+    // Для строк без стандартного формата тоже применяем выделение кавычек
+    let formattedLine = escapeHtml(line);
+    formattedLine = formattedLine.replace(/'([^']+)'/g, '<span class="quoted-text">$1</span>');
+    
+    return formattedLine;
 }
 
 function highlightSearch(text, term) {

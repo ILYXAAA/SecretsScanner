@@ -6,6 +6,7 @@ from typing import List, Dict, Any
 from sqlalchemy import create_engine, text, MetaData, Table, Column, String, DateTime, Integer, inspect
 from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime, timezone
+import json
 
 logger = logging.getLogger("migrations")
 
@@ -38,7 +39,7 @@ class MigrationSystem:
                     conn.commit()
                     logger.info("Created schema_migrations table")
         except Exception as e:
-            logger.error(f"Error creating migrations table: {e}")
+            logger.critical(f"Error creating migrations table: {e}")
             raise
     
     def _get_applied_migrations(self) -> List[str]:
@@ -48,7 +49,7 @@ class MigrationSystem:
                 result = conn.execute(text("SELECT version FROM schema_migrations ORDER BY version"))
                 return [row[0] for row in result.fetchall()]
         except Exception as e:
-            logger.error(f"Error getting applied migrations: {e}")
+            logger.critical(f"Error getting applied migrations: {e}")
             return []
     
     def _get_available_migrations(self) -> List[Dict[str, Any]]:
@@ -82,7 +83,7 @@ class MigrationSystem:
             spec.loader.exec_module(module)
             return module
         except Exception as e:
-            logger.error(f"Error loading migration {file_path}: {e}")
+            logger.critical(f"Error loading migration {file_path}: {e}")
             raise
     
     def _mark_migration_applied(self, version: str, description: str):
@@ -98,7 +99,7 @@ class MigrationSystem:
                 })
                 conn.commit()
         except Exception as e:
-            logger.error(f"Error marking migration {version} as applied: {e}")
+            logger.error(f"Error marking migration '{version}' as applied: {e}")
             raise
     
     def _unmark_migration_applied(self, version: str):
@@ -108,7 +109,7 @@ class MigrationSystem:
                 conn.execute(text("DELETE FROM schema_migrations WHERE version = :version"), {"version": version})
                 conn.commit()
         except Exception as e:
-            logger.error(f"Error unmarking migration {version}: {e}")
+            logger.error(f"Error unmarking migration '{version}': {e}")
             raise
     
     def column_exists(self, table_name: str, column_name: str) -> bool:
@@ -157,9 +158,9 @@ class MigrationSystem:
             with self.engine.connect() as conn:
                 conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_definition}"))
                 conn.commit()
-                logger.info(f"Added column {column_name} to {table_name}")
+                logger.info(f"Added column '{column_name}' to '{table_name}'")
         else:
-            logger.info(f"Column {column_name} already exists in {table_name}")
+            logger.info(f"Column '{column_name}' already exists in '{table_name}'")
     
     def safe_create_table(self, table_sql: str, table_name: str):
         """Безопасно создаёт таблицу если её нет"""
@@ -167,9 +168,9 @@ class MigrationSystem:
             with self.engine.connect() as conn:
                 conn.execute(text(table_sql))
                 conn.commit()
-                logger.info(f"Created table {table_name}")
+                logger.info(f"Created table '{table_name}'")
         else:
-            logger.info(f"Table {table_name} already exists")
+            logger.info(f"Table '{table_name}' already exists")
     
     def safe_drop_table(self, table_name: str):
         """Безопасно удаляет таблицу если она существует"""
@@ -177,30 +178,30 @@ class MigrationSystem:
             with self.engine.connect() as conn:
                 conn.execute(text(f"DROP TABLE IF EXISTS {table_name}"))
                 conn.commit()
-                logger.info(f"Dropped table {table_name}")
+                logger.warning(f"Dropped table '{table_name}'")
         else:
-            logger.info(f"Table {table_name} does not exist")
+            logger.info(f"Table '{table_name}' does not exist")
     
     def safe_drop_column(self, table_name: str, column_name: str):
         """Безопасно удаляет колонку (с учётом ограничений SQLite)"""
         if "sqlite" in self.database_url:
-            logger.warning(f"SQLite does not support DROP COLUMN for {table_name}.{column_name}, skipping")
+            logger.warning(f"SQLite does not support DROP COLUMN for '{table_name}.{column_name}', skipping")
             return
         
         if self.column_exists(table_name, column_name):
             with self.engine.connect() as conn:
                 conn.execute(text(f"ALTER TABLE {table_name} DROP COLUMN {column_name}"))
                 conn.commit()
-                logger.info(f"Dropped column {column_name} from {table_name}")
+                logger.info(f"Dropped column '{column_name}' from '{table_name}'")
         else:
-            logger.info(f"Column {column_name} does not exist in {table_name}")
+            logger.info(f"Column '{column_name}' does not exist in '{table_name}'")
     
     def execute_sql(self, sql: str, description: str = "SQL operation"):
         """Выполняет произвольный SQL с логированием"""
         with self.engine.connect() as conn:
             conn.execute(text(sql))
             conn.commit()
-            logger.info(f"Executed: {description}")
+            logger.info(f"Executed: '{description}'")
     
     def safe_create_index(self, index_sql: str, index_name: str):
         """Безопасно создаёт индекс если его нет"""
@@ -208,17 +209,17 @@ class MigrationSystem:
             with self.engine.connect() as conn:
                 conn.execute(text(index_sql))
                 conn.commit()
-                logger.info(f"Created index {index_name}")
+                logger.info(f"Created index '{index_name}'")
         else:
-            logger.info(f"Index {index_name} already exists")
+            logger.info(f"Index '{index_name}' already exists")
     
     def migrate(self, target_version: str = None):
         """Применяет миграции до указанной версии (или все доступные)"""
         applied_migrations = set(self._get_applied_migrations())
         available_migrations = self._get_available_migrations()
         
-        logger.info(f"Applied migrations: {sorted(applied_migrations)}")
-        logger.info(f"Available migrations: {[m['version'] for m in available_migrations]}")
+        logger.info(f"Applied migrations: {json.dumps(sorted(applied_migrations))}")
+        logger.info(f"Available migrations: {json.dumps([m['version'] for m in available_migrations])}")
         
         # Фильтруем миграции для применения
         migrations_to_apply = []
@@ -235,7 +236,7 @@ class MigrationSystem:
         
         for migration in migrations_to_apply:
             try:
-                logger.info(f"Applying migration {migration['version']}: {migration['description']}")
+                logger.info(f"Applying migration '{migration['version']}': {migration['description']}")
                 
                 # Загружаем модуль миграции
                 module = self._load_migration_module(migration["file_path"])
@@ -250,10 +251,10 @@ class MigrationSystem:
                 # Помечаем как применённую
                 self._mark_migration_applied(migration["version"], migration["description"])
                 
-                logger.info(f"Successfully applied migration {migration['version']}")
+                logger.info(f"Successfully applied migration '{migration['version']}'")
                 
             except Exception as e:
-                logger.error(f"Failed to apply migration {migration['version']}: {e}")
+                logger.critical(f"Failed to apply migration '{migration['version']}': {e}")
                 raise
     
     def rollback(self, target_version: str):
@@ -267,7 +268,7 @@ class MigrationSystem:
                 if version in available_migrations:
                     migrations_to_rollback.append(available_migrations[version])
                 else:
-                    logger.warning(f"Migration file for version {version} not found, skipping rollback")
+                    logger.warning(f"Migration file for version '{version}' not found, skipping rollback")
         
         if not migrations_to_rollback:
             logger.info("No migrations to rollback")
@@ -277,14 +278,14 @@ class MigrationSystem:
         
         for migration in migrations_to_rollback:
             try:
-                logger.info(f"Rolling back migration {migration['version']}: {migration['description']}")
+                logger.info(f"Rolling back migration '{migration['version']}': {migration['description']}")
                 
                 # Загружаем модуль миграции
                 module = self._load_migration_module(migration["file_path"])
                 
                 # Проверяем наличие функции downgrade
                 if not hasattr(module, 'downgrade'):
-                    logger.warning(f"Migration {migration['version']} missing downgrade() function, skipping")
+                    logger.warning(f"Migration '{migration['version']}' missing downgrade() function, skipping")
                     continue
                 
                 # Откатываем миграцию
@@ -293,10 +294,10 @@ class MigrationSystem:
                 # Убираем отметку о применении
                 self._unmark_migration_applied(migration["version"])
                 
-                logger.info(f"Successfully rolled back migration {migration['version']}")
+                logger.info(f"Successfully rolled back migration '{migration['version']}'")
                 
             except Exception as e:
-                logger.error(f"Failed to rollback migration {migration['version']}: {e}")
+                logger.critical(f"Failed to rollback migration '{migration['version']}': {e}")
                 raise
     
     def status(self):
@@ -328,4 +329,4 @@ def run_migrations():
     if migration_system:
         migration_system.migrate()
     else:
-        logger.error("Migration system not initialized")
+        logger.critical("Migration system not initialized")
