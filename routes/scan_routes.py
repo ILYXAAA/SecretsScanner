@@ -23,6 +23,7 @@ from utils.html_report_generator import generate_html_report
 from services.templates import templates
 import time
 logger = logging.getLogger("main")
+user_logger = logging.getLogger("user_actions")
 
 router = APIRouter()
 
@@ -115,6 +116,7 @@ async def start_scan(request: Request, project_name: str, ref_type: str = Form(.
     )
     db.add(scan)
     db.commit()
+    user_logger.info(f"User '{current_user}' started scan for project '{project_name}' ({ref_type}: {ref})")
     
     # Start scan via microservice - ИСПРАВЛЕН callback URL
     callback_url = f"http://{APP_HOST}:{APP_PORT}/get_results/{project_name}/{scan_id}"
@@ -190,6 +192,7 @@ async def start_local_scan(request: Request, project_name: str,
     )
     db.add(scan)
     db.commit()
+    user_logger.info(f"User '{current_user}' started local scan for project '{project_name}' (commit: {commit})")
     
     # Prepare callback URL - ИСПРАВЛЕН
     callback_url = f"http://{APP_HOST}:{APP_PORT}/get_results/{project_name}/{scan_id}"
@@ -794,6 +797,7 @@ async def update_secret_status(secret_id: int, status: str = Form(...),
     
     # Обновляем денормализованные счетчики
     update_scan_counters(db, secret.scan_id)
+    user_logger.info(f"User '{current_user}' updated secret status to '{status}' for secret ID {secret_id}")
     
     return {"status": "success"}
 
@@ -839,7 +843,7 @@ async def bulk_secret_action(request: Request, current_user: str = Depends(get_c
     # Обновляем счетчики для всех затронутых сканов
     for scan_id in affected_scan_ids:
         update_scan_counters(db, scan_id)
-    
+    user_logger.info(f"User '{current_user}' performed bulk action '{action}' on {len(secret_ids)} secrets (value: '{value}')")
     return {"status": "success"}
 
 @router.post("/secrets/add-custom")
@@ -897,6 +901,7 @@ async def add_custom_secret(request: Request, scan_id: str = Form(...), secret_v
         
         # Обновляем денормализованные счетчики
         update_scan_counters(db, scan_id)
+        user_logger.info(f"User '{current_user}' added custom secret to scan '{scan_id}' in project '{scan.project_name}'")
         
         logger.info(f"Custom secret successfully added with ID: {new_secret.id}")
         
@@ -1001,7 +1006,7 @@ async def delete_secret(secret_id: int, current_user: str = Depends(get_current_
         return JSONResponse(status_code=500, content={"status": "error", "message": "Failed to delete secret"})
 
 @router.post("/scan/{scan_id}/delete")
-async def delete_scan(scan_id: str, _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
+async def delete_scan(scan_id: str, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     scan = db.query(Scan).filter(Scan.id == scan_id).first()
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
@@ -1014,11 +1019,12 @@ async def delete_scan(scan_id: str, _: bool = Depends(get_current_user), db: Ses
     # Delete the scan itself
     db.delete(scan)
     db.commit()
+    user_logger.warning(f"User '{current_user}' deleted scan '{scan_id}' from project '{project_name}'")
     
     return RedirectResponse(url=get_full_url(f"project/{project_name}?success=scan_deleted"), status_code=302)
 
 @router.get("/scan/{scan_id}/export")
-async def export_scan_results(scan_id: str, _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
+async def export_scan_results(scan_id: str, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     scan = db.query(Scan).filter(Scan.id == scan_id).first()
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
@@ -1044,7 +1050,7 @@ async def export_scan_results(scan_id: str, _: bool = Depends(get_current_user),
     
     # Генерируем отформатированный JSON
     formatted_json = json.dumps(export_data, indent=2, ensure_ascii=False)
-    
+    user_logger.info(f"Results for {scan_id} exported by user '{current_user}' (JSON)")
     return Response(
         content=formatted_json,
         media_type="application/json",
@@ -1052,7 +1058,7 @@ async def export_scan_results(scan_id: str, _: bool = Depends(get_current_user),
     )
 
 @router.get("/scan/{scan_id}/export-html")
-async def export_scan_results_html(scan_id: str, _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
+async def export_scan_results_html(scan_id: str, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     scan = db.query(Scan).filter(Scan.id == scan_id).first()
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
@@ -1092,7 +1098,7 @@ async def export_scan_results_html(scan_id: str, _: bool = Depends(get_current_u
     filename = f"{scan.project_name}_{commit_short}.html"
     
     safe_filename = filename.encode('ascii', 'ignore').decode('ascii')
-    
+    user_logger.info(f"Results for {scan_id} exported by user '{current_user}' (HTML)")
     return HTMLResponse(
         content=html_content,
         headers={"Content-Disposition": f"attachment; filename={safe_filename}"}

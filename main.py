@@ -117,6 +117,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger("main")
 
+# Логгер действий пользователей
+user_logger = logging.getLogger("user_actions")
+user_handler = RotatingFileHandler('user_actions.log', maxBytes=10*1024*1024, backupCount=5, encoding='utf-8')
+user_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+user_logger.addHandler(user_handler)
+user_logger.setLevel(logging.INFO)
+user_logger.propagate = False  # Не передавать в родительский logger (чтобы не попадало в консоль)
+
 # Initialize FastAPI app with comprehensive documentation
 app = FastAPI(
     title="Secrets Scanner API",

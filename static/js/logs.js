@@ -47,7 +47,13 @@ function changeLogSource() {
     currentLogSource = select.value;
     
     const logInfo = document.getElementById('logInfo');
-    logInfo.textContent = currentLogSource === 'main' ? 'secrets_scanner.log' : 'microservice.log';
+    if (currentLogSource === 'main') {
+        logInfo.textContent = 'secrets_scanner.log';
+    } else if (currentLogSource === 'microservice') {
+        logInfo.textContent = 'microservice.log';
+    } else if (currentLogSource === 'user_actions') {
+        logInfo.textContent = 'user_actions.log';
+    }
     
     clearDisplay();
     currentLogLines = [];
@@ -173,11 +179,17 @@ function updateDateDisplays() {
 function downloadLogs() {
     const apiLogs = document.body.dataset.apiLogs;
     const apiMicroserviceLogs = document.body.dataset.apiMicroserviceLogs;
+    const apiUserActionsLogs = document.body.dataset.apiUserActionsLogs;
     
     // Determine which endpoint to use
-    const baseEndpoint = currentLogSource === 'main' 
-        ? apiLogs.replace('/api/logs', '/api/download-logs')
-        : apiMicroserviceLogs.replace('/api/microservice-logs', '/api/download-microservice-logs');
+    let baseEndpoint;
+    if (currentLogSource === 'main') {
+        baseEndpoint = apiLogs.replace('/api/logs', '/api/download-logs');
+    } else if (currentLogSource === 'microservice') {
+        baseEndpoint = apiMicroserviceLogs.replace('/api/microservice-logs', '/api/download-microservice-logs');
+    } else if (currentLogSource === 'user_actions') {
+        baseEndpoint = apiUserActionsLogs.replace('/api/user-actions-logs', '/api/download-user-actions-logs');
+    }
     
     // Build query parameters for date filtering
     const params = new URLSearchParams();
@@ -230,8 +242,16 @@ async function refreshLogs() {
         
         const apiLogs = document.body.dataset.apiLogs;
         const apiMicroserviceLogs = document.body.dataset.apiMicroserviceLogs;
+        const apiUserActionsLogs = document.body.dataset.apiUserActionsLogs;
         
-        const endpoint = currentLogSource === 'main' ? apiLogs : apiMicroserviceLogs;
+        let endpoint;
+        if (currentLogSource === 'main') {
+            endpoint = apiLogs;
+        } else if (currentLogSource === 'microservice') {
+            endpoint = apiMicroserviceLogs;
+        } else if (currentLogSource === 'user_actions') {
+            endpoint = apiUserActionsLogs;
+        }
         
         // Build query parameters
         const params = new URLSearchParams();

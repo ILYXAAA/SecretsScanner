@@ -10,6 +10,7 @@ import re
 from services.auth import get_current_user
 from services.templates import templates
 logger = logging.getLogger("main")
+user_logger = logging.getLogger("user_actions")
 
 router = APIRouter()
 
@@ -202,7 +203,8 @@ async def download_logs(
                 date_suffix = f"_until_{end_date}"
             
             filename = f"secrets_scanner{date_suffix}_{timestamp}.log"
-            
+            user_logger.warning(f"Log file {filename} exported by user '{current_user}' (.log)")
+
             return FileResponse(
                 path=temp_file.name,
                 filename=filename,
@@ -212,6 +214,7 @@ async def download_logs(
         else:
             # Return original file
             filename = f"secrets_scanner_{timestamp}.log"
+            user_logger.warning(f"Log file {filename} exported by user '{current_user}' (.log)")
             return FileResponse(
                 path=log_file_path,
                 filename=filename,
@@ -282,7 +285,8 @@ async def download_microservice_logs(
                 date_suffix = f"_until_{end_date}"
             
             filename = f"microservice{date_suffix}_{timestamp}.log"
-            
+            user_logger.warning(f"Log file {filename} exported by user '{current_user}' (.log)")
+
             return FileResponse(
                 path=temp_file.name,
                 filename=filename,
@@ -292,6 +296,8 @@ async def download_microservice_logs(
         else:
             # Return original file
             filename = f"microservice_{timestamp}.log"
+            user_logger.warning(f"Log file {filename} exported by user '{current_user}' (.log)")
+
             return FileResponse(
                 path=microservice_log_path,
                 filename=filename,
@@ -376,4 +382,145 @@ async def get_microservice_logs(
             "message": str(e),
             "lines": [],
             "size": 0
+        }
+
+@router.get("/api/user-actions-logs")
+async def get_user_actions_logs(
+    lines: int = 1000, 
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    _: str = Depends(get_current_user)
+):
+    """Get user actions logs"""
+    try:
+        log_file_path = "user_actions.log"
+        
+        if not os.path.exists(log_file_path):
+            return {
+                "status": "error", 
+                "message": "User actions log file not found",
+                "lines": [],
+                "size": 0
+            }
+        
+        file_stats = os.stat(log_file_path)
+        file_size = file_stats.st_size
+        
+        with open(log_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            all_lines = f.readlines()
+        
+        # Предобработка логов
+        processed_lines = preprocess_log_lines(all_lines)
+        
+        # Фильтрация по датам
+        if start_date or end_date:
+            try:
+                start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date() if start_date else None
+                end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date() if end_date else None
+                processed_lines = filter_logs_by_date(processed_lines, start_date_obj, end_date_obj)
+            except ValueError as e:
+                return {
+                    "status": "error",
+                    "message": f"Invalid date format: {e}",
+                    "lines": [],
+                    "size": 0
+                }
+        
+        # Применяем ограничение по количеству строк
+        if lines > 0:
+            log_lines = processed_lines[-lines:]
+        else:
+            log_lines = processed_lines
+            
+        return {
+            "status": "success",
+            "lines": log_lines,
+            "total_lines": len(processed_lines),
+            "size": file_size,
+            "last_modified": file_stats.st_mtime
+        }
+        
+    except Exception as e:
+        logger.error(f"Error reading user actions logs: {e}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "lines": [],
+            "size": 0
+        }
+
+@router.get("/api/download-user-actions-logs")
+async def download_user_actions_logs(
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    current_user: str = Depends(get_current_user)
+):
+    """Download user actions logs as file"""
+    try:
+        log_file_path = "user_actions.log"
+        
+        if not os.path.exists(log_file_path):
+            return {
+                "status": "error",
+                "message": "User actions log file not found"
+            }
+        
+        # Generate filename with current timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # If date filtering is requested, process the logs
+        if start_date or end_date:
+            with open(log_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                all_lines = f.readlines()
+            
+            processed_lines = preprocess_log_lines(all_lines)
+            
+            try:
+                start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date() if start_date else None
+                end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date() if end_date else None
+                filtered_lines = filter_logs_by_date(processed_lines, start_date_obj, end_date_obj)
+            except ValueError as e:
+                return {
+                    "status": "error",
+                    "message": f"Invalid date format: {e}"
+                }
+            
+            # Create temporary file with filtered content
+            temp_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.log', encoding='utf-8')
+            temp_file.write('\n'.join(filtered_lines))
+            temp_file.close()
+            
+            # Generate filename with date range
+            date_suffix = ""
+            if start_date and end_date:
+                date_suffix = f"_{start_date}_to_{end_date}"
+            elif start_date:
+                date_suffix = f"_from_{start_date}"
+            elif end_date:
+                date_suffix = f"_until_{end_date}"
+            
+            filename = f"user_actions{date_suffix}_{timestamp}.log"
+            user_logger.warning(f"Log file {filename} exported by user '{current_user}' (.log)")
+
+            return FileResponse(
+                path=temp_file.name,
+                filename=filename,
+                media_type='text/plain',
+                background=lambda: os.unlink(temp_file.name)  # Delete temp file after sending
+            )
+        else:
+            # Return original file
+            filename = f"user_actions_{timestamp}.log"
+            user_logger.warning(f"Log file {filename} exported by user '{current_user}' (.log)")
+            return FileResponse(
+                path=log_file_path,
+                filename=filename,
+                media_type='text/plain'
+            )
+        
+    except Exception as e:
+        logger.error(f"Error downloading user actions logs: {e}")
+        return {
+            "status": "error",
+            "message": str(e)
         }

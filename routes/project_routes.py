@@ -13,6 +13,7 @@ from services.database import get_db
 from services.templates import templates
 #import time
 logger = logging.getLogger("main")
+user_logger = logging.getLogger("user_actions")
 
 router = APIRouter()
 
@@ -250,17 +251,20 @@ async def add_project(request: Request, project_name: str = Form(...), repo_url:
         # Check if project already exists by name
         existing_name = db.query(Project).filter(Project.name == project_name).first()
         if existing_name:
+            user_logger.info(f"User '{current_user}' attempted to create duplicate project '{project_name}'")
             return RedirectResponse(url=get_full_url("dashboard?error=project_exists"), status_code=302)
         
         # Check if project already exists by repo URL
         existing_url = db.query(Project).filter(Project.repo_url == normalized_url).first()
         if existing_url:
+            user_logger.info(f"User '{current_user}' attempted to create project with duplicate repo URL: {normalized_url}")
             return RedirectResponse(url=get_full_url("dashboard?error=repo_url_exists"), status_code=302)
         
         # Create project
         project = Project(name=project_name, repo_url=normalized_url, created_by=current_user)
         db.add(project)
         db.commit()
+        user_logger.info(f"User '{current_user}' created new project '{project_name}' with repo URL: {normalized_url}")
         
         return RedirectResponse(url=get_full_url(f"project/{project_name}"), status_code=302)
     
@@ -300,7 +304,8 @@ async def update_project(request: Request, project_id: int = Form(...), project_
             )
         
         db.commit()
-        
+        user_logger.warning(f"Project '{old_project_name}' updated to '{project_name}' by user (repo URL: {normalized_url})")
+
         return RedirectResponse(url=get_full_url(f"project/{project_name}?success=project_updated"), status_code=302)
     
     except ValueError as e:
@@ -311,7 +316,7 @@ async def update_project(request: Request, project_id: int = Form(...), project_
         return RedirectResponse(url=get_full_url(f"project/{project_name}?error=project_update_failed"), status_code=302)
 
 @router.post("/projects/{project_id}/delete")
-async def delete_project(project_id: int, _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
+async def delete_project(project_id: int, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         return RedirectResponse(url=get_full_url("dashboard?error=project_not_found"), status_code=302)
@@ -324,6 +329,7 @@ async def delete_project(project_id: int, _: bool = Depends(get_current_user), d
     
     db.delete(project)
     db.commit()
+    user_logger.warning(f"User '{current_user}' deleted project '{project.name}' (including {len(scans)} scans)")
     
     return RedirectResponse(url=get_full_url("dashboard?success=project_deleted"), status_code=302)
 

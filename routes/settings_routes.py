@@ -18,6 +18,7 @@ from services.microservice_client import (
 from models import User
 from services.templates import templates
 logger = logging.getLogger("main")
+user_logger = logging.getLogger("user_actions")
 
 router = APIRouter()
 
@@ -154,6 +155,7 @@ async def change_password(request: Request, current_password: str = Form(...),
         
         user.password_hash = get_password_hash(new_password)
         user_db.commit()
+        user_logger.info(f"User '{current_user}' changed their password")
         
         return RedirectResponse(url="/secret_scanner/settings?success=password_changed", status_code=302)
         
@@ -165,6 +167,7 @@ async def change_password(request: Request, current_password: str = Form(...),
 async def update_api_key(request: Request, api_key: str = Form(...), _: str = Depends(get_admin_user)):
     try:
         if update_api_key_in_env(api_key):
+            user_logger.info(f"Admin user updated API key")
             return RedirectResponse(url="/secret_scanner/settings?success=api_key_updated", status_code=302)
         else:
             return RedirectResponse(url="/secret_scanner/settings?error=api_key_update_failed", status_code=302)
@@ -176,6 +179,7 @@ async def update_api_key(request: Request, api_key: str = Form(...), _: str = De
 async def update_token(request: Request, token: str = Form(...), _: str = Depends(get_admin_user)):
     try:
         if await set_pat_token(token):
+            user_logger.info(f"Admin user updated PAT token")
             return RedirectResponse(url="/secret_scanner/settings?success=token_updated", status_code=302)
         else:
             return RedirectResponse(url="/secret_scanner/settings?error=token_update_failed", status_code=302)
@@ -183,7 +187,7 @@ async def update_token(request: Request, token: str = Form(...), _: str = Depend
         return RedirectResponse(url="/secret_scanner/settings?error=microservice_unavailable", status_code=302)
 
 @router.post("/settings/update-rules")
-async def update_rules_route(request: Request, rules_content: str = Form(...), _: bool = Depends(get_current_user)):
+async def update_rules_route(request: Request, rules_content: str = Form(...), current_user: str = Depends(get_current_user)):
     try:
         if not rules_content.strip():
             return RedirectResponse(url="/secret_scanner/settings?error=empty_content", status_code=302)
@@ -191,6 +195,7 @@ async def update_rules_route(request: Request, rules_content: str = Form(...), _
         response = await update_rules(rules_content)
         
         if response.status_code == 200:
+            user_logger.info(f"User '{current_user}' updated scanning rules configuration")
             return RedirectResponse(url="/secret_scanner/settings?success=rules_updated", status_code=302)
         else:
             try:
@@ -211,7 +216,7 @@ async def update_rules_route(request: Request, rules_content: str = Form(...), _
         return RedirectResponse(url=f"/secret_scanner/settings?error={encoded_error}", status_code=302)
 
 @router.post("/settings/update-fp-rules")
-async def update_fp_rules_route(request: Request, fp_rules_content: str = Form(...), _: bool = Depends(get_current_user)):
+async def update_fp_rules_route(request: Request, fp_rules_content: str = Form(...), current_user: str = Depends(get_current_user)):
     try:
         if not fp_rules_content.strip():
             return RedirectResponse(url="/secret_scanner/settings?error=empty_content", status_code=302)
@@ -219,6 +224,7 @@ async def update_fp_rules_route(request: Request, fp_rules_content: str = Form(.
         response = await update_fp_rules(fp_rules_content)
         
         if response.status_code == 200:
+            user_logger.info(f"User '{current_user}' updated false-positive rules configuration")
             return RedirectResponse(url="/secret_scanner/settings?success=fp_rules_updated", status_code=302)
         else:
             try:
@@ -239,7 +245,7 @@ async def update_fp_rules_route(request: Request, fp_rules_content: str = Form(.
         return RedirectResponse(url=f"/secret_scanner/settings?error={encoded_error}", status_code=302)
 
 @router.post("/settings/update-excluded-extensions")
-async def update_excluded_extensions_route(request: Request, excluded_extensions_content: str = Form(...), _: bool = Depends(get_current_user)):
+async def update_excluded_extensions_route(request: Request, excluded_extensions_content: str = Form(...), current_user: str = Depends(get_current_user)):
     try:
         if not excluded_extensions_content.strip():
             return RedirectResponse(url="/secret_scanner/settings?error=empty_content", status_code=302)
@@ -247,6 +253,7 @@ async def update_excluded_extensions_route(request: Request, excluded_extensions
         response = await update_excluded_extensions(excluded_extensions_content)
         
         if response.status_code == 200:
+            user_logger.info(f"User '{current_user}' updated excluded extensions configuration")
             return RedirectResponse(url="/secret_scanner/settings?success=excluded_extensions_updated", status_code=302)
         else:
             try:
@@ -267,7 +274,7 @@ async def update_excluded_extensions_route(request: Request, excluded_extensions
         return RedirectResponse(url=f"/secret_scanner/settings?error={encoded_error}", status_code=302)
 
 @router.post("/settings/update-excluded-files")
-async def update_excluded_files_route(request: Request, excluded_files_content: str = Form(...), _: bool = Depends(get_current_user)):
+async def update_excluded_files_route(request: Request, excluded_files_content: str = Form(...), current_user: str = Depends(get_current_user)):
     try:
         if not excluded_files_content.strip():
             return RedirectResponse(url="/secret_scanner/settings?error=empty_content", status_code=302)
@@ -275,6 +282,7 @@ async def update_excluded_files_route(request: Request, excluded_files_content: 
         response = await update_excluded_files(excluded_files_content)
         
         if response.status_code == 200:
+            user_logger.info(f"User '{current_user}' updated excluded files configuration")
             return RedirectResponse(url="/secret_scanner/settings?success=excluded_files_updated", status_code=302)
         else:
             try:

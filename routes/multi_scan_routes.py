@@ -15,6 +15,7 @@ from services.database import get_db
 from services.microservice_client import check_microservice_health
 from services.templates import templates
 logger = logging.getLogger("main")
+user_logger = logging.getLogger("user_actions")
 
 router = APIRouter()
 
@@ -58,6 +59,7 @@ async def multi_scan(request: Request, current_user: str = Depends(get_current_u
       for scan_request in scan_requests:
           repo_url = scan_request.get("RepoUrl", "")
           if "?" in repo_url or "/commit/" in repo_url:
+              logger.warning(f"Invalid repo URL format in multi-scan by user '{current_user}': {repo_url}")
               return JSONResponse(
                   status_code=400,
                   content={"status": "error", "message": f"Repo URL должен быть базовой ссылкой на репозиторий без параметров: {repo_url}"}
@@ -65,6 +67,7 @@ async def multi_scan(request: Request, current_user: str = Depends(get_current_u
       
       # Check microservice health
       if not await check_microservice_health():
+          logger.warning(f"Multi-scan failed for user '{current_user}': microservice unavailable")
           return JSONResponse(
               status_code=503,
               content={"status": "error", "message": "Микросервис недоступен"}
@@ -73,6 +76,7 @@ async def multi_scan(request: Request, current_user: str = Depends(get_current_u
       # Create multi-scan record
       multi_scan_id = str(uuid.uuid4())
       scan_ids = []
+      user_logger.info(f"User '{current_user}' initiated multi-scan for {len(scan_requests)} repositories")
       
       # Create scan records in database
       scan_records = []
@@ -143,6 +147,7 @@ async def multi_scan(request: Request, current_user: str = Depends(get_current_u
                           if i < len(scan_requests):
                               scan_data["BaseRepoUrl"] = scan_requests[i]["RepoUrl"]
                       
+                      user_logger.info(f"Multi-scan {multi_scan_id} successfully queued for user '{current_user}' - {len(scan_data_list)} repositories")
                       return JSONResponse(
                           status_code=200,
                           content={
@@ -199,6 +204,8 @@ async def multi_scan(request: Request, current_user: str = Depends(get_current_u
                                   scan_record.error_message = "Validation failed"
                           
                           db.commit()
+
+                          logger.warning(f"Multi-scan validation failed for user '{current_user}': unable to resolve commits for some repositories")
                           return JSONResponse(
                               status_code=400,
                               content={
@@ -255,6 +262,8 @@ async def multi_scan(request: Request, current_user: str = Depends(get_current_u
                       scan_record.error_message = "Queue full"
                   
                   db.commit()
+
+                  logger.warning(f"Multi-scan rejected for user '{current_user}': queue full")
                   return JSONResponse(
                       status_code=429,
                       content={

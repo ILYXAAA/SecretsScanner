@@ -41,9 +41,6 @@ def update_secret_key_in_env(new_secret_key: str = None):
         env_file = ".env"
         set_key(env_file, "SECRET_KEY", new_secret_key)
         load_dotenv(override=True)
-
-        # Update the global SECRET_KEY variable
-        from config import SECRET_KEY
         globals()['SECRET_KEY'] = new_secret_key
         
         return True
@@ -294,6 +291,7 @@ async def list_users(page: int = 1, search: str = "", _: str = Depends(get_admin
     except Exception as e:
         logger.error(f"Error listing users: {e}")
         return {"status": "error", "message": str(e)}
+
 @router.post("/admin/create-user")
 async def create_user(request: Request, username: str = Form(...), password: str = Form(...),
                      _: str = Depends(get_admin_user), user_db: Session = Depends(get_user_db)):
@@ -355,7 +353,7 @@ async def update_secret_key(request: Request, secret_key: str = Form(""),
         new_key = secret_key.strip() if secret_key.strip() else None
         
         if update_secret_key_in_env(new_key):
-            logger.info("SECRET_KEY updated by admin")
+            logger.warning("SECRET_KEY updated by admin")
             return RedirectResponse(url="/secret_scanner/admin?success=secret_key_updated", status_code=302)
         else:
             return RedirectResponse(url="/secret_scanner/admin?error=secret_key_update_failed", status_code=302)
@@ -398,6 +396,7 @@ async def export_secrets(background_tasks: BackgroundTasks, status_filter: str =
             status_code=500,
             content={"status": "error", "message": str(e)}
         )
+
 @router.get("/admin/export-status/{task_id}")
 async def export_status(task_id: str, _: str = Depends(get_admin_user)):
     """Check export status"""

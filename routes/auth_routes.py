@@ -14,6 +14,10 @@ from services.auth import (
     get_user_db
 )
 from services.templates import templates
+import logging
+
+user_logger = logging.getLogger("user_actions")
+logger = logging.getLogger("main")
 
 router = APIRouter()
 
@@ -36,6 +40,10 @@ async def login_page(request: Request):
                 user_db.close()
         
         # Токен невалиден или пользователь не существует - удаляем cookie
+        if username:
+            user_logger.warning(f"Invalid or expired token for user '{username}', clearing cookie")
+        else:
+            user_logger.warning(f"Service got an invalid or expired token")
         response = templates.TemplateResponse("login.html", {"request": request})
         response.delete_cookie(key="auth_token")
         return response
@@ -58,7 +66,9 @@ async def login(request: Request, username: str = Form(...), password: str = For
             samesite="strict",
             max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60
         )
+        user_logger.info(f"User '{username}' successfully logged in")
         return response
+    user_logger.warning(f"Failed login attempt for username: '{username}'")
     return templates.TemplateResponse("login.html", {"request": request, "error": "Invalid credentials"})
 
 @router.get("/logout")

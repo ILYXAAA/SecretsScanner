@@ -23,6 +23,7 @@ from routes.project_routes import validate_repo_url
 from services.microservice_client import check_microservice_health
 
 logger = logging.getLogger("main")
+user_logger = logging.getLogger("user_actions")
 router = APIRouter(prefix=f"/api/v1")
 
 @router.post(
@@ -140,6 +141,7 @@ async def api_project_add(
         
         response_time = int((time.time() - start_time) * 1000)
         logger.info(f"[API: {token.name}] Created project '{project_name}' ({response_time}ms)")
+        user_logger.info(f"API token '{token.name}' created project '{project_name}' with repo URL: {normalized_url}")
         
         return ProjectAddResponse(
             success=True,
@@ -387,6 +389,7 @@ async def api_scan(
                         
                         response_time = int((time.time() - start_time) * 1000)
                         logger.info(f"[API: {token.name}] Scan started: {scan_id} ({response_time}ms)")
+                        user_logger.info(f"API token '{token.name}' started scan for project '{project.name}' (commit: {request.commit})")
                         
                         return ScanResponse(
                             success=True,
@@ -614,6 +617,7 @@ async def api_multi_scan(
                         
                         response_time = int((time.time() - start_time) * 1000)
                         logger.info(f"[API: {token.name}] Multi-scan started: {multi_scan_id} with {len(scan_records)} scans ({response_time}ms)")
+                        user_logger.info(f"API token '{token.name}' started multi-scan with {len(scan_records)} repositories")
                         
                         return MultiScanResponse(
                             success=True,
