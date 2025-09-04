@@ -160,14 +160,21 @@ function clearDateFilter() {
 
 function updateDateDisplays() {
     const dateRangeInfo = document.getElementById('dateRangeInfo');
+
+    function formatDate(dateStr) {
+        if (!dateStr) return '';
+        const [year, month, day] = dateStr.split('-');
+        return `${day}.${month}.${year}`;
+    }
+
     if (selectedStartDate || selectedEndDate) {
-        let rangeText = 'Filtered: ';
+        let rangeText = 'Отфильтровано: ';
         if (selectedStartDate && selectedEndDate) {
-            rangeText += selectedStartDate + ' — ' + selectedEndDate;
+            rangeText += formatDate(selectedStartDate) + ' — ' + formatDate(selectedEndDate);
         } else if (selectedStartDate) {
-            rangeText += 'from ' + selectedStartDate;
+            rangeText += 'с ' + formatDate(selectedStartDate);
         } else if (selectedEndDate) {
-            rangeText += 'until ' + selectedEndDate;
+            rangeText += 'до ' + formatDate(selectedEndDate);
         }
         dateRangeInfo.textContent = rangeText;
         dateRangeInfo.style.display = 'block';
@@ -175,6 +182,7 @@ function updateDateDisplays() {
         dateRangeInfo.style.display = 'none';
     }
 }
+
 
 function downloadLogs() {
     const apiLogs = document.body.dataset.apiLogs;
