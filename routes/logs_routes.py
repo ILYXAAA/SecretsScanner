@@ -87,7 +87,7 @@ def filter_logs_by_date(lines, start_date: Optional[date] = None, end_date: Opti
     
     return filtered_lines
 
-@router.get("/api/logs")
+@router.get("/logging/logs")
 async def get_logs(
     lines: int = 1000, 
     start_date: Optional[str] = Query(None),
@@ -152,7 +152,7 @@ async def get_logs(
             "size": 0
         }
 
-@router.get("/api/download-logs")
+@router.get("/logging/download-logs")
 async def download_logs(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
@@ -228,7 +228,7 @@ async def download_logs(
             "message": str(e)
         }
 
-@router.get("/api/download-microservice-logs")
+@router.get("/logging/download-microservice-logs")
 async def download_microservice_logs(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
@@ -311,7 +311,7 @@ async def download_microservice_logs(
             "message": str(e)
         }
 
-@router.get("/api/microservice-logs")
+@router.get("/logging/microservice-logs")
 async def get_microservice_logs(
     lines: int = 1000, 
     start_date: Optional[str] = Query(None),
@@ -384,7 +384,7 @@ async def get_microservice_logs(
             "size": 0
         }
 
-@router.get("/api/user-actions-logs")
+@router.get("/logging/user-actions-logs")
 async def get_user_actions_logs(
     lines: int = 1000, 
     start_date: Optional[str] = Query(None),
@@ -449,7 +449,7 @@ async def get_user_actions_logs(
             "size": 0
         }
 
-@router.get("/api/download-user-actions-logs")
+@router.get("/logging/download-user-actions-logs")
 async def download_user_actions_logs(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),

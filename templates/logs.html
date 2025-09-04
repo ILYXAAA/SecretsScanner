@@ -6,9 +6,9 @@
     <title>Logs - Secrets Scanner</title>
     <link rel="stylesheet" href="/secret_scanner/static/css/logs.css">
 </head>
-<body data-api-logs="{{ get_full_url('api/logs') }}" 
-      data-api-microservice-logs="{{ get_full_url('api/microservice-logs') }}"
-      data-api-user-actions-logs="{{ get_full_url('api/user-actions-logs') }}">
+<body data-api-logs="{{ get_full_url('logging/logs') }}" 
+      data-api-microservice-logs="{{ get_full_url('logging/microservice-logs') }}"
+      data-api-user-actions-logs="{{ get_full_url('logging/user-actions-logs') }}">
     <div class="container">
         <div class="header">
             <h1>📋 System Logs</h1>

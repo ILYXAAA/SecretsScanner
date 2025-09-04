@@ -184,11 +184,11 @@ function downloadLogs() {
     // Determine which endpoint to use
     let baseEndpoint;
     if (currentLogSource === 'main') {
-        baseEndpoint = apiLogs.replace('/api/logs', '/api/download-logs');
+        baseEndpoint = apiLogs.replace('/logging/logs', '/logging/download-logs');
     } else if (currentLogSource === 'microservice') {
-        baseEndpoint = apiMicroserviceLogs.replace('/api/microservice-logs', '/api/download-microservice-logs');
+        baseEndpoint = apiMicroserviceLogs.replace('/logging/microservice-logs', '/logging/download-microservice-logs');
     } else if (currentLogSource === 'user_actions') {
-        baseEndpoint = apiUserActionsLogs.replace('/api/user-actions-logs', '/api/download-user-actions-logs');
+        baseEndpoint = apiUserActionsLogs.replace('/logging/user-actions-logs', '/logging/download-user-actions-logs');
     }
     
     // Build query parameters for date filtering
