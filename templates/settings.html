@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Settings - Secrets Scanner</title>
     <link rel="stylesheet" href="/secret_scanner/static/css/settings.css">
+    <link rel="icon" type="image/x-icon" href="/secret_scanner/favicon.ico">
 </head>
 <body data-original-rules="{{ (current_rules_content or '') | e }}"
       data-original-fp-rules="{{ (current_fp_rules_content or '') | e }}"
@@ -19,7 +20,8 @@
             <a href="/secret_scanner/dashboard">🌐 Главная</a>
             <a href="/secret_scanner/multi-scan">🔄 Мультискан</a>
             {% if current_user == "admin" %}
-            <a href="/secret_scanner/admin">👑 Админ панель</a>
+                <a href="/secret_scanner/admin">👑 Админ панель</a>
+                <a href="/secret_scanner/admin/workers" class="active">⚙️ Сервис</a>
             {% endif %}
             <a href="/secret_scanner/settings">⚙️ Настройки</a>
             <a href="/secret_scanner/logout">🔚 Выйти</a>

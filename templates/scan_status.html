@@ -5,11 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Scan Status - Secrets Scanner</title>
     <link rel="stylesheet" href="/secret_scanner/static/css/scan_status.css">
+    <link rel="icon" type="image/x-icon" href="/secret_scanner/favicon.ico">
 </head>
-<body data-scan-status="{{ scan.status }}" 
+<body data-scan-status="{{ scan.status if scan.status else 'unknown' }}" 
       data-scan-id="{{ scan.id }}" 
-      data-scan-started-at="{{ scan.started_at.strftime('%Y-%m-%dT%H:%M:%S') }}"
-      data-scan-started-at-display="{{ scan.started_at.strftime('%d.%m.%Y %H:%M') }}">
+      data-project-name="{{ scan.project_name }}"
+      data-callback-url="{{ callback_url if callback_url else '' }}"
+      data-scan-started-at="{{ scan.started_at.strftime('%Y-%m-%dT%H:%M:%S') if scan.started_at else '' }}"
+      data-scan-started-at-display="{{ scan.started_at.strftime('%d.%m.%Y %H:%M') if scan.started_at else '' }}">
     <header class="header">
         <a href="/secret_scanner/dashboard" class="logo">
             🔍 Secrets Scanner
@@ -18,7 +21,8 @@
             <a href="/secret_scanner/dashboard">🌐 Главная</a>
             <a href="/secret_scanner/multi-scan">🔄 Мультискан</a>
             {% if current_user == "admin" %}
-            <a href="/secret_scanner/admin">👑 Админ панель</a>
+                <a href="/secret_scanner/admin">👑 Админ панель</a>
+                <a href="/secret_scanner/admin/workers">⚙️ Сервис</a>
             {% endif %}
             <a href="/secret_scanner/settings">⚙️ Настройки</a>
             <a href="/secret_scanner/logout">🔚 Выйти</a>
@@ -27,96 +31,15 @@
     
     <div class="container">
         <div class="scan-status-card">
-            {% if scan.status == 'running' %}
-            <div class="loading-spinner"></div>
-            <div class="status-icon">🔍</div>
-            <h1 class="status-title">Scan in Progress</h1>
-            <p class="status-description">
-                Scanning repository for secrets and sensitive information...
-            </p>
-            
-            {% if scan.files_scanned %}
-            <div class="progress-info">
-                <div class="progress-text">Progress Update</div>
-                <div class="files-scanned">
-                    📄 Files scanned: {{ scan.files_scanned }}
-                </div>
+            <div id="status-content">
+                <!-- Содержимое будет обновляться через JavaScript -->
+                <div class="loading-spinner"></div>
+                <div class="status-icon">🔄</div>
+                <h1 class="status-title">Загрузка статуса...</h1>
+                <p class="status-description">
+                    Получение информации о состоянии сканирования...
+                </p>
             </div>
-            {% endif %}
-            
-            <div class="progress-bar">
-                <div class="progress-fill"></div>
-            </div>
-            <div class="elapsed-time" id="elapsedTime">
-                Started: {{ scan.started_at.strftime('%d.%m.%Y %H:%M') }}
-            </div>
-
-            <div class="logs-info">
-                <div class="logs-info-title">
-                    💡 Информация о диагностике
-                </div>
-                <div class="logs-info-text">
-                    Если скан завис или работает слишком долго, вы можете посмотреть логи сервиса для диагностики проблемы.
-                </div>
-                <div class="logs-button-container">
-                    <a href="/secret_scanner/logs" class="btn btn-info">
-                        📋 Посмотреть логи
-                    </a>
-                </div>
-            </div>
-
-            {% elif scan.status == 'completed' %}
-            <div class="status-icon">✅</div>
-            <h1 class="status-title">Scan Completed</h1>
-            <p class="status-description">
-                The repository scan has been completed successfully.
-            </p>
-            {% elif scan.status == 'timeout' %}
-            <div class="status-icon">⏰</div>
-            <h1 class="status-title">Scan Timed Out</h1>
-            <p class="status-description">
-                The scan took longer than 10 minutes and was automatically cancelled.
-            </p>
-
-            <div class="logs-info">
-                <div class="logs-info-title">
-                    🔍 Диагностика проблемы
-                </div>
-                <div class="logs-info-text">
-                    Скан был остановлен по таймауту. Для выяснения причины вы можете проверить логи сервиса.
-                </div>
-                <div class="logs-button-container">
-                    <a href="/secret_scanner/logs" class="btn btn-info">
-                        📋 Посмотреть логи
-                    </a>
-                </div>
-            </div>
-
-            {% elif scan.status == 'failed' %}
-            <div class="status-icon">❌</div>
-            <h1 class="status-title">Scan Failed</h1>
-            <p class="status-description">
-                {{ scan.error_message }}
-            </p>
-
-            <div class="logs-info">
-                <div class="logs-info-title">
-                    🔍 Диагностика ошибки
-                </div>
-                <div class="logs-info-text">
-                    Произошла ошибка во время сканирования. Детальную информацию об ошибке можно найти в логах сервиса.<br><br>
-                    <strong>ID сканирования для поиска в логах сервиса:</strong> 
-                    <br><strong><code style="background: #f8f9fa; padding: 2px 6px; border-radius: 4px; color: #dc3545;">{{ scan.id }}</code></strong><br><br>
-                    <strong>Имя проекта для поиска в логах микросервиса:</strong> 
-                    <br><strong><code style="background: #f8f9fa; padding: 2px 6px; border-radius: 4px; color: #dc3545;">{{ scan.project_name }}</code></strong>
-                </div>
-                <div class="logs-button-container">
-                    <a href="/secret_scanner/logs" class="btn btn-info">
-                        📋 Посмотреть логи
-                    </a>
-                </div>
-            </div>
-            {% endif %}
             
             <div class="scan-details">
                 <div class="scan-detail-item">
@@ -125,11 +48,11 @@
                 </div>
                 <div class="scan-detail-item">
                     <span class="scan-detail-label">Reference Type:</span>
-                    <span class="scan-detail-value">{{ scan.ref_type }}</span>
+                    <span class="scan-detail-value">{{ scan.ref_type if scan.ref_type else 'N/A' }}</span>
                 </div>
                 <div class="scan-detail-item">
                     <span class="scan-detail-label">Reference:</span>
-                    <span class="scan-detail-value">{{ scan.ref }}</span>
+                    <span class="scan-detail-value">{{ scan.ref if scan.ref else 'N/A' }}</span>
                 </div>
                 {% if scan.repo_commit %}
                 <div class="scan-detail-item">
@@ -141,41 +64,77 @@
                     <span class="scan-detail-label">Scan ID:</span>
                     <span class="scan-detail-value">{{ scan.id }}</span>
                 </div>
-                <div class="scan-detail-item">
+                <div class="scan-detail-item" id="started-at-detail">
                     <span class="scan-detail-label">Запущен:</span>
-                    <span class="scan-detail-value">{{ scan.started_at.strftime('%d.%m.%Y %H:%M') }}</span>
+                    <span class="scan-detail-value">{{ scan.started_at.strftime('%d.%m.%Y %H:%M') if scan.started_at else 'Не запущен' }}</span>
                 </div>
-                {% if scan.completed_at %}
-                <div class="scan-detail-item">
+                <div class="scan-detail-item" id="completed-at-detail" style="display: none;">
                     <span class="scan-detail-label">Завершен:</span>
-                    <span class="scan-detail-value">{{ scan.completed_at.strftime('%d.%m.%Y %H:%M') }}</span>
+                    <span class="scan-detail-value" id="completed-at-value">-</span>
                 </div>
-                {% endif %}
+                <div class="scan-detail-item" id="execution-time-detail" style="display: none;">
+                    <span class="scan-detail-label">Время выполнения:</span>
+                    <span class="scan-detail-value" id="execution-time-value">-</span>
+                </div>
             </div>
             
-            <div style="margin-top: 2rem;">
+            <!-- Прогресс информация - будет показываться для активных задач -->
+            <div id="progress-section" style="display: none;">
+                <div class="progress-info">
+                    <div class="progress-text" id="progress-status-text">Выполнение...</div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
+                    </div>
+                    <div class="progress-percentage" id="progress-percentage">0%</div>
+                    <div class="progress-detail" id="progress-detail"></div>
+                </div>
+            </div>
+
+            <!-- Результаты сканирования -->
+            <div id="results-section" style="display: none;">
+                <div class="files-scanned" id="results-info">
+                    📊 Результаты готовы
+                </div>
+            </div>
+
+            <!-- Информация об ошибке -->
+            <div id="error-section" style="display: none;">
+                <div class="error-info">
+                    <div class="error-title">❌ Ошибка сканирования</div>
+                    <div class="error-message" id="error-message"></div>
+                </div>
+            </div>
+
+            <!-- Время выполнения (для активных задач) -->
+            <div class="elapsed-time" id="elapsedTime" style="display: none;">
+                Запущен: {{ scan.started_at.strftime('%d.%m.%Y %H:%M') if scan.started_at else 'N/A' }}
+            </div>
+
+            <div class="logs-info" id="logs-info" style="display: none;">
+                <div class="logs-info-title">
+                    💡 Информация о диагностике
+                </div>
+                <div class="logs-info-text" id="logs-info-text">
+                    При возникновении проблем с сканированием вы можете просмотреть логи сервиса для диагностики.
+                </div>
+                <div class="logs-button-container">
+                    <a href="/secret_scanner/logs" class="btn btn-info">
+                        📋 Посмотреть логи
+                    </a>
+                </div>
+            </div>
+            
+            <div style="margin-top: 2rem;" id="action-buttons">
                 <a href="/secret_scanner/project/{{ scan.project_name }}" class="btn btn-secondary">
                     ← Назад к проекту
                 </a>
                 
-                {% if scan.status == 'completed' %}
-                <a href="/secret_scanner/scan/{{ scan.id }}/results" class="btn btn-primary">
-                    📊 Посмотреть результаты
-                </a>
-                {% elif scan.status == 'running' %}
-                <button class="btn btn-danger" onclick="refreshPage()">
+                <button class="btn btn-info" id="refresh-btn" onclick="refreshStatus()">
                     🔄 Обновить статус
                 </button>
-                <form method="post" action="/secret_scanner/scan/{{ scan.id }}/delete" style="display: inline;" 
-                      onsubmit="return confirm('Are you sure you want to delete this scan?')">
-                    <button type="submit" class="btn btn-danger">🗑️ Delete Scan</button>
-                </form>
-                {% elif scan.status == 'failed' or scan.status == 'timeout' %}
-                <form method="post" action="/secret_scanner/scan/{{ scan.id }}/delete" style="display: inline;" 
-                      onsubmit="return confirm('Are you sure you want to delete this scan?')">
-                    <button type="submit" class="btn btn-danger">🗑️ Delete Scan</button>
-                </form>
-                {% endif %}
+
+                <!-- Кнопки будут добавляться динамически через JavaScript -->
+                <div id="dynamic-buttons"></div>
             </div>
         </div>
     </div>

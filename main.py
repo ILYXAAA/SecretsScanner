@@ -19,6 +19,7 @@ from models import AuthenticationException, Scan, MultiScan
 from services.database import initialize_database
 from services.auth import ensure_user_database, auth_exception_handler
 from services.backup_service import backup_scheduler
+from logging_config import setup_logging
 
 # Import API middleware
 from api.middleware import log_api_request, cleanup_rate_limits
@@ -106,24 +107,24 @@ async def lifespan(app: FastAPI):
     except asyncio.CancelledError:
         pass
 
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        RotatingFileHandler('secrets_scanner.log', maxBytes=10*1024*1024, backupCount=5, encoding='utf-8'),
-        logging.StreamHandler()  # Также выводить в консоль
-    ]
-)
+# Основной логгер сервиса
+logger = setup_logging(log_file="secrets_scanner.log")
 logger = logging.getLogger("main")
 
-# Логгер действий пользователей
+# Логгер действий пользователей (отдельный файл, без консоли)
 user_logger = logging.getLogger("user_actions")
-user_handler = RotatingFileHandler('user_actions.log', maxBytes=10*1024*1024, backupCount=5, encoding='utf-8')
-user_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+user_handler = RotatingFileHandler(
+    "user_actions.log",
+    maxBytes=10*1024*1024,
+    backupCount=5,
+    encoding="utf-8"
+)
+user_handler.setFormatter(logging.Formatter(
+    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+))
 user_logger.addHandler(user_handler)
 user_logger.setLevel(logging.INFO)
-user_logger.propagate = False  # Не передавать в родительский logger (чтобы не попадало в консоль)
+user_logger.propagate = False  # чтобы не дублировалось в консоль/основной логгер
 
 # Initialize FastAPI app with comprehensive documentation
 app = FastAPI(
@@ -217,8 +218,10 @@ from routes.scan_routes import router as scan_router
 from routes.settings_routes import router as settings_router
 from routes.multi_scan_routes import router as multi_scan_router
 from routes.admin_routes import router as admin_router
+from routes.admin_workers_service import router as admin_microservice_router
 from routes.logs_routes import router as logs_router
 from routes.secrets_history_routes import router as secrets_history_router
+from routes.scan_status_routes import router as scan_results_router
 
 # Import API router
 from api import router as api_router
@@ -231,8 +234,10 @@ app.include_router(scan_router)
 app.include_router(settings_router)
 app.include_router(multi_scan_router)
 app.include_router(admin_router)
+app.include_router(admin_microservice_router)
 app.include_router(logs_router)
 app.include_router(secrets_history_router)
+app.include_router(scan_results_router)
 
 # Include API router
 app.include_router(api_router)
@@ -400,5 +405,6 @@ if __name__ == "__main__":
         host=APP_HOST, 
         port=APP_PORT,
         log_level="info",
-        access_log=True
+        access_log=True,
+        log_config=None
     )

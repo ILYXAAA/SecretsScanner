@@ -9,55 +9,56 @@ import ipaddress
 from cryptography.fernet import Fernet
 import secrets
 from dotenv import load_dotenv, set_key
+from logging_config import setup_logging
 os.system("") # Для цветной консоли
 
 # Configure colored logging
-class ColoredFormatter(logging.Formatter):
-    """Colored log formatter"""
+# class ColoredFormatter(logging.Formatter):
+#     """Colored log formatter"""
     
-    COLORS = {
-        'DEBUG': '\033[36m',    # Cyan
-        'INFO': '\033[32m',     # Green
-        'WARNING': '\033[33m',  # Yellow
-        'ERROR': '\033[31m',    # Red
-        'CRITICAL': '\033[35m', # Magenta
-        'RESET': '\033[0m'      # Reset
-    }
+#     COLORS = {
+#         'DEBUG': '\033[36m',    # Cyan
+#         'INFO': '\033[32m',     # Green
+#         'WARNING': '\033[33m',  # Yellow
+#         'ERROR': '\033[31m',    # Red
+#         'CRITICAL': '\033[35m', # Magenta
+#         'RESET': '\033[0m'      # Reset
+#     }
     
-    def format(self, record):
-        # Создаем копию записи, чтобы не изменять оригинал
-        colored_record = logging.makeLogRecord(record.__dict__)
-        log_color = self.COLORS.get(record.levelname, self.COLORS['RESET'])
-        colored_record.levelname = f"{log_color}{record.levelname}{self.COLORS['RESET']}"
-        return super().format(colored_record)
+#     def format(self, record):
+#         # Создаем копию записи, чтобы не изменять оригинал
+#         colored_record = logging.makeLogRecord(record.__dict__)
+#         log_color = self.COLORS.get(record.levelname, self.COLORS['RESET'])
+#         colored_record.levelname = f"{log_color}{record.levelname}{self.COLORS['RESET']}"
+#         return super().format(colored_record)
 
-def setup_logging():
-    logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
+# def setup_logging():
+#     logger = logging.getLogger()
+#     logger.setLevel(logging.INFO)
     
-    # Удаляем существующие обработчики
-    for handler in logger.handlers[:]:
-        logger.removeHandler(handler)
+#     # Удаляем существующие обработчики
+#     for handler in logger.handlers[:]:
+#         logger.removeHandler(handler)
     
-    # Консольный обработчик с цветами
-    console_handler = logging.StreamHandler()
-    formatter = ColoredFormatter(fmt='[%(levelname)s] %(message)s')
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
+#     # Консольный обработчик с цветами
+#     console_handler = logging.StreamHandler()
+#     formatter = ColoredFormatter(fmt='[%(levelname)s] %(message)s')
+#     console_handler.setFormatter(formatter)
+#     logger.addHandler(console_handler)
     
-    # Файловый обработчик БЕЗ цветов
-    from logging.handlers import RotatingFileHandler
-    file_handler = RotatingFileHandler(
-        'secrets_scanner.log', 
-        maxBytes=10*1024*1024, 
-        backupCount=5,
-        encoding='utf-8'
-    )
-    file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    file_handler.setFormatter(file_formatter)
-    logger.addHandler(file_handler)
+#     # Файловый обработчик БЕЗ цветов
+#     from logging.handlers import RotatingFileHandler
+#     file_handler = RotatingFileHandler(
+#         'secrets_scanner.log', 
+#         maxBytes=10*1024*1024, 
+#         backupCount=5,
+#         encoding='utf-8'
+#     )
+#     file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+#     file_handler.setFormatter(file_formatter)
+#     logger.addHandler(file_handler)
     
-    return logger
+#     return logger
 
 def setup_multiprocessing():
     """Configure multiprocessing for Windows/Linux compatibility"""
@@ -326,6 +327,7 @@ def main():
         host = os.getenv("APP_HOST")
         port = int(os.getenv("APP_PORT"))
         uvicorn.run(app, host=host, port=port, log_level="info", access_log=True)
+        #uvicorn.run("app.main:app", **config, log_config=None)
         
     except KeyboardInterrupt:
         print("\nReceived interrupt signal")

@@ -414,7 +414,7 @@ def generate_html_report(scan, project, secrets, HubType):
     if not secrets:
         html_content += """
             <div class="no-secrets">
-                <h3>✅ Секреты не обнаружены!</h3>
+                <h3>✅ Секреты не обнаружены</h3>
                 <p>Сканирование не выявило потенциальных проблем.</p>
             </div>
         """

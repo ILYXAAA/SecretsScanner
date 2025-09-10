@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Управление воркерами - Secrets Scanner</title>
+    <link rel="stylesheet" href="/secret_scanner/static/css/admin_workers_service.css">
+    <link rel="icon" type="image/x-icon" href="/secret_scanner/favicon.ico">
+</head>
+<body>
+    {% from "components/icon.html" import icon %}
+    <header class="header">
+        <a href="/secret_scanner/dashboard" class="logo">
+            🔍 Secrets Scanner
+        </a>
+        <nav class="nav-links">
+            <a href="/secret_scanner/dashboard">🌐 Главная</a>
+            <a href="/secret_scanner/multi-scan">🔄 Мультискан</a>
+            {% if current_user == "admin" %}
+                <a href="/secret_scanner/admin">👑 Админ панель</a>
+                <a href="/secret_scanner/admin/workers" class="active">⚙️ Сервис</a>
+            {% endif %}
+            <a href="/secret_scanner/settings">⚙️ Настройки</a>
+            <a href="/secret_scanner/logout">🔚 Выйти</a>
+        </nav>
+    </header>
+    
+    <div class="container">
+        <div class="page-header">
+            <h1 class="page-title">⚙️ Управление сервисом</h1>
+            <div class="header-actions">
+                <label class="toggle-switch">
+                    <input type="checkbox" id="autoRefreshToggle" checked>
+                    <span class="toggle-slider"></span>
+                    <span class="toggle-label">Автообновление</span>
+                </label>
+            </div>
+        </div>
+
+        <!-- System and Queue Statistics -->
+        <div class="stats-grid">
+            <div class="stat-card system-stats">
+                <h3>🖥️ Система (неточные данные)</h3>
+                <div class="stat-content">
+                    <div class="stat-item">
+                        <span class="stat-label">{{ icon("time", 22)}} Время работы:</span>
+                        <span class="stat-value" id="uptime">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">{{ icon("cpu", 22)}} CPU:</span>
+                        <span class="stat-value" id="cpu-usage">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">{{ icon("ram", 22)}} RAM:</span>
+                        <span class="stat-value" id="memory-usage">-</span>
+                    </div>
+                </div>
+                <div class="system-action">
+                    <button class="btn btn-info btn-medium" onclick="refreshSystemStats()">
+                        {{ icon("update", 20)}} Обновить
+                    </button>
+                </div>
+            </div>
+
+            <div class="stat-card queue-stats">
+                <h3>
+                    📋 Очередь задач
+                    <span class="tasks-count">(<span id="pending-tasks-quicknum">0</span>)</span>
+                </h3>
+                <div class="stat-content">
+                    <div class="stat-item">
+                        <span class="stat-label">⌛ В ожидании:</span>
+                        <span class="stat-value pending" id="pending-tasks">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">🛠️ В процессе:</span>
+                        <span class="stat-value processing" id="processing-tasks">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">✅ Завершено:</span>
+                        <span class="stat-value completed" id="completed-tasks">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">❌ Ошибки:</span>
+                        <span class="stat-value failed" id="failed-tasks">-</span>
+                    </div>
+                </div>
+                <div class="queue-actions">
+                    <button class="btn btn-danger btn-small" onclick="cleanupOldTasks()">
+                        {{ icon("delete", 18)}} Почистить задачи
+                    </button>
+                    <div class="btn-description">Удаляет все старые задачи, фиксит задачи-потеряшки</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Workers List -->
+        <div class="workers-section">
+            <div class="section-header">
+                <h2 id="workers-title">👷 Список воркеров</h2>
+                <button class="add-worker-btn" onclick="addWorker()">
+                    🤖 Добавить
+                </button>
+            </div>
+            
+            <div class="workers-grid" id="workers-grid">
+                <!-- Workers will be populated here -->
+            </div>
+
+            <div class="empty-state" id="empty-workers" style="display: none;">
+                <h3>Нет воркеров</h3>
+                <p>Воркеры не найдены или не запущены</p>
+            </div>
+        </div>
+
+        <!-- Tasks Management Section -->
+        <div class="tasks-section">
+            <div class="section-header">
+                <h2>📋 Задачи</h2>
+                <div class="tasks-controls">
+                    <input type="text" id="projectSearch" class="search-input" placeholder="Поиск по проекту/коммиту.." onkeyup="searchTasks()">
+                    <select id="tasksFilter" class="filter-select" onchange="filterTasks()">
+                        <option value="">Все задачи</option>
+                        <option value="pending">⌛ В ожидании</option>
+                        <option value="downloading,unpacking,scanning,ml_validation">🛠️ В процессе</option>
+                        <option value="completed">✅ Завершенные</option>
+                        <option value="failed">❌ Проваленные</option>
+                    </select>
+                    <select id="workerFilter" class="filter-select" onchange="filterTasks()">
+                        <option value="">Все воркеры</option>
+                    </select>
+                    <select id="taskTypeFilter" class="filter-select" onchange="filterTasks()">
+                        <option value="">Все типы</option>
+                    </select>
+                    <input type="number" id="tasksLimit" placeholder="Лимит" min="1" max="1000" value="200" onchange="filterTasks()">
+                    <button class="btn btn-info btn-small" onclick="refreshTasks()">🔄 Обновить</button>
+                </div>
+            </div>
+            
+            <!-- <div class="tasks-tabs">
+                <button class="task-tab active" data-tab="all" onclick="switchTab('all')">📋 Все</button>
+                <button class="task-tab" data-tab="pending" onclick="switchTab('pending')">⌛ В ожидании</button>
+                <button class="task-tab" data-tab="processing" onclick="switchTab('processing')">🛠️ В процессе</button>
+                <button class="task-tab" data-tab="completed" onclick="switchTab('completed')">✅ Завершенные</button>
+                <button class="task-tab" data-tab="failed" onclick="switchTab('failed')">❌ Проваленные</button>
+            </div> -->
+            
+            <div class="tasks-content">
+                <div class="tasks-analytics" id="tasks-analytics">
+                    <!-- Analytics will be populated here -->
+                </div>
+                
+                <div class="tasks-list" id="tasks-list">
+                    <!-- Tasks will be populated here -->
+                </div>
+                
+                <div class="empty-state" id="empty-tasks" style="display: none;">
+                    <h3>Задачи не найдены</h3>
+                    <p>Нет задач для отображения с текущими фильтрами</p>
+                </div>
+                
+                <!-- Пагинация -->
+                <div class="pagination" id="pagination" style="display: none;">
+                    <button id="prevPageBtn" onclick="goToPage(currentPage - 1)">‹ Назад</button>
+                    <span id="pageInfo">Страница 1 из 1</span>
+                    <button id="nextPageBtn" onclick="goToPage(currentPage + 1)">Вперед ›</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Auto-refresh indicator -->
+        <div class="refresh-indicator">
+            <span id="refresh-status">🔄 Обновление данных...</span>
+            <span id="last-update">Последнее обновление: никогда</span>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-content">
+            <div class="spinner"></div>
+            <h3>Выполняется операция...</h3>
+            <p id="loading-message">Пожалуйста, подождите</p>
+        </div>
+    </div>
+
+    <!-- Confirmation Dialog -->
+    <div class="confirmation-dialog" id="confirmationDialog">
+        <div class="dialog-content">
+            <h3 class="dialog-title" id="dialog-title">Подтверждение</h3>
+            <div class="dialog-message" id="dialog-message"></div>
+            <div class="dialog-actions">
+                <button class="btn btn-secondary" id="cancelBtn" onclick="hideConfirmDialog()">Отмена</button>
+                <button class="btn btn-danger" id="confirmBtn">Подтвердить</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/secret_scanner/static/js/admin_workers_service.js"></script>
+</body>
+</html>

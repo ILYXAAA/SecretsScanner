@@ -1,0 +1,5 @@
+{% macro icon(name, size=24) %}
+    <img src="/secret_scanner/static/icons/{{ name }}.svg"
+         alt="{{ name }}"
+         style="width: {{ size }}px; height: {{ size }}px; vertical-align: middle;">
+{% endmacro %}

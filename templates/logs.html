@@ -5,21 +5,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Logs - Secrets Scanner</title>
     <link rel="stylesheet" href="/secret_scanner/static/css/logs.css">
+    <link rel="icon" type="image/x-icon" href="/secret_scanner/favicon.ico">
 </head>
 <body data-api-logs="{{ get_full_url('logging/logs') }}" 
       data-api-microservice-logs="{{ get_full_url('logging/microservice-logs') }}"
       data-api-user-actions-logs="{{ get_full_url('logging/user-actions-logs') }}">
     <div class="container">
         <div class="header">
-            <h1>📋 System Logs</h1>
-            <div class="nav-links">
-                <a href="{{ get_full_url('dashboard') }}">Dashboard</a>
-                <a href="{{ get_full_url('settings') }}">Settings</a>
-                {% if current_user == 'admin' %}
-                <a href="{{ get_full_url('admin') }}">Admin</a>
-                {% endif %}
-                <a href="{{ get_full_url('logout') }}">Logout</a>
-            </div>
+            <h1>📋 Системные логи</h1>
+        <nav class="nav-links">
+            <a href="/secret_scanner/dashboard">🌐 Главная</a>
+            <a href="/secret_scanner/multi-scan">🔄 Мультискан</a>
+            {% if current_user == "admin" %}
+                <a href="/secret_scanner/admin">👑 Админ панель</a>
+                <a href="/secret_scanner/admin/workers" class="active">⚙️ Сервис</a>
+            {% endif %}
+            <a href="/secret_scanner/settings">⚙️ Настройки</a>
+            <a href="/secret_scanner/logout">🔚 Выйти</a>
+        </nav>
         </div>
 
         <div class="stats">
