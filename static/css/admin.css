@@ -664,3 +664,48 @@ select:focus {
         justify-content: center;
     }
 }
+
+.projects-export-section .permissions-grid {
+    margin-top: 0.5rem;
+    border: 1px solid #e1e5e9;
+    border-radius: 8px;
+    padding: 1rem;
+    background: white;
+}
+
+.projects-export-section .permission-item {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    transition: all 0.2s ease;
+}
+
+.projects-export-section .permission-item:hover {
+    background: #e9ecef;
+    border-color: #007bff;
+}
+
+.projects-export-section .permission-item input[type="checkbox"]:checked + label {
+    color: #007bff;
+    font-weight: 600;
+}
+
+/* Progress indicators for projects export */
+#exportProjectsProgress .spinner {
+    border-color: #e1e5e9;
+    border-top-color: #007bff;
+}
+
+#exportProjectsProgress .checkmark {
+    color: #007bff;
+}
+
+/* Responsive adjustments for projects export */
+@media (max-width: 768px) {
+    .projects-export-section .permissions-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .projects-export-section .permission-item {
+        justify-content: flex-start;
+    }
+}

@@ -352,6 +352,72 @@
                     </div>
                 </div>
             </div>
+
+            <div class="section">
+                <h2 class="section-title">
+                    <span>📊</span>
+                    Экспорт проектов с фреймворками
+                </h2>
+                
+                <div class="form-container">
+                    <h3 style="margin-bottom: 1rem;">📋 Выгрузить проекты по технологиям</h3>
+                    <form id="exportProjectsForm">
+                        <div class="form-group">
+                            <label for="tech_filter">Технологии для поиска</label>
+                            <div class="permissions-grid" style="margin-top: 0.5rem;">
+                                <div class="permission-item">
+                                    <input type="checkbox" id="tech_nestjs" name="tech_filter" value="nestjs" checked>
+                                    <label for="tech_nestjs">NestJS</label>
+                                </div>
+                                <div class="permission-item">
+                                    <input type="checkbox" id="tech_vue" name="tech_filter" value="vue" checked>
+                                    <label for="tech_vue">Vue</label>
+                                </div>
+                                <div class="permission-item">
+                                    <input type="checkbox" id="tech_angular" name="tech_filter" value="angular" checked>
+                                    <label for="tech_angular">Angular</label>
+                                </div>
+                                <div class="permission-item">
+                                    <input type="checkbox" id="tech_scala" name="tech_filter" value="scala" checked>
+                                    <label for="tech_scala">Scala</label>
+                                </div>
+                                <div class="permission-item">
+                                    <input type="checkbox" id="tech_dart" name="tech_filter" value="dart" checked>
+                                    <label for="tech_dart">Dart</label>
+                                </div>
+                                <div class="permission-item">
+                                    <input type="checkbox" id="tech_groovy" name="tech_filter" value="groovy" checked>
+                                    <label for="tech_groovy">Groovy</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary" id="exportProjectsBtn">
+                                <span>📊</span>
+                                Начать экспорт проектов
+                            </button>
+                        </div>
+                    </form>
+                </div>
+                
+                <!-- Export Progress for Projects -->
+                <div id="exportProjectsProgress" style="display: none; margin-top: 1rem;">
+                    <div style="background: #f8f9fa; border-radius: 8px; padding: 1.5rem;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;">
+                            <div class="spinner" style="width: 20px; height: 20px; border: 2px solid #e1e5e9; border-top: 2px solid #28a745; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                            <div class="checkmark" style="display: none; width: 20px; height: 20px; font-size: 20px; color: #28a745;">✅</div>
+                            <span style="font-weight: 600;">Подготовка отчета...</span>
+                        </div>
+                        <div id="exportProjectsMessage" style="color: #666; margin-bottom: 1rem;">Инициализация...</div>
+                        <div id="downloadProjectsSection" style="display: none;">
+                            <button type="button" class="btn btn-success" id="downloadProjectsBtn">
+                                <span>⬇️</span>
+                                Скачать отчет
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
     <script src="/secret_scanner/static/js/admin.js"></script>

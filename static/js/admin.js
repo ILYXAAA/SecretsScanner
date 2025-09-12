@@ -4,12 +4,18 @@ let currentTokensPage = 1;
 let totalTokensPages = 1;
 let currentUserSearch = '';
 let currentTokenSearch = '';
+let currentProjectsTaskId = null;
 
 // Load users on page load
 // Load API tokens on page load
 document.addEventListener('DOMContentLoaded', function() {
     loadUsers();
     loadApiTokens();
+
+    const projectsForm = document.getElementById('exportProjectsForm');
+    if (projectsForm) {
+        projectsForm.addEventListener('submit', handleProjectsExport);
+    }
     
     // Handle form submission for permissions
     const form = document.querySelector('form[action="/secret_scanner/admin/create-api-token"]');
@@ -484,6 +490,116 @@ async function checkExportStatus() {
         document.getElementById('exportBtn').disabled = false;
         // Hide spinner on error
         const spinner = document.getElementById('exportProgress').querySelector('.spinner');
+        if (spinner) spinner.style.display = 'none';
+    }
+}
+
+async function handleProjectsExport(e) {
+    e.preventDefault();
+    
+    const exportBtn = document.getElementById('exportProjectsBtn');
+    const exportProgress = document.getElementById('exportProjectsProgress');
+    const exportMessage = document.getElementById('exportProjectsMessage');
+    const downloadSection = document.getElementById('downloadProjectsSection');
+    
+    // Get selected technologies
+    const selectedTechs = [];
+    const checkboxes = document.querySelectorAll('input[name="tech_filter"]:checked');
+    checkboxes.forEach(cb => {
+        selectedTechs.push(cb.value);
+    });
+    
+    if (selectedTechs.length === 0) {
+        alert('Выберите хотя бы одну технологию для поиска');
+        return;
+    }
+    
+    // Disable form and show progress
+    exportBtn.disabled = true;
+    exportProgress.style.display = 'block';
+    downloadSection.style.display = 'none';
+    exportMessage.textContent = 'Инициализация...';
+    
+    // Reset spinner visibility
+    const spinner = exportProgress.querySelector('.spinner');
+    const checkmark = exportProgress.querySelector('.checkmark');
+    if (spinner) spinner.style.display = 'inline-block';
+    if (checkmark) checkmark.style.display = 'none';
+    
+    try {
+        const formData = new FormData();
+        selectedTechs.forEach(tech => {
+            formData.append('technologies[]', tech);
+        });
+        
+        const response = await fetch('/secret_scanner/admin/export-projects', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+            currentProjectsTaskId = data.task_id;
+            checkProjectsExportStatus();
+        } else {
+            throw new Error(data.message || 'Export failed');
+        }
+        
+    } catch (error) {
+        console.error('Projects export error:', error);
+        exportMessage.textContent = `Ошибка: ${error.message}`;
+        exportBtn.disabled = false;
+        // Hide spinner on error
+        const spinner = exportProgress.querySelector('.spinner');
+        if (spinner) spinner.style.display = 'none';
+    }
+}
+
+async function checkProjectsExportStatus() {
+    if (!currentProjectsTaskId) return;
+    
+    try {
+        const response = await fetch(`/secret_scanner/admin/export-projects-status/${currentProjectsTaskId}`);
+        const data = await response.json();
+        
+        const exportMessage = document.getElementById('exportProjectsMessage');
+        const downloadSection = document.getElementById('downloadProjectsSection');
+        const exportBtn = document.getElementById('exportProjectsBtn');
+        const spinner = document.getElementById('exportProjectsProgress').querySelector('.spinner');
+        const checkmark = document.getElementById('exportProjectsProgress').querySelector('.checkmark');
+        
+        exportMessage.textContent = data.message;
+        
+        if (data.status === 'ready') {
+            // Hide spinner and show checkmark
+            if (spinner) spinner.style.display = 'none';
+            if (checkmark) checkmark.style.display = 'inline-block';
+            
+            downloadSection.style.display = 'block';
+            exportBtn.disabled = false;
+            
+            document.getElementById('downloadProjectsBtn').onclick = function() {
+                window.location.href = `/secret_scanner/admin/download-projects/${currentProjectsTaskId}`;
+                document.getElementById('exportProjectsProgress').style.display = 'none';
+                currentProjectsTaskId = null;
+            };
+            
+        } else if (data.status === 'error') {
+            // Hide spinner on error
+            if (spinner) spinner.style.display = 'none';
+            exportBtn.disabled = false;
+        } else {
+            // Still processing, check again
+            setTimeout(checkProjectsExportStatus, 1000);
+        }
+        
+    } catch (error) {
+        console.error('Projects status check error:', error);
+        document.getElementById('exportProjectsMessage').textContent = 'Ошибка проверки статуса';
+        document.getElementById('exportProjectsBtn').disabled = false;
+        // Hide spinner on error
+        const spinner = document.getElementById('exportProjectsProgress').querySelector('.spinner');
         if (spinner) spinner.style.display = 'none';
     }
 }

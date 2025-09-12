@@ -11,7 +11,8 @@
       data-project-repo-url="{{ project.repo_url }}" 
       data-latest-scan-commit="{{ latest_scan.repo_commit if latest_scan and latest_scan.repo_commit else 'main' }}" 
       data-hub-type="{{ HUB_TYPE }}" 
-      data-latest-scan-status="{{ latest_scan.status if latest_scan else '' }}">
+      data-latest-scan-status="{{ latest_scan.status if latest_scan else '' }}"
+      data-current-project-name="{{ project.name }}">
     <header class="header">
         <a href="/secret_scanner/dashboard" class="logo">
             🔍 Secrets Scanner
@@ -59,12 +60,9 @@
                 <button class="btn btn-zip-scan" onclick="toggleLocalScanForm()">
                     🗂️ Сканирование ZIP
                 </button>
-                <button class="btn btn-warning" onclick="toggleEditForm()">
-                    ✏️ Редактировать
-                </button>
-                <button class="btn btn-danger" onclick="deleteProject({{ project.id }})">
-                    🗑️ Удалить проект
-                </button>
+                <button class="btn btn-warning" onclick="toggleEditForm()">✏️ Редактировать</button>
+                <button class="btn btn-danger" onclick="deleteProject({{ project.id }})">🗑️ Удалить проект</button>
+                <button class="btn btn-merge" onclick="toggleMergeForm()">🔗 Объединить</button>
             </div>
         </div>
         
@@ -87,6 +85,18 @@
             <div class="alert alert-error">Проект не найден.</div>
             {% elif 'error=project_update_failed' in request.url.query %}
             <div class="alert alert-error">Не удалось обновить проект.</div>
+            {% elif 'error=empty_merge_fields' in request.url.query %}
+            <div class="alert alert-error">❌ Все поля для объединения должны быть заполнены.</div>
+            {% elif 'error=same_project_merge' in request.url.query %}
+            <div class="alert alert-error">❌ Нельзя объединить проект с самим собой.</div>
+            {% elif 'error=main_project_not_found' in request.url.query %}
+            <div class="alert alert-error">❌ Основной проект не найден.</div>
+            {% elif 'error=target_project_not_found' in request.url.query %}
+            <div class="alert alert-error">❌ Целевой проект для объединения не найден.</div>
+            {% elif 'error=project_merge_failed' in request.url.query %}
+            <div class="alert alert-error">❌ Ошибка при объединении проектов. Попробуйте еще раз.</div>
+            {% elif 'success=project_merged' in request.url.query %}
+            <div class="alert alert-success">✅ Проекты успешно объединены! Перенесено сканирований: {{ request.url.query.split('merged_scans=')[1].split('&')[0] if 'merged_scans=' in request.url.query else '0' }}</div>
             {% elif 'error=' in request.url.query %}
             <div class="alert alert-error">{{ request.url.query.split('error=')[1].split('&')[0] | urldecode }}</div>
             {% elif 'error=invalid_file_format' in request.url.query %}
@@ -124,6 +134,37 @@
                 <div class="form-actions">
                     <button type="submit" class="btn btn-primary">Обновить проект</button>
                     <button type="button" class="btn btn-secondary" onclick="toggleEditForm()">Отмена</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Merge Project Form -->
+        <div id="mergeProjectForm" class="merge-project-form">
+            <h2 class="merge-form-title">🔗 Объединить проекты</h2>
+            <div class="merge-form-description">
+                <strong>Внимание!</strong> Этот функционал объединяет два проекта в один. Все сканирования из выбранного проекта будут перенесены в текущий проект, а выбранный проект будет удален. 
+                <br><br>
+                <strong>Это действие необратимо!</strong> Используйте его для объединения дублирующихся проектов (например, когда один репозиторий создан с разными URL).
+            </div>
+            <form action="/secret_scanner/projects/merge" method="post">
+                <input type="hidden" name="main_project_name" value="{{ project.name }}">
+                <div class="form-group">
+                    <label for="target_project_name">Проект для объединения:</label>
+                    <div class="autocomplete-container">
+                        <input type="text" id="target_project_name" name="target_project_name" 
+                               placeholder="Начните вводить название проекта..." required>
+                        <div id="project_dropdown" class="project-dropdown"></div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="new_repo_url">Финальный URL репозитория:</label>
+                    <input type="url" id="new_repo_url" name="new_repo_url" 
+                           value="{{ project.repo_url }}" 
+                           placeholder="URL репозитория, который останется после объединения" required>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-merge" onclick="mergeProjects()">🔗 Объединить проекты</button>
+                    <button type="button" class="btn btn-secondary" onclick="toggleMergeForm()">Отмена</button>
                 </div>
             </form>
         </div>
@@ -189,7 +230,7 @@
         
         {% if latest_scan %}
         <div class="latest-scan">
-            <h2 class="section-title">📍 Последний скан</h2>
+            <h2 class="section-title">🔍 Последний скан</h2>
             <div class="scan-info">
                 <div class="scan-info-item">
                     <div class="scan-info-label">📊 Статус</div>
@@ -203,7 +244,7 @@
                     </div>
                 </div>
                 <div class="scan-info-item">
-                    <div class="scan-info-label">🕒 Запущен</div>
+                    <div class="scan-info-label">🕑 Запущен</div>
                     <div class="scan-info-value">{{ latest_scan.started_at.strftime('%d.%m.%Y %H:%M') }}</div>
                 </div>
                 {% if latest_scan.repo_commit %}

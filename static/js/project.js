@@ -92,8 +92,10 @@ function toggleScanForm() {
     const form = document.getElementById('scanForm');
     const editForm = document.getElementById('editProjectForm');
     const localForm = document.getElementById('localScanForm');
+    const mergeForm = document.getElementById('mergeProjectForm');
     editForm.classList.remove('show');
     localForm.classList.remove('show');
+    mergeForm.classList.remove('show');
     form.classList.toggle('show');
 }
 
@@ -101,8 +103,10 @@ function toggleEditForm() {
     const form = document.getElementById('editProjectForm');
     const scanForm = document.getElementById('scanForm');
     const localForm = document.getElementById('localScanForm');
+    const mergeForm = document.getElementById('mergeProjectForm');
     scanForm.classList.remove('show');
     localForm.classList.remove('show');
+    mergeForm.classList.remove('show');
     form.classList.toggle('show');
 }
 
@@ -110,8 +114,21 @@ function toggleLocalScanForm() {
     const form = document.getElementById('localScanForm');
     const scanForm = document.getElementById('scanForm');
     const editForm = document.getElementById('editProjectForm');
+    const mergeForm = document.getElementById('mergeProjectForm');
     scanForm.classList.remove('show');
     editForm.classList.remove('show');
+    mergeForm.classList.remove('show');
+    form.classList.toggle('show');
+}
+
+function toggleMergeForm() {
+    const form = document.getElementById('mergeProjectForm');
+    const scanForm = document.getElementById('scanForm');
+    const editForm = document.getElementById('editProjectForm');
+    const localForm = document.getElementById('localScanForm');
+    scanForm.classList.remove('show');
+    editForm.classList.remove('show');
+    localForm.classList.remove('show');
     form.classList.toggle('show');
 }
 
@@ -136,6 +153,124 @@ function deleteProject(id) {
     .catch(error => {
         console.error('Error deleting project:', error);
         alert('Something went wrong.');
+    });
+}
+
+function mergeProjects() {
+    const targetProjectName = document.getElementById('target_project_name').value.trim();
+    const newRepoUrl = document.getElementById('new_repo_url').value.trim();
+    
+    if (!targetProjectName) {
+        alert('Пожалуйста, выберите проект для объединения');
+        return;
+    }
+    
+    if (!newRepoUrl) {
+        alert('Пожалуйста, укажите URL репозитория');
+        return;
+    }
+    
+    const confirmed = confirm(`Вы уверены, что хотите объединить проект "${targetProjectName}" с текущим проектом?\n\nВсе сканирования из проекта "${targetProjectName}" будут перенесены в текущий проект, а проект "${targetProjectName}" будет удален.\n\nЭто действие необратимо!`);
+    if (!confirmed) return;
+
+    // Submit the merge form
+    document.getElementById('mergeProjectForm').querySelector('form').submit();
+}
+
+// Autocomplete functionality for project search
+let projectSearchTimeout;
+function setupProjectAutocomplete() {
+    const input = document.getElementById('target_project_name');
+    const dropdown = document.getElementById('project_dropdown');
+    const currentProjectName = document.body.dataset.currentProjectName;
+    
+    if (!input || !dropdown) return;
+    
+    input.addEventListener('input', function() {
+        const query = this.value.trim();
+        
+        clearTimeout(projectSearchTimeout);
+        
+        if (query.length < 1) {
+            dropdown.style.display = 'none';
+            return;
+        }
+        
+        projectSearchTimeout = setTimeout(() => {
+            fetch(`/secret_scanner/api/projects/search?q=${encodeURIComponent(query)}&current_project=${encodeURIComponent(currentProjectName)}`)
+                .then(response => response.json())
+                .then(data => {
+                    dropdown.innerHTML = '';
+                    
+                    if (data.projects && data.projects.length > 0) {
+                        data.projects.forEach(project => {
+                            const item = document.createElement('div');
+                            item.className = 'dropdown-item';
+                            item.innerHTML = `
+                                <div class="project-name">${project.name}</div>
+                                <div class="project-url">${project.repo_url}</div>
+                            `;
+                            item.addEventListener('click', () => {
+                                input.value = project.name;
+                                document.getElementById('new_repo_url').value = project.repo_url;
+                                dropdown.style.display = 'none';
+                            });
+                            dropdown.appendChild(item);
+                        });
+                        dropdown.style.display = 'block';
+                    } else {
+                        dropdown.style.display = 'none';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error searching projects:', error);
+                    dropdown.style.display = 'none';
+                });
+        }, 300);
+    });
+    
+    // Hide dropdown when clicking outside
+    document.addEventListener('click', function(e) {
+        if (!input.contains(e.target) && !dropdown.contains(e.target)) {
+            dropdown.style.display = 'none';
+        }
+    });
+    
+    // Handle keyboard navigation
+    input.addEventListener('keydown', function(e) {
+        const items = dropdown.querySelectorAll('.dropdown-item');
+        let selectedIndex = -1;
+        
+        // Find currently selected item
+        items.forEach((item, index) => {
+            if (item.classList.contains('selected')) {
+                selectedIndex = index;
+            }
+        });
+        
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            selectedIndex = Math.min(selectedIndex + 1, items.length - 1);
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            selectedIndex = Math.max(selectedIndex - 1, 0);
+        } else if (e.key === 'Enter' && selectedIndex >= 0) {
+            e.preventDefault();
+            items[selectedIndex].click();
+            return;
+        } else if (e.key === 'Escape') {
+            dropdown.style.display = 'none';
+            return;
+        }
+        
+        // Update selection
+        items.forEach((item, index) => {
+            if (index === selectedIndex) {
+                item.classList.add('selected');
+            } else {
+                item.classList.remove('selected');
+            }
+        });
     });
 }
 
@@ -325,4 +460,7 @@ document.addEventListener('DOMContentLoaded', function() {
             window.location.reload();
         }, 5000);
     }
+    
+    // Setup autocomplete for merge form
+    setupProjectAutocomplete();
 });

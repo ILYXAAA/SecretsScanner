@@ -213,6 +213,10 @@ async def project_page(request: Request, project_name: str, current_user: str = 
             "scan": scan,
             "confirmed_count": confirmed_count
         })
+    
+    # Get all projects for merge functionality
+    all_projects = db.query(Project).filter(Project.name != project_name).all()
+    
     #end = time.time()
     #print(f"Время выполнения: {end - start:.4f} секунд")
     return templates.TemplateResponse("project.html", {
@@ -222,6 +226,7 @@ async def project_page(request: Request, project_name: str, current_user: str = 
         "language_stats": language_stats,
         "framework_stats": framework_stats,
         "scan_stats": scan_stats,
+        "all_projects": all_projects,
         "HUB_TYPE": HUB_TYPE,
         "current_user": current_user
     })
@@ -333,6 +338,67 @@ async def delete_project(project_id: int, current_user: str = Depends(get_curren
     
     return RedirectResponse(url=get_full_url("dashboard?success=project_deleted"), status_code=302)
 
+@router.post("/projects/merge")
+async def merge_projects(request: Request, 
+                        main_project_name: str = Form(...), 
+                        target_project_name: str = Form(...),
+                        new_repo_url: str = Form(...),
+                        current_user: str = Depends(get_current_user), 
+                        db: Session = Depends(get_db)):
+    """Merge two projects - move all scans from target project to main project"""
+    try:
+        # Validate inputs
+        main_project_name = main_project_name.strip()
+        target_project_name = target_project_name.strip()
+        new_repo_url = new_repo_url.strip()
+        
+        if not main_project_name or not target_project_name or not new_repo_url:
+            return RedirectResponse(url=get_full_url(f"project/{main_project_name}?error=empty_merge_fields"), status_code=302)
+        
+        if main_project_name == target_project_name:
+            return RedirectResponse(url=get_full_url(f"project/{main_project_name}?error=same_project_merge"), status_code=302)
+        
+        # Validate and normalize repository URL
+        normalized_url = validate_repo_url(new_repo_url, HUB_TYPE)
+        
+        # Check if both projects exist
+        main_project = db.query(Project).filter(Project.name == main_project_name).first()
+        target_project = db.query(Project).filter(Project.name == target_project_name).first()
+        
+        if not main_project:
+            return RedirectResponse(url=get_full_url(f"project/{main_project_name}?error=main_project_not_found"), status_code=302)
+        
+        if not target_project:
+            return RedirectResponse(url=get_full_url(f"project/{main_project_name}?error=target_project_not_found"), status_code=302)
+        
+        # Get all scans from target project
+        target_scans = db.query(Scan).filter(Scan.project_name == target_project_name).all()
+        
+        # Update all target scans to point to main project
+        scan_count = 0
+        for scan in target_scans:
+            scan.project_name = main_project_name
+            scan_count += 1
+        
+        # Update main project repository URL
+        main_project.repo_url = normalized_url
+        
+        # Delete target project
+        db.delete(target_project)
+        
+        db.commit()
+        
+        user_logger.warning(f"User '{current_user}' merged project '{target_project_name}' into '{main_project_name}'. {scan_count} scans moved. New repo URL: {normalized_url}")
+        
+        return RedirectResponse(url=get_full_url(f"project/{main_project_name}?success=project_merged&merged_scans={scan_count}"), status_code=302)
+    
+    except ValueError as e:
+        encoded_error = urllib.parse.quote(str(e))
+        return RedirectResponse(url=get_full_url(f"project/{main_project_name}?error={encoded_error}"), status_code=302)
+    except Exception as e:
+        logger.error(f"Error merging projects: {e}")
+        return RedirectResponse(url=get_full_url(f"project/{main_project_name}?error=project_merge_failed"), status_code=302)
+
 @router.get("/api/project/check")
 async def check_project_exists(repo_url: str, _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
     """Check if project exists by repo URL"""
@@ -341,3 +407,13 @@ async def check_project_exists(repo_url: str, _: bool = Depends(get_current_user
         return {"exists": True, "project_name": project.name}
     else:
         return {"exists": False}
+
+@router.get("/api/projects/search")
+async def search_projects(q: str, current_project: str = "", _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Search projects by name for autocomplete"""
+    projects = db.query(Project).filter(
+        Project.name.ilike(f"%{q}%"),
+        Project.name != current_project
+    ).limit(10).all()
+    
+    return {"projects": [{"name": p.name, "repo_url": p.repo_url} for p in projects]}
