@@ -62,7 +62,7 @@ class MultiScan(Base):
 # API Token models
 class ApiToken(Base):
     __tablename__ = "api_tokens"
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     name = Column(String, nullable=False)  # Team/client name
     token_hash = Column(String, unique=True, nullable=False, index=True)  # SHA256 hash of token
     prefix = Column(String, nullable=False)  # First 8 chars for identification (ss_live_)
@@ -82,7 +82,7 @@ class ApiToken(Base):
 
 class ApiUsage(Base):
     __tablename__ = "api_usage"
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     token_id = Column(Integer, nullable=False, index=True)
     endpoint = Column(String, nullable=False)  # e.g., "POST /api/v1/scan"
     timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
