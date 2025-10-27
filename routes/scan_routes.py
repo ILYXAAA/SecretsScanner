@@ -361,10 +361,12 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
         # Handle complete results
         if data.get("Status") == "completed":
             logger.info(f"🎉 Скан '{scan_id}' завершен успешно")
-            
+
             # Обновляем основную информацию о скане
             scan.status = "completed"
-            scan.repo_commit = data.get("RepoCommit")
+            # Обновляем repo_commit только если пришло непустое значение (для локальных сканов оно уже установлено)
+            if data.get("RepoCommit"):
+                scan.repo_commit = data.get("RepoCommit")
             scan.completed_at = datetime.now()
             scan.files_scanned = data.get("AllFiles")
             scan.excluded_files_count = data.get("FilesExcluded")
