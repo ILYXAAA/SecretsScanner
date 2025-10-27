@@ -94,7 +94,8 @@ def setup_logging(worker_id: str = None, log_file: str = "secrets_scanner.log"):
         r"/secret_scanner/api/admin/workers-status",
         r"/admin/service[-_]stats",
         r"/admin/tasks",        # с любыми query (?limit=50, ?status=...)
-        r"/admin/workers"
+        r"/admin/workers",
+        r"/task_status"
     ]
 
     rate_filter = RateLimitFilter(cooldown=20, patterns=noisy_patterns)

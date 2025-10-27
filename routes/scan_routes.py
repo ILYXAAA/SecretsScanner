@@ -421,45 +421,54 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
             # Создаем мапу предыдущих секретов для быстрого поиска
             mapping_start = datetime.now()
             previous_secrets_map = {}
-            if previous_scans and len(results) < 10000:  # Только для разумного количества
+            if previous_scans:
                 logger.info(f"🗺️ Создаем карту предыдущих статусов для {len(results)} секретов")
                 for prev_scan in previous_scans[:2]:  # Только 2 последних скана
                     prev_secrets = db_session.query(Secret).filter(
                         Secret.scan_id == prev_scan.id,
                         Secret.status != "No status"
                     ).all()
-                    
+
                     for prev_secret in prev_secrets:
                         key = (prev_secret.path, prev_secret.line, prev_secret.secret, prev_secret.type)
                         if key not in previous_secrets_map:
                             previous_secrets_map[key] = prev_secret
-                
-                #mapping_time = (datetime.now() - mapping_start).total_seconds()
-                #logger.info(f"🗺️ Карта предыдущих статусов создана за {mapping_time:.2f} секунд ({len(previous_secrets_map)} записей)")
+
+                mapping_time = (datetime.now() - mapping_start).total_seconds()
+                logger.info(f"✅ Карта предыдущих статусов создана за {mapping_time:.2f} секунд ({len(previous_secrets_map)} записей)")
             else:
-                logger.warning(f"⏭️ Пропускаем создание карты статусов (слишком много секретов: {len(results)})")
+                logger.info(f"ℹ️ Пропускаем создание карты статусов (нет предыдущих сканов)")
             
             # Обрабатываем секреты батчами
             batch_size = 1000
             total_processed = 0
             batch_processing_start = datetime.now()
-            
+
+            # Счетчики для статистики применения статусов
+            statuses_applied = {"Refuted": 0, "Confirmed": 0, "No status": 0}
+
             for i in range(0, len(results), batch_size):
                 batch_start = datetime.now()
                 batch = results[i:i + batch_size]
                 batch_secrets = []
-                
+
                 logger.info(f"🔄 Обрабатываем батч {i//batch_size + 1}/{(len(results) + batch_size - 1)//batch_size} ({len(batch)} секретов)")
-                
+
                 # Обработка секретов в батче
                 for j, result in enumerate(batch):
                     try:
                         # Быстрый поиск предыдущего статуса
                         most_recent_secret = None
                         if previous_secrets_map:
-                            key = (result.get("path"), result.get("line"), result.get("secret"), result.get("Type", result.get("type")))
+                            # Применяем sanitize_string к ключу для корректного сопоставления
+                            key = (
+                                sanitize_string(result.get("path", "")),
+                                result.get("line", 0),
+                                sanitize_string(result.get("secret", "")),
+                                sanitize_string(result.get("Type", result.get("type", "Unknown")))
+                            )
                             most_recent_secret = previous_secrets_map.get(key)
-                        
+
                         # Apply the most recent decision
                         if most_recent_secret:
                             if most_recent_secret.status == "Refuted":
@@ -467,16 +476,19 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
                                 status = "Refuted"
                                 exception_comment = most_recent_secret.exception_comment
                                 refuted_at = most_recent_secret.refuted_at
+                                statuses_applied["Refuted"] += 1
                             elif most_recent_secret.status == "Confirmed":
                                 is_exception = False
                                 status = "Confirmed"
                                 exception_comment = None
                                 refuted_at = None
+                                statuses_applied["Confirmed"] += 1
                             else:
                                 is_exception = False
                                 status = "No status"
                                 exception_comment = None
                                 refuted_at = None
+                                statuses_applied["No status"] += 1
                             severity = most_recent_secret.severity
                         else:
                             is_exception = False
@@ -484,6 +496,7 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
                             exception_comment = None
                             refuted_at = None
                             severity = result.get("severity", result.get("Severity", "High"))
+                            statuses_applied["No status"] += 1
 
                         secret = Secret(
                             scan_id=scan_id,
@@ -519,7 +532,16 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
             
             batch_processing_time = (datetime.now() - batch_processing_start).total_seconds()
             logger.info(f"📦 Все батчи обработаны за {batch_processing_time:.2f} секунд (итого: {total_processed} секретов)")
-            
+
+            # Логируем статистику применения статусов
+            if previous_secrets_map:
+                total_statuses_applied = statuses_applied["Refuted"] + statuses_applied["Confirmed"]
+                logger.info(f"📊 Статистика применения статусов:")
+                logger.info(f"   ✅ Refuted (исключения): {statuses_applied['Refuted']}")
+                logger.info(f"   ✅ Confirmed (подтвержденные): {statuses_applied['Confirmed']}")
+                logger.info(f"   🆕 No status (новые): {statuses_applied['No status']}")
+                logger.info(f"   📈 Всего применено из истории: {total_statuses_applied}/{total_processed} ({(total_statuses_applied/total_processed*100) if total_processed > 0 else 0:.1f}%)")
+
             # Add manual secrets
             manual_secrets_start = datetime.now()
             added_manual_count = 0

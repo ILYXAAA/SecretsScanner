@@ -1,5 +1,5 @@
 from pydantic import BaseModel, field_validator, model_validator, Field
-from typing import List, Optional, Self
+from typing import List, Optional
 import re
 
 # Request Models
@@ -59,7 +59,7 @@ class ProjectCheckRequest(BaseModel):
         return v
     
     @model_validator(mode='after')
-    def validate_required_fields(self) -> Self:
+    def validate_required_fields(self):
         if not self.repository and not self.project_name:
             raise ValueError("Either 'repository' or 'project_name' must be provided")
         return self
