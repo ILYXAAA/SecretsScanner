@@ -18,11 +18,14 @@ from passlib.context import CryptContext
 # Load environment variables
 load_dotenv()
 
+# Add parent directory to path to import models
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 # Import models
 try:
-    from main import UserBase, User
+    from models import UserBase, User
 except ImportError:
-    print("Error: Cannot import UserBase model. Make sure main.py is in the same directory.")
+    print("Error: Cannot import UserBase model. Make sure models.py is in the project root.")
     sys.exit(1)
 
 # Password hashing
