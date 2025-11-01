@@ -1,0 +1,19 @@
+{% macro header(active_page='', current_user='') %}
+<header class="header">
+    <a href="/secret_scanner/dashboard" class="logo">
+        🔍 Secrets Scanner
+    </a>
+    <nav class="nav-links">
+        <a href="/secret_scanner/dashboard" {% if active_page == 'dashboard' %}class="active"{% endif %}>📌 Главная</a>
+        <a href="/secret_scanner/multi-scan" {% if active_page == 'multi-scan' %}class="active"{% endif %}>🔄 Мультискан</a>
+        <a href="/secret_scanner/stats-dashboard" {% if active_page == 'stats-dashboard' %}class="active"{% endif %}>📊 Аналитика</a>
+        {% if current_user == "admin" %}
+            <a href="/secret_scanner/admin" {% if active_page == 'admin' %}class="active"{% endif %}>🛡️ Админ панель</a>
+            <a href="/secret_scanner/admin/workers" {% if active_page == 'admin/workers' %}class="active"{% endif %}>🛠️ Сервис</a>
+        {% endif %}
+        <a href="/secret_scanner/settings" {% if active_page == 'settings' %}class="active"{% endif %}>⚙️ Настройки</a>
+        <a href="/secret_scanner/logout">🔚 Выйти</a>
+    </nav>
+</header>
+{% endmacro %}
+

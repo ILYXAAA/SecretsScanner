@@ -222,6 +222,7 @@ from routes.admin_workers_service import router as admin_microservice_router
 from routes.logs_routes import router as logs_router
 from routes.secrets_history_routes import router as secrets_history_router
 from routes.scan_status_routes import router as scan_results_router
+from routes.stats_dashboard_routes import router as stats_dashboard_router
 
 # Import API router
 from api import router as api_router
@@ -238,6 +239,7 @@ app.include_router(admin_microservice_router)
 app.include_router(logs_router)
 app.include_router(secrets_history_router)
 app.include_router(scan_results_router)
+app.include_router(stats_dashboard_router)
 
 # Include API router
 app.include_router(api_router)

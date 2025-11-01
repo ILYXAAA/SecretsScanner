@@ -232,14 +232,15 @@ async def prepare_secrets_download(task_id: str, status_filter: str, db_session:
         db.close()
 
 @router.get("/admin", response_class=HTMLResponse)
-async def admin_panel(request: Request, _: str = Depends(get_admin_user)):
+async def admin_panel(request: Request, current_user: str = Depends(get_admin_user)):
     """Admin panel - only accessible by admin user"""
     current_secret_key = get_current_secret_key()
     if current_secret_key != "Not set":
         current_secret_key = f"{current_secret_key[0:8]}***"
     return templates.TemplateResponse("admin.html", {
         "request": request,
-        "current_secret_key": current_secret_key
+        "current_secret_key": current_secret_key,
+        "current_user": current_user
     })
 
 @router.get("/admin/users")

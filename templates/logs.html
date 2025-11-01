@@ -14,11 +14,12 @@
         <div class="header">
             <h1>📋 Системные логи</h1>
         <nav class="nav-links">
-            <a href="/secret_scanner/dashboard">🌐 Главная</a>
+            <a href="/secret_scanner/dashboard">📌 Главная</a>
             <a href="/secret_scanner/multi-scan">🔄 Мультискан</a>
+            <a href="/secret_scanner/stats-dashboard" class="active">📊 Аналитика</a>
             {% if current_user == "admin" %}
-                <a href="/secret_scanner/admin">👑 Админ панель</a>
-                <a href="/secret_scanner/admin/workers" class="active">⚙️ Сервис</a>
+                <a href="/secret_scanner/admin">🛡️ Админ панель</a>
+                <a href="/secret_scanner/admin/workers" class="active">🛠️ Сервис</a>
             {% endif %}
             <a href="/secret_scanner/settings">⚙️ Настройки</a>
             <a href="/secret_scanner/logout">🔚 Выйти</a>

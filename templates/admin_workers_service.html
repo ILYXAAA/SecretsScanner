@@ -4,30 +4,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Управление воркерами - Secrets Scanner</title>
+    <link rel="stylesheet" href="/secret_scanner/static/css/base_header.css">
     <link rel="stylesheet" href="/secret_scanner/static/css/admin_workers_service.css">
     <link rel="icon" type="image/x-icon" href="/secret_scanner/favicon.ico">
 </head>
 <body>
+    {% from "components/base_header.html" import header %}
+    {{ header('admin/workers', current_user) }}
     {% from "components/icon.html" import icon %}
-    <header class="header">
-        <a href="/secret_scanner/dashboard" class="logo">
-            🔍 Secrets Scanner
-        </a>
-        <nav class="nav-links">
-            <a href="/secret_scanner/dashboard">🌐 Главная</a>
-            <a href="/secret_scanner/multi-scan">🔄 Мультискан</a>
-            {% if current_user == "admin" %}
-                <a href="/secret_scanner/admin">👑 Админ панель</a>
-                <a href="/secret_scanner/admin/workers" class="active">⚙️ Сервис</a>
-            {% endif %}
-            <a href="/secret_scanner/settings">⚙️ Настройки</a>
-            <a href="/secret_scanner/logout">🔚 Выйти</a>
-        </nav>
-    </header>
     
     <div class="container">
         <div class="page-header">
-            <h1 class="page-title">⚙️ Управление сервисом</h1>
+            <h1 class="page-title">🛠️ Управление сервисом</h1>
             <div class="header-actions">
                 <label class="toggle-switch">
                     <input type="checkbox" id="autoRefreshToggle" checked>

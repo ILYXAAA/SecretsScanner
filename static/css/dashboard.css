@@ -10,44 +10,6 @@ body {
     color: #333;
 }
 
-.header {
-    background: white;
-    padding: 1rem 2rem;
-    border-bottom: 1px solid #e1e5e9;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-}
-
-.logo {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 1.5rem;
-    font-weight: 600;
-    color: #333;
-    text-decoration: none;
-    cursor: pointer;
-}
-
-.nav-links {
-    display: flex;
-    gap: 1rem;
-    align-items: center;
-}
-
-.nav-links a {
-    color: #666;
-    text-decoration: none;
-    padding: 0.5rem 1rem;
-    border-radius: 6px;
-    transition: background-color 0.2s;
-}
-
-.nav-links a:hover {
-    background: #f1f3f4;
-}
-
 .container {
     max-width: 1200px;
     margin: 0 auto;
@@ -74,6 +36,8 @@ body {
     background: white;
     border-radius: 12px 12px 0 0;
     overflow: hidden;
+    height: auto;
+    min-height: fit-content;
 }
 
 .tab {
@@ -84,9 +48,15 @@ body {
     font-size: 1rem;
     font-weight: 500;
     color: #666;
-    transition: all 0.3s ease;
+    transition: background-color 0.15s ease, color 0.15s ease;
     flex: 1;
     text-align: center;
+    border-bottom: 3px solid transparent;
+    box-sizing: border-box;
+    min-height: 52px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .tab.active {
@@ -442,6 +412,7 @@ body {
     word-break: break-all;
     display: -webkit-box;
     -webkit-line-clamp: 1;
+    line-clamp: 1;
     -webkit-box-orient: vertical;
     overflow: hidden;
 }

@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Scan Status - Secrets Scanner</title>
+    <link rel="stylesheet" href="/secret_scanner/static/css/base_header.css">
     <link rel="stylesheet" href="/secret_scanner/static/css/scan_status.css">
     <link rel="icon" type="image/x-icon" href="/secret_scanner/favicon.ico">
 </head>
@@ -13,21 +14,8 @@
       data-callback-url="{{ callback_url if callback_url else '' }}"
       data-scan-started-at="{{ scan.started_at.strftime('%Y-%m-%dT%H:%M:%S') if scan.started_at else '' }}"
       data-scan-started-at-display="{{ scan.started_at.strftime('%d.%m.%Y %H:%M') if scan.started_at else '' }}">
-    <header class="header">
-        <a href="/secret_scanner/dashboard" class="logo">
-            🔍 Secrets Scanner
-        </a>
-        <nav class="nav-links">
-            <a href="/secret_scanner/dashboard">🌐 Главная</a>
-            <a href="/secret_scanner/multi-scan">🔄 Мультискан</a>
-            {% if current_user == "admin" %}
-                <a href="/secret_scanner/admin">👑 Админ панель</a>
-                <a href="/secret_scanner/admin/workers">⚙️ Сервис</a>
-            {% endif %}
-            <a href="/secret_scanner/settings">⚙️ Настройки</a>
-            <a href="/secret_scanner/logout">🔚 Выйти</a>
-        </nav>
-    </header>
+    {% from "components/base_header.html" import header %}
+    {{ header('', current_user) }}
     
     <div class="container">
         <div class="scan-status-card">

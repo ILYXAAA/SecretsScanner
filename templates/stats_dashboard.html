@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Статистика - Secrets Scanner</title>
+    <link rel="stylesheet" href="/secret_scanner/static/css/base_header.css">
+    <link rel="stylesheet" href="/secret_scanner/static/css/stats_dashboard.css">
+    <link rel="icon" type="image/x-icon" href="/secret_scanner/favicon.ico">
+</head>
+<body>
+    {% from "components/base_header.html" import header %}
+    {{ header('stats-dashboard', current_user) }}
+
+    <div class="container">
+        <div class="page-header">
+            <h1 class="page-title">📊 Статистика секретов</h1>
+            <div class="page-subtitle">Аналитика и метрики по подтвержденным секретам</div>
+        </div>
+
+        <!-- KPI Cards -->
+        <div class="kpi-grid" id="kpiGrid">
+            <div class="kpi-card kpi-primary">
+                <div class="kpi-icon">🟢</div>
+                <div class="kpi-content">
+                    <div class="kpi-value" id="kpiActiveConfirmed">-</div>
+                    <div class="kpi-label">Активные подтвержденные секреты</div>
+                    <div class="kpi-sublabel">Всего подтвержденных секретов</div>
+                </div>
+            </div>
+
+            <div class="kpi-card kpi-warning">
+                <div class="kpi-icon">📅</div>
+                <div class="kpi-content">
+                    <div class="kpi-value" id="kpiNew24h">-</div>
+                    <div class="kpi-label">Новые подтвержденные (24ч)</div>
+                    <div class="kpi-sublabel">Найдено за последние сутки</div>
+                </div>
+            </div>
+
+            <div class="kpi-card kpi-info">
+                <div class="kpi-icon">📅</div>
+                <div class="kpi-content">
+                    <div class="kpi-value" id="kpiNew7d">-</div>
+                    <div class="kpi-label">Новые подтвержденные (7д)</div>
+                    <div class="kpi-sublabel">Найдено за неделю</div>
+                </div>
+            </div>
+
+            <div class="kpi-card kpi-success">
+                <div class="kpi-icon">🛡️</div>
+                <div class="kpi-content">
+                    <div class="kpi-value" id="kpiNoStatus">-</div>
+                    <div class="kpi-label">Требуют разметки</div>
+                    <div class="kpi-sublabel">Секреты со статусом No Status</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stats Tabs -->
+        <div class="stats-tabs">
+            <button class="stats-tab active" data-tab="overview">
+                📊 Обзор
+            </button>
+            <button class="stats-tab" data-tab="secrets">
+                🔐 Секреты
+            </button>
+            <button class="stats-tab" data-tab="scans">
+                🔄 Сканирования
+            </button>
+            <button class="stats-tab" data-tab="analytics">
+                🤖 ML-классификатор
+            </button>
+        </div>
+
+        <div class="tab-content-wrapper">
+            <!-- Overview Tab -->
+            <div class="stats-tab-content active" id="overview-content">
+                <!-- Trends Chart -->
+                <div class="chart-section">
+                    <div class="section-header">
+                        <h2 class="section-title">📈 Тренд подтвержденных секретов</h2>
+                        <div class="period-selector">
+                            <button class="period-btn active" data-period="30">30 дней</button>
+                            <button class="period-btn" data-period="90">90 дней</button>
+                        </div>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="trendsChart"></canvas>
+                    </div>
+                    <div class="chart-legend" id="trendsLegend">
+                        <div class="legend-item">
+                            <span class="legend-color" style="background: #dc3545;"></span>
+                            <span class="legend-label">High</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-color" style="background: #ffc107;"></span>
+                            <span class="legend-label">Potential</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Status Distribution Pie Chart -->
+                <div class="chart-section">
+                    <div class="section-header">
+                        <h2 class="section-title">📊 Соотношение статусов секретов</h2>
+                    </div>
+                    <div class="two-column-grid">
+                        <div class="chart-container-medium">
+                            <canvas id="statusChart"></canvas>
+                        </div>
+                        <div class="status-stats" id="statusStats">
+                            <div class="stat-item">
+                                <div class="stat-label">Подтверждённые (Confirmed)</div>
+                                <div class="stat-value">
+                                    <span id="confirmedCount">-</span>
+                                    <span class="stat-pct">(<span id="confirmedPct">-</span>%)</span>
+                                </div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-label">Ложные срабатывания (Refuted)</div>
+                                <div class="stat-value">
+                                    <span id="refutedCount">-</span>
+                                    <span class="stat-pct">(<span id="refutedPct">-</span>%)</span>
+                                </div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-label">Требуют проверки (No status)</div>
+                                <div class="stat-value">
+                                    <span id="noStatusCount">-</span>
+                                    <span class="stat-pct">(<span id="noStatusPct">-</span>%)</span>
+                                </div>
+                            </div>
+                            <div class="stat-item stat-highlight">
+                                <div class="stat-label">False Positive Rate</div>
+                                <div class="stat-value-large">
+                                    <span id="fpRate">-</span>%
+                                </div>
+                                <div class="stat-sublabel">Соотношение FP к реальным секретам</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Secrets Tab -->
+            <div class="stats-tab-content" id="secrets-content">
+                <!-- Two Column Layout -->
+                <div class="two-column-grid">
+                    <!-- Top Projects Table -->
+                    <div class="chart-section">
+                        <div class="section-header">
+                            <h2 class="section-title">🚨 Топ-5 проектов</h2>
+                        </div>
+                        <div class="table-container">
+                            <table class="top-projects-table" id="topProjectsTable">
+                                <thead>
+                                    <tr>
+                                        <th>№</th>
+                                        <th>Проект</th>
+                                        <th>Секретов</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="topProjectsBody">
+                                    <tr>
+                                        <td colspan="3" class="loading-cell">Загрузка...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Secret Types Donut Chart -->
+                    <div class="chart-section">
+                        <div class="section-header">
+                            <h2 class="section-title">🔐 Типы секретов</h2>
+                        </div>
+                        <div class="chart-container-small">
+                            <canvas id="secretTypesChart"></canvas>
+                        </div>
+                        <div class="chart-legend" id="secretTypesLegend">
+                            <!-- Legends will be generated by JS -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Top File Extensions Chart -->
+                <div class="chart-section">
+                    <div class="section-header">
+                        <h2 class="section-title">📁 Топ расширений файлов</h2>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="fileExtensionsChart"></canvas>
+                    </div>
+                    <div class="chart-legend" id="fileExtensionsLegend">
+                        <!-- Legends will be generated by JS -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Scans Tab -->
+            <div class="stats-tab-content" id="scans-content">
+                <!-- Scan Activity Chart -->
+                <div class="chart-section">
+                    <div class="section-header">
+                        <h2 class="section-title">📊 Активность сканирований</h2>
+                        <div class="period-selector">
+                            <button class="period-btn active" data-period-scan="30">30 дней</button>
+                            <button class="period-btn" data-period-scan="90">90 дней</button>
+                        </div>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="scanActivityChart"></canvas>
+                    </div>
+                    <div class="chart-legend" id="scanActivityLegend">
+                        <div class="legend-item">
+                            <span class="legend-color" style="background: #48bb78;"></span>
+                            <span class="legend-label">Completed</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-color" style="background: #f56565;"></span>
+                            <span class="legend-label">Failed</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-color" style="background: #ed8936;"></span>
+                            <span class="legend-label">Running</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Analytics Tab -->
+            <div class="stats-tab-content" id="analytics-content">
+                <!-- Confidence Accuracy Chart -->
+                <div class="chart-section">
+                    <div class="section-header">
+                        <h2 class="section-title">🎯 Точность модели по confidence</h2>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="confidenceChart"></canvas>
+                    </div>
+                    <div class="chart-legend" id="confidenceLegend">
+                        <div class="legend-item">
+                            <span class="legend-color" style="background: #48bb78;"></span>
+                            <span class="legend-label">Подтверждены</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-color" style="background: #f56565;"></span>
+                            <span class="legend-label">Опровергнуты</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Secrets Lists with Tabs -->
+                <div class="chart-section">
+                    <div class="section-header">
+                        <h2 class="section-title">📶 Анализ точности модели</h2>
+                    </div>
+                    
+                    <!-- Internal Tabs -->
+                    <div class="stats-tabs-internal">
+                        <button class="stats-tab-internal active" data-tab-internal="low-confidence">
+                            📉 Низкий confidence, но подтверждено
+                        </button>
+                        <button class="stats-tab-internal" data-tab-internal="high-confidence">
+                            📈 Высокий confidence, но опровергнуто
+                        </button>
+                    </div>
+                    
+                    <div class="tab-content-internal-wrapper">
+                        <!-- Tab 1: Low Confidence Confirmed -->
+                        <div class="stats-tab-content-internal active" id="low-confidence-content">
+                            <div class="table-container">
+                                <table class="top-projects-table" id="lowConfidenceTable">
+                                    <thead>
+                                        <tr>
+                                            <th>№</th>
+                                            <th>Проект</th>
+                                            <th>Расширение</th>
+                                            <th>Тип</th>
+                                            <th>Секрет</th>
+                                            <th>Confidence</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="lowConfidenceBody">
+                                        <tr>
+                                            <td colspan="6" class="loading-cell">Загрузка...</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <!-- Pagination -->
+                            <div class="pagination-container" id="lowConfidencePagination" style="display: none;">
+                                <button class="pagination-btn" id="lowConfidencePrevBtn" disabled>← Назад</button>
+                                <span class="pagination-info" id="lowConfidencePageInfo">Страница 1 из 8</span>
+                                <button class="pagination-btn" id="lowConfidenceNextBtn">Вперед →</button>
+                            </div>
+                        </div>
+                        
+                        <!-- Tab 2: High Confidence Refuted -->
+                        <div class="stats-tab-content-internal" id="high-confidence-content">
+                            <div class="table-container">
+                                <table class="top-projects-table" id="highConfidenceTable">
+                                    <thead>
+                                        <tr>
+                                            <th>№</th>
+                                            <th>Проект</th>
+                                            <th>Расширение</th>
+                                            <th>Тип</th>
+                                            <th>Секрет</th>
+                                            <th>Confidence</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="highConfidenceBody">
+                                        <tr>
+                                            <td colspan="6" class="loading-cell">Загрузка...</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <!-- Pagination -->
+                            <div class="pagination-container" id="highConfidencePagination" style="display: none;">
+                                <button class="pagination-btn" id="highConfidencePrevBtn" disabled>← Назад</button>
+                                <span class="pagination-info" id="highConfidencePageInfo">Страница 1 из 8</span>
+                                <button class="pagination-btn" id="highConfidenceNextBtn">Вперед →</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading Overlay -->
+        <div class="loading-overlay" id="loadingOverlay">
+            <div class="loading-spinner"></div>
+            <div class="loading-text">Загрузка данных...</div>
+        </div>
+    </div>
+
+    <script src="/secret_scanner/static/js/stats_dashboard.js"></script>
+</body>
+</html>
