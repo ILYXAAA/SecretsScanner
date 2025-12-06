@@ -1176,10 +1176,113 @@ function updatePagination(paginationId, pageInfoId, prevBtnId, nextBtnId, curren
     }
 }
 
+// Global variables for analytics user selection
+let analyticsAllUsers = [];
+let analyticsSelectedExcludedUsers = new Set();
+let analyticsFilteredUsers = [];
+
+async function loadAnalyticsAllUsers() {
+    try {
+        const response = await fetch('/secret_scanner/api/stats/users/all');
+        const data = await response.json();
+        if (data.status === 'success') {
+            analyticsAllUsers = data.users.map(u => u.username);
+            analyticsFilteredUsers = [...analyticsAllUsers];
+        }
+    } catch (error) {
+        console.error('Error loading users:', error);
+    }
+}
+
+async function filterAnalyticsUsers(searchTerm) {
+    // Load users if not loaded yet
+    if (analyticsAllUsers.length === 0) {
+        await loadAnalyticsAllUsers();
+    }
+    
+    const searchLower = searchTerm.toLowerCase();
+    analyticsFilteredUsers = analyticsAllUsers.filter(username => 
+        username.toLowerCase().includes(searchLower) && !analyticsSelectedExcludedUsers.has(username)
+    );
+    showAnalyticsUsersDropdown();
+}
+
+async function showAnalyticsUsersDropdown() {
+    const dropdown = document.getElementById('analyticsUsersDropdown');
+    
+    // Load users if not loaded yet
+    if (analyticsAllUsers.length === 0) {
+        await loadAnalyticsAllUsers();
+    }
+    
+    if (analyticsFilteredUsers.length === 0) {
+        dropdown.style.display = 'none';
+        return;
+    }
+    
+    dropdown.innerHTML = analyticsFilteredUsers.map(username => `
+        <div style="padding: 0.5rem; cursor: pointer; border-bottom: 1px solid #f0f0f0;" 
+             onmouseover="this.style.background='#f8f9fa'" 
+             onmouseout="this.style.background='white'"
+             onclick="selectAnalyticsUser('${username}')">
+            ${username}
+        </div>
+    `).join('');
+    dropdown.style.display = 'block';
+}
+
+function selectAnalyticsUser(username) {
+    analyticsSelectedExcludedUsers.add(username);
+    updateAnalyticsSelectedUsersList();
+    document.getElementById('analyticsExcludedUsersSearch').value = '';
+    filterAnalyticsUsers('');
+    showAnalyticsUsersDropdown();
+}
+
+function removeAnalyticsUser(username) {
+    analyticsSelectedExcludedUsers.delete(username);
+    updateAnalyticsSelectedUsersList();
+    filterAnalyticsUsers(document.getElementById('analyticsExcludedUsersSearch').value);
+}
+
+function updateAnalyticsSelectedUsersList() {
+    const list = document.getElementById('analyticsSelectedUsersList');
+    if (analyticsSelectedExcludedUsers.size === 0) {
+        list.innerHTML = '';
+        return;
+    }
+    
+    list.innerHTML = Array.from(analyticsSelectedExcludedUsers).map(username => `
+        <span style="display: inline-flex; align-items: center; gap: 0.5rem; background: #e9ecef; padding: 0.25rem 0.75rem; border-radius: 16px; font-size: 0.9rem;">
+            ${username}
+            <button type="button" onclick="removeAnalyticsUser('${username}')" style="background: none; border: none; cursor: pointer; color: #666; font-size: 1.1rem; line-height: 1; padding: 0;">×</button>
+        </span>
+    `).join('');
+}
+
+function applyAnalyticsFilters() {
+    loadLowConfidenceConfirmed();
+    loadHighConfidenceRefuted();
+}
+
+// Hide dropdown when clicking outside
+document.addEventListener('click', function(e) {
+    const container = document.getElementById('analyticsExcludedUsersContainer');
+    const dropdown = document.getElementById('analyticsUsersDropdown');
+    if (container && dropdown && !container.contains(e.target) && !dropdown.contains(e.target)) {
+        dropdown.style.display = 'none';
+    }
+});
+
 // Fetch and render low confidence confirmed secrets
 async function loadLowConfidenceConfirmed() {
     try {
-        const response = await fetch('/secret_scanner/api/stats/low-confidence-confirmed?limit=400');
+        let url = '/secret_scanner/api/stats/low-confidence-confirmed?limit=400';
+        if (analyticsSelectedExcludedUsers.size > 0) {
+            url += '&excluded_users=' + encodeURIComponent(Array.from(analyticsSelectedExcludedUsers).join(','));
+        }
+        
+        const response = await fetch(url);
         const data = await response.json();
         lowConfidenceSecrets = data.secrets;
         lowConfidenceCurrentPage = 1;
@@ -1207,7 +1310,12 @@ async function loadLowConfidenceConfirmed() {
 // Fetch and render high confidence refuted secrets
 async function loadHighConfidenceRefuted() {
     try {
-        const response = await fetch('/secret_scanner/api/stats/high-confidence-refuted?limit=400');
+        let url = '/secret_scanner/api/stats/high-confidence-refuted?limit=400';
+        if (analyticsSelectedExcludedUsers.size > 0) {
+            url += '&excluded_users=' + encodeURIComponent(Array.from(analyticsSelectedExcludedUsers).join(','));
+        }
+        
+        const response = await fetch(url);
         const data = await response.json();
         highConfidenceSecrets = data.secrets;
         highConfidenceCurrentPage = 1;
@@ -1299,6 +1407,9 @@ document.addEventListener('DOMContentLoaded', () => {
     tabs.forEach(tab => {
         tab.addEventListener('click', function() {
             const targetTab = this.dataset.tab;
+            if (targetTab === 'analytics' && analyticsAllUsers.length === 0) {
+                loadAnalyticsAllUsers();
+            }
             switchTab(targetTab);
         });
     });

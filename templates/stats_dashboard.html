@@ -231,6 +231,36 @@
 
             <!-- Analytics Tab -->
             <div class="stats-tab-content" id="analytics-content">
+                <!-- User Exclusion Filter -->
+                <div class="chart-section" style="background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem;">
+                    <div class="form-group">
+                        <label for="analyticsExcludedUsers">Исключить пользователей из статистики (секреты, подтвержденные/опровергнутые выбранными пользователями, не будут учитываться в статистике)</label>
+                        <div style="position: relative;">
+                            <div id="analyticsExcludedUsersContainer" style="border: 2px solid #e1e5e9; border-radius: 8px; padding: 0.5rem; min-height: 2.5rem; background: white; max-height: 200px; overflow-y: auto; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: flex-start;">
+                                <input 
+                                    type="text" 
+                                    id="analyticsExcludedUsersSearch" 
+                                    placeholder="Начните вводить имя пользователя..."
+                                    style="border: none; outline: none; flex: 1; min-width: 200px; padding: 0.25rem; font-size: 0.9rem;"
+                                    oninput="filterAnalyticsUsers(this.value)"
+                                    onfocus="showAnalyticsUsersDropdown(); filterAnalyticsUsers(this.value)"
+                                />
+                            </div>
+                            <div id="analyticsUsersDropdown" style="display: none; position: absolute; top: 100%; left: 0; right: 0; background: white; border: 2px solid #e1e5e9; border-top: none; border-radius: 0 0 8px 8px; max-height: 200px; overflow-y: auto; z-index: 1000; margin-top: -1px;">
+                                <!-- Users will be populated here -->
+                            </div>
+                        </div>
+                        <div id="analyticsSelectedUsersList" style="margin-top: 0.5rem; display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                            <!-- Selected users will be shown here -->
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-primary" onclick="applyAnalyticsFilters()">
+                            🔄 Применить фильтры
+                        </button>
+                    </div>
+                </div>
+                
                 <!-- Confidence Accuracy Chart -->
                 <div class="chart-section">
                     <div class="section-header">

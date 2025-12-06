@@ -66,6 +66,27 @@
             {% endif %}
         {% endif %}
         
+        <!-- Tabs Navigation -->
+        <div class="admin-tabs">
+            <button class="tab-button active" data-tab="users" onclick="switchTab('users')">
+                👥 Пользователи
+            </button>
+            <button class="tab-button" data-tab="service" onclick="switchTab('service')">
+                🔧 Сервис
+            </button>
+            <button class="tab-button" data-tab="api" onclick="switchTab('api')">
+                🔑 API
+            </button>
+            <button class="tab-button" data-tab="scanning" onclick="switchTab('scanning')">
+                🤖 Сервис сканирования
+            </button>
+            <button class="tab-button" data-tab="data" onclick="switchTab('data')">
+                📊 Данные
+            </button>
+        </div>
+        
+        <!-- Users Tab -->
+        <div id="tab-users" class="tab-content active">
         <!-- Users Management Section -->
         <div class="section">
             <h2 class="section-title">
@@ -135,6 +156,37 @@
                 </div>
             </div>
         </div>
+        </div>
+        
+        <!-- Service Tab -->
+        <div id="tab-service" class="tab-content">
+        <!-- Maintenance Mode Section -->
+        <div class="section">
+            <h2 class="section-title">
+                <span>🔧</span>
+                Режим технических работ
+            </h2>
+            
+            <div class="maintenance-mode-container">
+                <div class="maintenance-mode-info">
+                    <p style="color: #666; margin-bottom: 1rem;">
+                        Переключите сервис в режим технических работ. В этом режиме все обычные пользователи будут перенаправлены на страницу технического обслуживания.
+                    </p>
+                    <div class="maintenance-mode-control">
+                        <label class="switch-label">
+                            <span class="switch-text">Режим технических работ</span>
+                            <label class="switch">
+                                <input type="checkbox" id="maintenanceModeSwitch" 
+                                       {% if maintenance_mode %}checked{% endif %}
+                                       onchange="toggleMaintenanceMode(this.checked)">
+                                <span class="slider"></span>
+                            </label>
+                        </label>
+                        <div id="maintenanceModeStatus" class="maintenance-status" style="margin-top: 1rem; display: none;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
         
         <!-- Secret Key Management Section -->
         <div class="section">
@@ -171,7 +223,10 @@
                 </form>
             </div>
         </div>
+        </div>
 
+        <!-- API Tab -->
+        <div id="tab-api" class="tab-content">
         <!-- API Tokens Management Section -->
         <div class="section">
             <h2 class="section-title">
@@ -298,51 +353,310 @@
             </div>
             </div>
         </div>
+        </div>
 
-        <div class="section">
-            <h2 class="section-title">
-                <span>📄</span>
-                Экспорт секретов
-            </h2>
-            
-            <div class="form-container">
-                <h3 style="margin-bottom: 1rem;">📥 Выгрузить секреты</h3>
-                <form id="exportForm">
-                    <div class="form-group">
-                        <label for="status_filter">Тип секретов для выгрузки</label>
-                        <select id="status_filter" name="status_filter" style="width: 100%; padding: 0.75rem; border: 2px solid #e1e5e9; border-radius: 8px; font-size: 1rem;">
-                            <option value="all">Все секреты</option>
-                            <option value="confirmed">Подтвержденные</option>
-                            <option value="refuted">Опровергнутые</option>
-                        </select>
+        <!-- Scanning Service Tab -->
+        <div id="tab-scanning" class="tab-content">
+            <div class="section">
+                <h2 class="section-title">
+                    <span>🤖</span>
+                    Управление моделью сервиса сканирования
+                </h2>
+                
+                <div style="margin-bottom: 2rem; display: flex; gap: 1rem; flex-wrap: wrap;">
+                    <button class="btn btn-info" onclick="loadModelsInfo()">
+                        🔄 Обновить информацию о моделях
+                    </button>
+                    <button class="btn btn-primary" onclick="trainModels()" id="trainModelsBtn">
+                        🎓 Обучить модели для датасетов без моделей
+                    </button>
+                </div>
+                
+                <div id="trainModelsLoading" class="loading" style="display: none; margin-bottom: 1rem;">
+                    Обучение моделей...
+                </div>
+                
+                <div id="trainModelsSuccess" style="display: none; margin-bottom: 1rem; padding: 1rem; background: #d4edda; border: 1px solid #c3e6cb; border-radius: 4px; color: #155724;">
+                    <strong>✅ Успешно!</strong> <span id="trainModelsSuccessMessage"></span>
+                    <div id="trainModelsTrained" style="margin-top: 0.5rem; font-size: 0.9rem;"></div>
+                    <div id="trainModelsFailed" style="margin-top: 0.5rem; font-size: 0.9rem;"></div>
+                </div>
+                
+                <div id="trainModelsError" style="display: none; margin-bottom: 1rem; padding: 1rem; background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px; color: #721c24;">
+                    <strong>❌ Ошибка:</strong> <span id="trainModelsErrorMessage"></span>
+                </div>
+                
+                <div id="modelsLoading" class="loading" style="display: none;">Загрузка информации о моделях...</div>
+                
+                <div id="modelsInfo" style="display: none;">
+                    <!-- Version Management Section -->
+                    <div class="section" style="margin-bottom: 2rem; background: #e8f5e8; border-left: 4px solid #28a745;">
+                        <h3 style="font-size: 1.2rem; font-weight: 600; color: #333; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+                            <span>📌</span>
+                            Управление версией
+                        </h3>
+                        <div style="display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap;">
+                            <div style="flex: 1; min-width: 200px;">
+                                <div style="font-size: 0.85rem; color: #666; margin-bottom: 0.5rem; font-weight: 500;">Текущая версия</div>
+                                <div id="currentVersion" style="font-size: 1.5rem; font-weight: 700; color: #28a745;">-</div>
+                            </div>
+                            <div style="flex: 2; min-width: 300px; display: flex; gap: 0.5rem; align-items: center;">
+                                <select 
+                                    id="switchVersionSelect" 
+                                    style="flex: 1; padding: 0.6rem; border: 2px solid #ced4da; border-radius: 6px; font-size: 0.95rem; background: white;"
+                                >
+                                    <option value="">Выберите версию...</option>
+                                </select>
+                                <button 
+                                    class="btn btn-primary" 
+                                    onclick="switchModelVersion()" 
+                                    id="switchVersionBtn"
+                                    style="padding: 0.6rem 1.2rem; font-size: 0.95rem; white-space: nowrap;"
+                                >
+                                    🔄 Сменить версию
+                                </button>
+                            </div>
+                        </div>
                     </div>
-                    <div class="form-actions">
-                        <button type="submit" class="btn btn-primary" id="exportBtn">
-                            <span>📄</span>
-                            Начать экспорт
-                        </button>
+                    
+                    <!-- Summary Info -->
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+                        <div style="background: #f8f9fa; border-left: 4px solid #007bff; padding: 1rem; border-radius: 8px;">
+                            <div style="font-size: 0.85rem; color: #666; margin-bottom: 0.25rem;">Моделей</div>
+                            <div id="modelsCount" style="font-size: 1.1rem; font-weight: 600; color: #333;">-</div>
+                        </div>
+                        <div style="background: #f8f9fa; border-left: 4px solid #6c757d; padding: 1rem; border-radius: 8px;">
+                            <div style="font-size: 0.85rem; color: #666; margin-bottom: 0.25rem;">Датасетов</div>
+                            <div id="datasetsCount" style="font-size: 1.1rem; font-weight: 600; color: #333;">-</div>
+                        </div>
+                        <div id="missingModelsCountContainer" style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 1rem; border-radius: 8px; display: none;">
+                            <div style="font-size: 0.85rem; color: #666; margin-bottom: 0.25rem;">Без моделей</div>
+                            <div id="missingModelsCount" style="font-size: 1.1rem; font-weight: 600; color: #333;">-</div>
+                        </div>
                     </div>
-                </form>
-            </div>
-            
-            <!-- Export Progress -->
-            <div id="exportProgress" style="display: none; margin-top: 1rem;">
-                <div style="background: #f8f9fa; border-radius: 8px; padding: 1.5rem;">
-                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;">
-                        <div class="spinner" style="width: 20px; height: 20px; border: 2px solid #e1e5e9; border-top: 2px solid #28a745; border-radius: 50%; animation: spin 1s linear infinite;"></div>
-                        <div class="checkmark" style="display: none; width: 20px; height: 20px; font-size: 20px; color: #28a745;">✅</div>
-                        <span style="font-weight: 600;">Подготовка файла...</span>
+                    
+                    <!-- Upload Datasets Form -->
+                    <div class="collapsible-section" style="margin-top: 1.5rem;">
+                        <div class="collapsible-header" onclick="toggleCollapsible('uploadDatasetsFormContent')">
+                            <span>📤 Загрузка новой версии датасетов</span>
+                            <span class="chevron">▶</span>
+                        </div>
+                        <div id="uploadDatasetsFormContent" class="collapsible-content" style="background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 0 0 8px 8px; padding: 1.5rem;">
+                            <form id="uploadDatasetsForm" onsubmit="uploadDatasets(event); return false;">
+                            <div style="display: grid; gap: 1rem;">
+                                <div>
+                                    <label for="datasetVersion" style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #333;">
+                                        Версия <span style="color: #dc3545;">*</span>
+                                    </label>
+                                    <input 
+                                        type="text" 
+                                        id="datasetVersion" 
+                                        name="version" 
+                                        required 
+                                        pattern="^v\d+\.\d+$"
+                                        placeholder="v1.1"
+                                        style="width: 100%; padding: 0.5rem; border: 1px solid #ced4da; border-radius: 4px; font-size: 1rem;"
+                                    />
+                                    <small style="color: #666; font-size: 0.85rem;">Формат: vX.Y (например, v1.1)</small>
+                                </div>
+                                
+                                <div>
+                                    <label for="datasetDescription" style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #333;">
+                                        Описание <span style="color: #dc3545;">*</span>
+                                    </label>
+                                    <textarea 
+                                        id="datasetDescription" 
+                                        name="description" 
+                                        required 
+                                        rows="3"
+                                        placeholder="Описание датасетов"
+                                        style="width: 100%; padding: 0.5rem; border: 1px solid #ced4da; border-radius: 4px; font-size: 1rem; resize: vertical;"
+                                    ></textarea>
+                                </div>
+                                
+                                <div>
+                                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #333;">
+                                        ZIP файл <span style="color: #dc3545;">*</span>
+                                    </label>
+                                    <div 
+                                        id="datasetFileDropZone" 
+                                        class="file-drop-zone"
+                                        style="border: 2px dashed #ced4da; border-radius: 8px; padding: 1rem; text-align: center; background: #fff; cursor: pointer; transition: all 0.3s ease;"
+                                        ondrop="handleFileDrop(event); return false;"
+                                        ondragover="handleDragOver(event); return false;"
+                                        ondragleave="handleDragLeave(event); return false;"
+                                        onclick="document.getElementById('datasetFileInput').click();"
+                                    >
+                                        <input 
+                                            type="file" 
+                                            id="datasetFileInput" 
+                                            name="zip_file" 
+                                            accept=".zip"
+                                            required
+                                            style="display: none;"
+                                            onchange="handleFileSelect(event);"
+                                        />
+                                        <div id="dropZoneContent">
+                                            <div style="font-size: 1.5rem; margin-bottom: 0.5rem;">📦</div>
+                                            <div style="font-size: 0.95rem; font-weight: 600; color: #333; margin-bottom: 0.25rem;">
+                                                Перетащите ZIP файл сюда или нажмите для выбора
+                                            </div>
+                                            <div style="color: #666; font-size: 0.85rem;">
+                                                Только .zip архивы
+                                            </div>
+                                        </div>
+                                        <div id="dropZoneFileInfo" style="display: none;">
+                                            <div style="font-size: 0.95rem; font-weight: 600; color: #28a745; margin-bottom: 0.25rem;">
+                                                ✅ Файл выбран
+                                            </div>
+                                            <div id="dropZoneFileName" style="color: #333; font-size: 0.9rem; word-break: break-all;"></div>
+                                            <button 
+                                                type="button" 
+                                                onclick="clearFileSelection(event);"
+                                                style="margin-top: 0.5rem; padding: 0.25rem 0.75rem; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85rem;"
+                                            >
+                                                Удалить
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div>
+                                    <button type="submit" class="btn btn-primary" id="uploadDatasetsBtn" style="width: 100%;">
+                                        📤 Загрузить датасеты
+                                    </button>
+                                </div>
+                            </div>
+                        </form>
+                        
+                        <div id="uploadDatasetsLoading" class="loading" style="display: none; margin-top: 1rem;">
+                            Загрузка датасетов...
+                        </div>
+                        
+                        <div id="uploadDatasetsSuccess" style="display: none; margin-top: 1rem; padding: 1rem; background: #d4edda; border: 1px solid #c3e6cb; border-radius: 4px; color: #155724;">
+                            <strong>✅ Успешно!</strong> <span id="uploadDatasetsSuccessMessage"></span>
+                        </div>
+                        
+                        <div id="uploadDatasetsError" style="display: none; margin-top: 1rem; padding: 1rem; background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px; color: #721c24;">
+                            <strong>❌ Ошибка:</strong> <span id="uploadDatasetsErrorMessage"></span>
+                        </div>
+                            </form>
+                        </div>
                     </div>
-                    <div id="exportMessage" style="color: #666; margin-bottom: 1rem;">Инициализация...</div>
-                    <div id="downloadSection" style="display: none;">
-                        <button type="button" class="btn btn-success" id="downloadBtn">
-                            <span>⬇️</span>
-                            Скачать файл
-                        </button>
+                    
+                    <!-- Models and Datasets Table -->
+                    <div class="collapsible-section" style="margin-top: 1.5rem;">
+                        <div class="collapsible-header" onclick="toggleCollapsible('modelsDatasetsTable')">
+                            <span>📦 Модели и датасеты</span>
+                            <span class="chevron">▶</span>
+                        </div>
+                        <div id="modelsDatasetsTable" class="collapsible-content">
+                            <div style="overflow-x: auto;">
+                            <table class="users-table" id="modelsDatasetsTable" style="font-size: 0.9rem;">
+                                <thead>
+                                    <tr>
+                                        <th>Версия</th>
+                                        <th>Тип</th>
+                                        <th>Статус</th>
+                                        <th>Дата обучения</th>
+                                        <th>Описание</th>
+                                        <th>Размеры</th>
+                                        <th>Файлы</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="modelsDatasetsTableBody">
+                                    <!-- Will be populated by JavaScript -->
+                                </tbody>
+                            </table>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Missing Models -->
+                    <div id="missingModelsSection" style="margin-top: 1rem; display: none; background: #fff3cd; border-left: 4px solid #ffc107; padding: 1rem; border-radius: 8px;">
+                        <div style="font-weight: 600; color: #856404; margin-bottom: 0.5rem;">⚠️ Датасеты без моделей:</div>
+                        <div id="missingModelsList" style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                            <!-- Missing models will be populated here -->
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="modelsError" style="display: none; margin-top: 1rem;">
+                    <div class="alert alert-error">
+                        <span id="modelsErrorMessage">Ошибка загрузки информации о моделях</span>
                     </div>
                 </div>
             </div>
+        </div>
 
+        <!-- Data Tab -->
+        <div id="tab-data" class="tab-content">
+            <div class="section">
+                <h2 class="section-title">
+                    <span>📄</span>
+                    Экспорт секретов
+                </h2>
+                
+                <div class="form-container">
+                    <h3 style="margin-bottom: 1rem;">📥 Выгрузить секреты</h3>
+                    <form id="exportForm">
+                        <div class="form-group">
+                            <label for="status_filter">Тип секретов для выгрузки</label>
+                            <select id="status_filter" name="status_filter" style="width: 100%; padding: 0.75rem; border: 2px solid #e1e5e9; border-radius: 8px; font-size: 1rem;" onchange="toggleExcludedUsers()">
+                                <option value="all">Все секреты</option>
+                                <option value="confirmed">Подтвержденные</option>
+                                <option value="refuted">Опровергнутые</option>
+                            </select>
+                        </div>
+                        <div class="form-group" id="excludedUsersGroup" style="display: none;">
+                            <label for="excludedUsers">Исключить пользователей (секреты, подтвержденные/опровергнутые этими пользователями, не будут включены в выгрузку)</label>
+                            <div style="position: relative;">
+                                <div id="excludedUsersContainer" style="border: 2px solid #e1e5e9; border-radius: 8px; padding: 0.5rem; min-height: 2.5rem; background: white; max-height: 200px; overflow-y: auto; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: flex-start;">
+                                    <input 
+                                        type="text" 
+                                        id="excludedUsersSearch" 
+                                        placeholder="Начните вводить имя пользователя..."
+                                        style="border: none; outline: none; flex: 1; min-width: 200px; padding: 0.25rem; font-size: 0.9rem;"
+                                        oninput="filterUsers(this.value)"
+                                        onfocus="showUsersDropdown()"
+                                    />
+                                </div>
+                                <div id="usersDropdown" style="display: none; position: absolute; top: 100%; left: 0; right: 0; background: white; border: 2px solid #e1e5e9; border-top: none; border-radius: 0 0 8px 8px; max-height: 200px; overflow-y: auto; z-index: 1000; margin-top: -1px;">
+                                    <!-- Users will be populated here -->
+                                </div>
+                            </div>
+                            <div id="selectedUsersList" style="margin-top: 0.5rem; display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                                <!-- Selected users will be shown here -->
+                            </div>
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary" id="exportBtn">
+                                <span>📄</span>
+                                Начать экспорт
+                            </button>
+                        </div>
+                    </form>
+                </div>
+                
+                <!-- Export Progress -->
+                <div id="exportProgress" style="display: none; margin-top: 1rem;">
+                    <div style="background: #f8f9fa; border-radius: 8px; padding: 1.5rem;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;">
+                            <div class="spinner" style="width: 20px; height: 20px; border: 2px solid #e1e5e9; border-top: 2px solid #28a745; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                            <div class="checkmark" style="display: none; width: 20px; height: 20px; font-size: 20px; color: #28a745;">✅</div>
+                            <span style="font-weight: 600;">Подготовка файла...</span>
+                        </div>
+                        <div id="exportMessage" style="color: #666; margin-bottom: 1rem;">Инициализация...</div>
+                        <div id="downloadSection" style="display: none;">
+                            <button type="button" class="btn btn-success" id="downloadBtn">
+                                <span>⬇️</span>
+                                Скачать файл
+                            </button>
+                        </div>
+                    </div>
+            </div>
+        </div>
+        
             <div class="section">
                 <h2 class="section-title">
                     <span>📊</span>

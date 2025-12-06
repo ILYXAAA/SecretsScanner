@@ -1,8 +1,9 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.security import HTTPBearer
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from contextlib import asynccontextmanager
 import asyncio
 import logging
@@ -189,6 +190,68 @@ async def redoc_html():
 # Add API logging middleware (must be before other middleware)
 app.add_middleware(BaseHTTPMiddleware, dispatch=log_api_request)
 
+# Maintenance mode middleware
+async def maintenance_mode_middleware(request: Request, call_next):
+    """Check maintenance mode and redirect non-admin users to maintenance page"""
+    from services.database import SessionLocal
+    from sqlalchemy import text
+    from services.auth import get_current_user
+    
+    # Skip maintenance check for:
+    # - Maintenance page itself
+    # - Static files
+    # - API routes (they handle maintenance mode differently)
+    # - Login/logout routes
+    # - Admin routes (admin should always have access)
+    path = request.url.path
+    
+    if (path.startswith("/static/") or 
+        path.startswith(f"{BASE_URL}/static/") or
+        path.startswith("/ico/") or 
+        path.startswith(f"{BASE_URL}/ico/") or
+        path.startswith("/api/") or
+        path.startswith(f"{BASE_URL}/api/") or
+        path.startswith(f"{BASE_URL}/admin") or
+        path == f"{BASE_URL}/maintenance" or
+        path == f"{BASE_URL}/login" or
+        path == f"{BASE_URL}/logout" or
+        path == "/favicon.ico" or
+        path == f"{BASE_URL}/favicon.ico"):
+        return await call_next(request)
+    
+    # Check maintenance mode
+    try:
+        db = SessionLocal()
+        try:
+            result = db.execute(text("SELECT value FROM settings WHERE key = 'maintenance_mode'"))
+            row = result.fetchone()
+            maintenance_mode = row[0].lower() == 'true' if row else False
+            
+            if maintenance_mode:
+                # Check if user is admin
+                is_admin = False
+                try:
+                    current_user = await get_current_user(request)
+                    is_admin = current_user == "admin"
+                except:
+                    pass  # User not authenticated
+                
+                # If not admin, redirect to maintenance page
+                if not is_admin:
+                    from services.templates import templates
+                    return templates.TemplateResponse("maintenance.html", {
+                        "request": request
+                    })
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Error checking maintenance mode: {e}")
+        # On error, allow request to proceed
+    
+    return await call_next(request)
+
+app.add_middleware(BaseHTTPMiddleware, dispatch=maintenance_mode_middleware)
+
 # Mount static files
 app.mount("/ico", StaticFiles(directory="ico"), name="ico")
 
@@ -209,6 +272,34 @@ initialize_database()
 
 # Exception handler for authentication
 app.exception_handler(AuthenticationException)(auth_exception_handler)
+
+# 404 error handler
+@app.exception_handler(404)
+async def not_found_handler(request: Request, exc: StarletteHTTPException):
+    """Handle 404 errors with custom page"""
+    # For API routes, return JSON response
+    if request.url.path.startswith("/api/"):
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=404,
+            content={"detail": "Not found", "path": request.url.path}
+        )
+    
+    # For web routes, return HTML page
+    from services.templates import templates
+    from services.auth import get_current_user
+    
+    # Try to get current user, but don't fail if not authenticated
+    current_user = ""
+    try:
+        current_user = await get_current_user(request)
+    except:
+        pass  # User not authenticated, use empty string
+    
+    return templates.TemplateResponse("404.html", {
+        "request": request,
+        "current_user": current_user
+    }, status_code=404)
 
 # Import and include routers
 from routes.auth_routes import router as auth_router

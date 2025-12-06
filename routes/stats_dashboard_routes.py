@@ -3,13 +3,16 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_, distinct, case
 from datetime import datetime, timedelta
+from typing import Optional
+import logging
 
-from models import Project, Scan, Secret
-from services.auth import get_current_user
+from models import Project, Scan, Secret, User
+from services.auth import get_current_user, get_user_db
 from services.database import get_db
 from services.templates import templates
 
 router = APIRouter()
+logger = logging.getLogger("main")
 
 @router.get("/stats-dashboard", response_class=HTMLResponse)
 async def stats_dashboard(
@@ -434,14 +437,20 @@ async def get_confidence_accuracy(
 @router.get("/api/stats/low-confidence-confirmed")
 async def get_low_confidence_confirmed(
     limit: int = 400,  # Загружаем 400 секретов для пагинации
+    excluded_users: Optional[str] = None,
     current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Получить топ-50 подтвержденных секретов с наименьшим confidence"""
     
+    # Parse excluded users list
+    excluded_users_list = []
+    if excluded_users:
+        excluded_users_list = [u.strip() for u in excluded_users.split(',') if u.strip()]
+    
     # Получаем секреты с наименьшим confidence среди подтвержденных
     # Сортируем по confidence ASC (от меньшего к большему)
-    secrets = db.query(
+    query = db.query(
         Secret.id,
         Secret.path,
         Secret.type,
@@ -456,7 +465,13 @@ async def get_low_confidence_confirmed(
         Secret.status == "Confirmed",
         Secret.is_exception == False,
         Secret.confidence.isnot(None)
-    ).order_by(
+    )
+    
+    # Exclude secrets confirmed by excluded users
+    if excluded_users_list:
+        query = query.filter(~Secret.confirmed_by.in_(excluded_users_list))
+    
+    secrets = query.order_by(
         Secret.confidence.asc()  # Самые низкие confidence первые
     ).limit(limit).all()
     
@@ -479,14 +494,20 @@ async def get_low_confidence_confirmed(
 @router.get("/api/stats/high-confidence-refuted")
 async def get_high_confidence_refuted(
     limit: int = 400,  # Загружаем 400 секретов для пагинации
+    excluded_users: Optional[str] = None,
     current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Получить топ-50 опровергнутых секретов с наивысшим confidence"""
     
+    # Parse excluded users list
+    excluded_users_list = []
+    if excluded_users:
+        excluded_users_list = [u.strip() for u in excluded_users.split(',') if u.strip()]
+    
     # Получаем секреты с наивысшим confidence среди опровергнутых
     # Сортируем по confidence DESC (от большего к меньшему)
-    secrets = db.query(
+    query = db.query(
         Secret.id,
         Secret.path,
         Secret.type,
@@ -500,7 +521,13 @@ async def get_high_confidence_refuted(
         Scan.status == "completed",
         Secret.status == "Refuted",
         Secret.confidence.isnot(None)
-    ).order_by(
+    )
+    
+    # Exclude secrets refuted by excluded users
+    if excluded_users_list:
+        query = query.filter(~Secret.refuted_by.in_(excluded_users_list))
+    
+    secrets = query.order_by(
         Secret.confidence.desc()  # Самые высокие confidence первые
     ).limit(limit).all()
     
@@ -519,3 +546,20 @@ async def get_high_confidence_refuted(
     return {
         "secrets": result
     }
+
+@router.get("/api/stats/users/all")
+async def get_all_users_for_stats(
+    current_user: str = Depends(get_current_user),
+    user_db: Session = Depends(get_user_db)
+):
+    """Get list of all users for selection (no pagination) - available for authenticated users"""
+    try:
+        users = user_db.query(User).order_by(User.username).all()
+        users_data = [{"username": user.username} for user in users]
+        return {"status": "success", "users": users_data}
+    except Exception as e:
+        logger.error(f"Error getting all users: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": str(e)}
+        )

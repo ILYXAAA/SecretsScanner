@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>404 - Страница не найдена | Secrets Scanner</title>
+    <link rel="stylesheet" href="/secret_scanner/static/css/base_header.css">
+    <link rel="stylesheet" href="/secret_scanner/static/css/404.css">
+    <link rel="icon" type="image/x-icon" href="/secret_scanner/favicon.ico">
+</head>
+<body>
+    {% from "components/base_header.html" import header %}
+    {{ header('', current_user) }}
+    
+    <div class="error-container">
+        <div class="error-content">
+            <div class="error-icon">🔍</div>
+            <h1 class="error-code">404</h1>
+            <h2 class="error-title">Страница не найдена</h2>
+            <p class="error-description">
+                Запрашиваемая страница не существует или была перемещена.
+            </p>
+            <div class="error-actions">
+                <a href="/secret_scanner/dashboard" class="btn btn-primary">📌 Вернуться на главную</a>
+                <button onclick="history.back()" class="btn btn-secondary">← Назад</button>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+

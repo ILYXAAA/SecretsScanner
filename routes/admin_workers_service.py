@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Request, Depends, HTTPException
+from fastapi import APIRouter, Request, Depends, HTTPException, Form, File, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.orm import Session
 import httpx
 import logging
 import os
+import re
 from typing import Optional
 
 from config import get_auth_headers
@@ -42,7 +43,7 @@ def get_admin_headers() -> dict:
         "Content-Type": "application/json"
     }
 
-async def make_microservice_request(method: str, endpoint: str, timeout: int = 30) -> dict:
+async def make_microservice_request(method: str, endpoint: str, timeout: int = 30, files: Optional[dict] = None, data: Optional[dict] = None) -> dict:
     """Make request to microservice with error handling"""
     url = f"{MICROSERVICE_URL}{endpoint}"
     headers = get_admin_headers()
@@ -52,7 +53,12 @@ async def make_microservice_request(method: str, endpoint: str, timeout: int = 3
             if method.upper() == "GET":
                 response = await client.get(url, headers=headers)
             elif method.upper() == "POST":
-                response = await client.post(url, headers=headers)
+                if files or data:
+                    # Remove Content-Type for multipart/form-data (httpx will set it automatically)
+                    headers.pop("Content-Type", None)
+                    response = await client.post(url, headers=headers, files=files, data=data)
+                else:
+                    response = await client.post(url, headers=headers)
             else:
                 raise ValueError(f"Unsupported HTTP method: {method}")
             
@@ -76,6 +82,11 @@ async def make_microservice_request(method: str, endpoint: str, timeout: int = 3
     except Exception as e:
         logger.error(f"Unexpected error calling microservice: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+def validate_version(version: str) -> bool:
+    """Validate version format: vX.Y where X and Y are numbers"""
+    pattern = r'^v\d+\.\d+$'
+    return bool(re.match(pattern, version))
 
 @router.get("/admin/workers", response_class=HTMLResponse)
 async def workers_management_page(request: Request, current_user: str = Depends(get_admin_user)):
@@ -184,6 +195,159 @@ async def get_service_stats(current_user: str = Depends(get_admin_user)):
             status_code=500,
             content={"status": "error", "message": f"Failed to get service stats: {str(e)}"}
         )
+
+@router.get("/admin/models/info")
+async def get_models_info(current_user: str = Depends(get_admin_user)):
+    """Get information about models and datasets from microservice"""
+    try:
+        result = await make_microservice_request("GET", "/admin/models/info", timeout=30)
+        
+        user_logger.info(f"Admin user {current_user} retrieved models information")
+        
+        return JSONResponse(content=result)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting models info: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": f"Failed to get models info: {str(e)}"}
+        )
+
+@router.post("/admin/models/datasets/upload")
+async def upload_datasets(
+    version: str = Form(...),
+    description: str = Form(...),
+    zip_file: UploadFile = File(...),
+    current_user: str = Depends(get_admin_user)
+):
+    """Upload new version of datasets"""
+    try:
+        # Validate version format
+        if not validate_version(version):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Неверный формат версии: {version}. Ожидается формат vX.Y (например, v1.1)"
+            )
+        
+        # Validate file type
+        if not zip_file.filename or not zip_file.filename.endswith('.zip'):
+            raise HTTPException(
+                status_code=400,
+                detail="Файл должен быть .zip архивом"
+            )
+        
+        # Read file content
+        file_content = await zip_file.read()
+        
+        # Prepare multipart form data
+        files = {
+            "zip_file": (zip_file.filename, file_content, "application/zip")
+        }
+        data = {
+            "version": version,
+            "description": description
+        }
+        
+        # Send request to microservice
+        result = await make_microservice_request(
+            "POST",
+            "/admin/models/datasets/upload",
+            timeout=120,
+            files=files,
+            data=data
+        )
+        
+        user_logger.info(f"Admin user {current_user} uploaded datasets version {version}")
+        
+        return JSONResponse(content={
+            "status": "success",
+            "message": f"Версия датасетов {version} успешно загружена",
+            "version": version
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error uploading datasets: {str(e)}")
+        error_message = str(e)
+        if "Неверный формат версии" in error_message or "Файл должен быть" in error_message:
+            raise HTTPException(status_code=400, detail=error_message)
+        elif "Не удалось загрузить версию датасетов" in error_message:
+            raise HTTPException(status_code=500, detail="Не удалось загрузить версию датасетов")
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Ошибка загрузки версии датасетов: {error_message}"
+            )
+
+@router.post("/admin/models/train")
+async def train_models(current_user: str = Depends(get_admin_user)):
+    """Train models for datasets that don't have models"""
+    try:
+        result = await make_microservice_request("POST", "/admin/models/train", timeout=600)
+        
+        user_logger.info(f"Admin user {current_user} initiated model training")
+        
+        return JSONResponse(content=result)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error training models: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Ошибка обучения моделей: {str(e)}"
+        )
+
+@router.post("/admin/models/switch")
+async def switch_model_version(
+    version: str = Form(...),
+    current_user: str = Depends(get_admin_user)
+):
+    """Switch to a different model version"""
+    try:
+        # Validate version format
+        if not validate_version(version):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Неверный формат версии: {version}. Ожидается формат vX.Y (например, v1.0)"
+            )
+        
+        # Prepare form data
+        data = {
+            "version": version
+        }
+        
+        # Send request to microservice
+        result = await make_microservice_request(
+            "POST",
+            "/admin/models/switch",
+            timeout=60,
+            data=data
+        )
+        
+        user_logger.info(f"Admin user {current_user} switched model version to {version}")
+        
+        return JSONResponse(content=result)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error switching model version: {str(e)}")
+        error_message = str(e)
+        if "Неверный формат версии" in error_message:
+            raise HTTPException(status_code=400, detail=error_message)
+        elif "Файл модели не найден" in error_message or "Файл векторизатора не найден" in error_message or "Файлы модели повреждены" in error_message:
+            raise HTTPException(status_code=400, detail=error_message)
+        elif "Не удалось изменить версию модели" in error_message:
+            raise HTTPException(status_code=500, detail="Не удалось изменить версию модели")
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Ошибка смены версии модели: {error_message}"
+            )
 
 @router.post("/admin/workers")
 async def add_worker(current_user: str = Depends(get_admin_user)):

@@ -424,10 +424,19 @@ function createWorkerCard(worker) {
         }
     }
     
+    // Format worker name with model version
+    const modelVersion = worker.model_version 
+        ? `<div style="font-size: 0.85em; font-weight: normal; color: #666; margin-top: 0.25rem;">Модель: ${worker.model_version}</div>` 
+        : '';
+    const workerName = `🤖 ${worker.worker_id}`;
+    
     return `
         <div class="worker-card">
             <div class="worker-header">
-                <div class="worker-id">🤖 ${worker.worker_id}</div>
+                <div class="worker-id">
+                    <div>${workerName}</div>
+                    ${modelVersion}
+                </div>
                 <div class="worker-status ${worker.status}">
                     ${statusIcon} ${statusText}
                     <span class="heartbeat-indicator ${heartbeatClass}"></span>

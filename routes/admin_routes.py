@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Request, Form, Depends, BackgroundTasks
+from fastapi import APIRouter, Request, Form, Depends, BackgroundTasks, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import and_
+from sqlalchemy import and_, text
 from dotenv import set_key, load_dotenv
 import secrets
 import logging
@@ -9,7 +9,7 @@ import os
 import tempfile
 import zipfile
 import asyncio
-from typing import Dict
+from typing import Dict, Optional
 import uuid
 import re
 from services.auth import get_admin_user, get_user_db, get_password_hash
@@ -32,6 +32,46 @@ def get_current_secret_key():
     """Get current SECRET_KEY from environment"""
     load_dotenv()
     return os.getenv("SECRET_KEY", "Not set")
+
+def get_maintenance_mode(db: Session) -> bool:
+    """Get maintenance mode status from database"""
+    try:
+        result = db.execute(text("SELECT value FROM settings WHERE key = 'maintenance_mode'"))
+        row = result.fetchone()
+        if row:
+            return row[0].lower() == 'true'
+        return False
+    except Exception as e:
+        logger.error(f"Error getting maintenance mode: {e}")
+        return False
+
+def set_maintenance_mode(db: Session, enabled: bool, updated_by: str):
+    """Set maintenance mode status in database"""
+    try:
+        value = 'true' if enabled else 'false'
+        db.execute(text("""
+            INSERT INTO settings (key, value, updated_by, updated_at)
+            VALUES ('maintenance_mode', :value, :updated_by, CURRENT_TIMESTAMP)
+            ON CONFLICT(key) DO UPDATE SET
+                value = :value,
+                updated_by = :updated_by,
+                updated_at = CURRENT_TIMESTAMP
+        """), {"value": value, "updated_by": updated_by})
+        db.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Error setting maintenance mode: {e}")
+        db.rollback()
+        return False
+
+def check_active_scans(db: Session) -> int:
+    """Check if there are active running scans"""
+    try:
+        count = db.query(Scan).filter(Scan.status == "running").count()
+        return count
+    except Exception as e:
+        logger.error(f"Error checking active scans: {e}")
+        return 0
 
 def update_secret_key_in_env(new_secret_key: str = None):
     """Update SECRET_KEY in .env file"""
@@ -122,11 +162,14 @@ def filter_and_clean_secrets_optimized(secrets_list):
     
     return sorted(list(unique_secrets))
 
-async def prepare_secrets_download(task_id: str, status_filter: str, db_session: Session):
+async def prepare_secrets_download(task_id: str, status_filter: str, db_session: Session, excluded_users: list = None):
     """Background task to prepare secrets download"""
     # Create new database session for background task
     from services.database import SessionLocal
     db = SessionLocal()
+    
+    if excluded_users is None:
+        excluded_users = []
     
     try:
         download_tasks[task_id]["status"] = "processing"
@@ -136,8 +179,14 @@ async def prepare_secrets_download(task_id: str, status_filter: str, db_session:
         count_query = db.query(Secret)
         if status_filter == "confirmed":
             count_query = count_query.filter(Secret.status == "Confirmed")
+            # Exclude secrets confirmed by excluded users
+            if excluded_users:
+                count_query = count_query.filter(~Secret.confirmed_by.in_(excluded_users))
         elif status_filter == "refuted":
             count_query = count_query.filter(Secret.status == "Refuted")
+            # Exclude secrets refuted by excluded users
+            if excluded_users:
+                count_query = count_query.filter(~Secret.refuted_by.in_(excluded_users))
         
         total_count = count_query.count()
         
@@ -157,8 +206,14 @@ async def prepare_secrets_download(task_id: str, status_filter: str, db_session:
         base_query = db.query(Secret.secret)  # Только поле secret
         if status_filter == "confirmed":
             base_query = base_query.filter(Secret.status == "Confirmed")
+            # Exclude secrets confirmed by excluded users
+            if excluded_users:
+                base_query = base_query.filter(~Secret.confirmed_by.in_(excluded_users))
         elif status_filter == "refuted":
             base_query = base_query.filter(Secret.status == "Refuted")
+            # Exclude secrets refuted by excluded users
+            if excluded_users:
+                base_query = base_query.filter(~Secret.refuted_by.in_(excluded_users))
         
         # Process in chunks
         for offset in range(0, total_count, batch_size):
@@ -232,15 +287,17 @@ async def prepare_secrets_download(task_id: str, status_filter: str, db_session:
         db.close()
 
 @router.get("/admin", response_class=HTMLResponse)
-async def admin_panel(request: Request, current_user: str = Depends(get_admin_user)):
+async def admin_panel(request: Request, current_user: str = Depends(get_admin_user), db: Session = Depends(get_db)):
     """Admin panel - only accessible by admin user"""
     current_secret_key = get_current_secret_key()
     if current_secret_key != "Not set":
         current_secret_key = f"{current_secret_key[0:8]}***"
+    maintenance_mode = get_maintenance_mode(db)
     return templates.TemplateResponse("admin.html", {
         "request": request,
         "current_secret_key": current_secret_key,
-        "current_user": current_user
+        "current_user": current_user,
+        "maintenance_mode": maintenance_mode
     })
 
 @router.get("/admin/users")
@@ -347,6 +404,77 @@ async def delete_user(username: str, _: str = Depends(get_admin_user),
             content={"status": "error", "message": str(e)}
         )
 
+@router.post("/admin/toggle-maintenance-mode")
+async def toggle_maintenance_mode(
+    request: Request,
+    enabled: str = Form(...),
+    current_user: str = Depends(get_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Toggle maintenance mode - admin only"""
+    try:
+        is_enabled = enabled.lower() == 'true'
+        
+        # If enabling maintenance mode, check for active scans
+        if is_enabled:
+            active_scans_count = check_active_scans(db)
+            if active_scans_count > 0:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "status": "error",
+                        "message": f"Невозможно включить режим технических работ. Обнаружено {active_scans_count} активных сканирований. Дождитесь их завершения."
+                    }
+                )
+        
+        # Set maintenance mode
+        if set_maintenance_mode(db, is_enabled, current_user):
+            mode_text = "включен" if is_enabled else "выключен"
+            logger.warning(f"Maintenance mode {mode_text} by {current_user}")
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "status": "success",
+                    "message": f"Режим технических работ {mode_text}",
+                    "maintenance_mode": is_enabled
+                }
+            )
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={"status": "error", "message": "Ошибка при изменении режима технических работ"}
+            )
+            
+    except Exception as e:
+        logger.error(f"Error toggling maintenance mode: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": str(e)}
+        )
+
+@router.get("/admin/maintenance-mode-status")
+async def get_maintenance_mode_status(
+    current_user: str = Depends(get_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Get current maintenance mode status"""
+    try:
+        maintenance_mode = get_maintenance_mode(db)
+        active_scans_count = check_active_scans(db)
+        return JSONResponse(
+            status_code=200,
+            content={
+                "maintenance_mode": maintenance_mode,
+                "active_scans_count": active_scans_count
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error getting maintenance mode status: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": str(e)}
+        )
+
 @router.post("/admin/update-secret-key")
 async def update_secret_key(request: Request, secret_key: str = Form(""),
                            _: str = Depends(get_admin_user)):
@@ -364,8 +492,23 @@ async def update_secret_key(request: Request, secret_key: str = Form(""),
         logger.error(f"Error updating SECRET_KEY: {e}")
         return RedirectResponse(url="/secret_scanner/admin?error=secret_key_update_failed", status_code=302)
 
+@router.get("/admin/users/all")
+async def get_all_users(_: str = Depends(get_admin_user), user_db: Session = Depends(get_user_db)):
+    """Get list of all users for selection (no pagination)"""
+    try:
+        users = user_db.query(User).order_by(User.username).all()
+        users_data = [{"username": user.username} for user in users]
+        return {"status": "success", "users": users_data}
+    except Exception as e:
+        logger.error(f"Error getting all users: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": str(e)}
+        )
+
 @router.post("/admin/export-secrets")
 async def export_secrets(background_tasks: BackgroundTasks, status_filter: str = Form(...),
+                        excluded_users: Optional[str] = Form(None),
                         _: str = Depends(get_admin_user)):
     """Export secrets - admin only"""
     try:
@@ -374,6 +517,11 @@ async def export_secrets(background_tasks: BackgroundTasks, status_filter: str =
                 status_code=400,
                 content={"status": "error", "message": "Invalid status filter"}
             )
+        
+        # Parse excluded users list
+        excluded_users_list = []
+        if excluded_users:
+            excluded_users_list = [u.strip() for u in excluded_users.split(',') if u.strip()]
         
         # Generate unique task ID
         task_id = str(uuid.uuid4())
@@ -388,7 +536,7 @@ async def export_secrets(background_tasks: BackgroundTasks, status_filter: str =
         }
         
         # Start background task without passing db session
-        background_tasks.add_task(prepare_secrets_download, task_id, status_filter, None)
+        background_tasks.add_task(prepare_secrets_download, task_id, status_filter, None, excluded_users_list)
         
         return {"status": "success", "task_id": task_id}
         
