@@ -449,7 +449,7 @@ def generate_html_report(scan, project, secrets, HubType):
 
             for secret in type_secrets:
                 # Санитизация данных секрета
-                secret_path = sanitize_input(secret.path)
+                secret_path = sanitize_input(secret.path).replace("/devzone_repository/", "")
                 secret_line = int(secret.line) if str(secret.line).isdigit() else 1
                 secret_value = sanitize_input(secret.secret)
                 
@@ -457,7 +457,7 @@ def generate_html_report(scan, project, secrets, HubType):
                 try:
                     if 'devzone.local' in project_repo_url:
                         # DevZone/GitLab URL format
-                        file_url = f"{project_repo_url}/-/blob/{repo_commit}/{urllib.parse.quote(secret.path)}#L{secret_line}-{secret_line}"
+                        file_url = f"{project_repo_url}/-/blob/{repo_commit}/{urllib.parse.quote(secret.path)}#L{secret_line}-{secret_line}".replace("/devzone_repository/", "")
                     elif hub_type.lower() == 'azure':
                         # Azure DevOps URL format
                         start_column = 1

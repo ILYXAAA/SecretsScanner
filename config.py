@@ -23,7 +23,7 @@ def get_full_url(path: str) -> str:
 # Security configuration
 SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_urlsafe(32))
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 600  # 10 часов
+ACCESS_TOKEN_EXPIRE_MINUTES = 600 * 3 # 30 часов
 
 # Database configuration
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./database/secrets_scanner.db")

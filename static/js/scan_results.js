@@ -1271,12 +1271,18 @@ async function performBulkAction(action, value) {
         alert('Пожалуйста выберите хотя бы один секрет');
         return;
     }
-    
+
     let comment = '';
+    // Если действие "Refuted", запросим комментарий
     if (action === 'status' && value === 'Refuted') {
-        comment = prompt('Введите комментарий (опционально):') || '';
+        const input = prompt('Введите комментарий (опционально):');
+        if (input === null) {
+            // Пользователь нажал "Отмена" — прекращаем действие
+            return;
+        }
+        comment = input;
     }
-    
+
     try {
         const response = await fetch('/secret_scanner/secrets/bulk-action', {
             method: 'POST',
@@ -1288,39 +1294,42 @@ async function performBulkAction(action, value) {
                 comment: comment
             })
         });
-        
-        if (response.ok) {
-            // Update local data
-            selectedSecrets.forEach(secretId => {
-                const secret = allSecrets.find(s => s.id === secretId);
-                if (secret) {
-                    if (action === 'status') {
-                        secret.status = value;
-                        if (value === 'Refuted') {
-                            secret.is_exception = true;
-                            secret.exception_comment = comment;
-                            secret.refuted_at = new Date().toISOString().slice(0, 16).replace('T', ' ');
-                        } else {
-                            secret.is_exception = false;
-                            secret.exception_comment = null;
-                            secret.refuted_at = null;
-                        }
-                    } else if (action === 'severity') {
-                        secret.severity = value;
-                    }
-                }
-            });
-            
-            // Clear selections and reapply filters (с сохранением сортировки)
-            selectedSecrets.clear();
-            showEmptyDetail();
-            applyFiltersSync();
-        } else {
-            alert('Error performing bulk action');
+
+        if (!response.ok) {
+            alert('Ошибка при выполнении массового действия');
+            return;
         }
+
+        // Обновление локальных данных
+        selectedSecrets.forEach(secretId => {
+            const secret = allSecrets.find(s => s.id === secretId);
+            if (!secret) return;
+
+            if (action === 'status') {
+                secret.status = value;
+
+                if (value === 'Refuted') {
+                    secret.is_exception = true;
+                    secret.exception_comment = comment;
+                    secret.refuted_at = new Date().toISOString().slice(0, 16).replace('T', ' ');
+                } else {
+                    secret.is_exception = false;
+                    secret.exception_comment = null;
+                    secret.refuted_at = null;
+                }
+            } else if (action === 'severity') {
+                secret.severity = value;
+            }
+        });
+
+        // Очистка выделенных секретов и обновление UI
+        selectedSecrets.clear();
+        showEmptyDetail();
+        applyFiltersSync();
+
     } catch (error) {
-        console.error('Error performing bulk action:', error);
-        alert('Error performing bulk action');
+        console.error('Ошибка при выполнении массового действия:', error);
+        alert('Ошибка при выполнении массового действия');
     }
 }
 

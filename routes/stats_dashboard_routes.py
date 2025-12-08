@@ -436,20 +436,32 @@ async def get_confidence_accuracy(
 
 @router.get("/api/stats/low-confidence-confirmed")
 async def get_low_confidence_confirmed(
-    limit: int = 400,  # Загружаем 400 секретов для пагинации
+    limit: int = 400,
     excluded_users: Optional[str] = None,
     current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Получить топ-50 подтвержденных секретов с наименьшим confidence"""
+    """Получить топ-50 подтвержденных секретов с наименьшим confidence
+       только из последнего completed-скана каждого проекта.
+    """
     
     # Parse excluded users list
     excluded_users_list = []
     if excluded_users:
         excluded_users_list = [u.strip() for u in excluded_users.split(',') if u.strip()]
     
-    # Получаем секреты с наименьшим confidence среди подтвержденных
-    # Сортируем по confidence ASC (от меньшего к большему)
+    # Подзапрос: выбираем последний completed-скан для каждого проекта
+    latest_scans_subq = (
+        db.query(
+            Scan.project_name,
+            func.max(Scan.id).label("latest_scan_id")
+        )
+        .filter(Scan.status == "completed")
+        .group_by(Scan.project_name)
+        .subquery()
+    )
+    
+    # Основной запрос: секреты только из последних completed-сканов
     query = db.query(
         Secret.id,
         Secret.path,
@@ -460,8 +472,11 @@ async def get_low_confidence_confirmed(
         Scan.project_name
     ).join(
         Scan, Secret.scan_id == Scan.id
+    ).join(
+        latest_scans_subq,
+        (latest_scans_subq.c.project_name == Scan.project_name) &
+        (latest_scans_subq.c.latest_scan_id == Scan.id)
     ).filter(
-        Scan.status == "completed",
         Secret.status == "Confirmed",
         Secret.is_exception == False,
         Secret.confidence.isnot(None)
@@ -472,20 +487,21 @@ async def get_low_confidence_confirmed(
         query = query.filter(~Secret.confirmed_by.in_(excluded_users_list))
     
     secrets = query.order_by(
-        Secret.confidence.asc()  # Самые низкие confidence первые
+        Secret.confidence.asc()
     ).limit(limit).all()
     
     result = []
     for secret in secrets:
-        result.append({
-            "id": secret.id,
-            "path": secret.path or "",
-            "type": secret.type or "Unknown",
-            "confidence": round(float(secret.confidence) * 100, 1) if secret.confidence is not None else 0,  # В процентах
-            "severity": secret.severity or "High",
-            "secret": secret.secret or "",
-            "project_name": secret.project_name or ""
-        })
+        if "добавлен вручную" not in secret.secret:
+            result.append({
+                "id": secret.id,
+                "path": secret.path or "",
+                "type": secret.type or "Unknown",
+                "confidence": round(float(secret.confidence) * 100, 1),
+                "severity": secret.severity or "High",
+                "secret": secret.secret or "",
+                "project_name": secret.project_name or ""
+            })
     
     return {
         "secrets": result
@@ -493,20 +509,32 @@ async def get_low_confidence_confirmed(
 
 @router.get("/api/stats/high-confidence-refuted")
 async def get_high_confidence_refuted(
-    limit: int = 400,  # Загружаем 400 секретов для пагинации
+    limit: int = 400,
     excluded_users: Optional[str] = None,
     current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Получить топ-50 опровергнутых секретов с наивысшим confidence"""
+    """Получить топ-50 опровергнутых секретов с наивысшим confidence
+       только из последних completed-сканов каждого проекта.
+    """
     
     # Parse excluded users list
     excluded_users_list = []
     if excluded_users:
         excluded_users_list = [u.strip() for u in excluded_users.split(',') if u.strip()]
     
-    # Получаем секреты с наивысшим confidence среди опровергнутых
-    # Сортируем по confidence DESC (от большего к меньшему)
+    # Подзапрос: последние completed-сканы для каждого проекта
+    latest_scans_subq = (
+        db.query(
+            Scan.project_name,
+            func.max(Scan.id).label("latest_scan_id")
+        )
+        .filter(Scan.status == "completed")
+        .group_by(Scan.project_name)
+        .subquery()
+    )
+    
+    # Основной запрос: секреты только из последних completed-сканов
     query = db.query(
         Secret.id,
         Secret.path,
@@ -517,8 +545,11 @@ async def get_high_confidence_refuted(
         Scan.project_name
     ).join(
         Scan, Secret.scan_id == Scan.id
+    ).join(
+        latest_scans_subq,
+        (latest_scans_subq.c.project_name == Scan.project_name) &
+        (latest_scans_subq.c.latest_scan_id == Scan.id)
     ).filter(
-        Scan.status == "completed",
         Secret.status == "Refuted",
         Secret.confidence.isnot(None)
     )
@@ -528,20 +559,21 @@ async def get_high_confidence_refuted(
         query = query.filter(~Secret.refuted_by.in_(excluded_users_list))
     
     secrets = query.order_by(
-        Secret.confidence.desc()  # Самые высокие confidence первые
+        Secret.confidence.desc()
     ).limit(limit).all()
     
     result = []
     for secret in secrets:
-        result.append({
-            "id": secret.id,
-            "path": secret.path or "",
-            "type": secret.type or "Unknown",
-            "confidence": round(float(secret.confidence) * 100, 1) if secret.confidence is not None else 0,  # В процентах
-            "severity": secret.severity or "High",
-            "secret": secret.secret or "",
-            "project_name": secret.project_name or ""
-        })
+        if "добавлен вручную" not in secret.secret:
+            result.append({
+                "id": secret.id,
+                "path": secret.path or "",
+                "type": secret.type or "Unknown",
+                "confidence": round(float(secret.confidence) * 100, 1),
+                "severity": secret.severity or "High",
+                "secret": secret.secret or "",
+                "project_name": secret.project_name or ""
+            })
     
     return {
         "secrets": result
