@@ -817,7 +817,18 @@ async function loadModelsInfo() {
     
     try {
         const response = await fetch('/secret_scanner/admin/models/info');
-        const data = await response.json();
+        
+        // Проверяем Content-Type перед парсингом JSON
+        const contentType = response.headers.get('content-type') || '';
+        let data;
+        
+        if (contentType.includes('application/json')) {
+            data = await response.json();
+        } else {
+            // Если ответ не JSON, пытаемся прочитать как текст для диагностики
+            const text = await response.text();
+            throw new Error(`Сервер вернул некорректный ответ (${response.status}). Возможно, микросервис недоступен.`);
+        }
         
         if (loading) loading.style.display = 'none';
         
@@ -829,7 +840,7 @@ async function loadModelsInfo() {
                 error.style.display = 'block';
                 const errorMsg = document.getElementById('modelsErrorMessage');
                 if (errorMsg) {
-                    errorMsg.textContent = data.message || 'Ошибка получения информации о моделях';
+                    errorMsg.textContent = data.message || data.detail || 'Ошибка получения информации о моделях';
                 }
             }
         }
@@ -839,7 +850,14 @@ async function loadModelsInfo() {
             error.style.display = 'block';
             const errorMsg = document.getElementById('modelsErrorMessage');
             if (errorMsg) {
-                errorMsg.textContent = `Ошибка сети: ${err.message}`;
+                // Улучшенное сообщение об ошибке
+                let errorText = 'Ошибка сети';
+                if (err.message) {
+                    errorText = err.message;
+                } else if (err instanceof TypeError && err.message && err.message.includes('JSON')) {
+                    errorText = 'Сервер вернул некорректный ответ. Возможно, микросервис недоступен.';
+                }
+                errorMsg.textContent = errorText;
             }
         }
     }
@@ -949,7 +967,17 @@ async function switchModelVersion() {
             body: formData
         });
         
-        const data = await response.json();
+        // Проверяем Content-Type перед парсингом JSON
+        const contentType = response.headers.get('content-type') || '';
+        let data;
+        
+        if (contentType.includes('application/json')) {
+            data = await response.json();
+        } else {
+            // Если ответ не JSON, пытаемся прочитать как текст для диагностики
+            const text = await response.text();
+            throw new Error(`Сервер вернул некорректный ответ (${response.status}). Возможно, микросервис недоступен.`);
+        }
         
         if (btn) btn.disabled = false;
         
@@ -961,11 +989,17 @@ async function switchModelVersion() {
             // Reload models info to update current version
             loadModelsInfo();
         } else {
-            alert(data.detail || data.message || 'Ошибка смены версии модели');
+            alert(data.message || data.detail || 'Ошибка смены версии модели');
         }
     } catch (err) {
         if (btn) btn.disabled = false;
-        alert(`Ошибка сети: ${err.message}`);
+        let errorMessage = 'Ошибка сети';
+        if (err.message) {
+            errorMessage = err.message;
+        } else if (err instanceof TypeError && err.message && err.message.includes('JSON')) {
+            errorMessage = 'Сервер вернул некорректный ответ. Возможно, микросервис недоступен.';
+        }
+        alert(errorMessage);
     }
 }
 
@@ -986,7 +1020,17 @@ async function trainModels() {
             method: 'POST'
         });
         
-        const data = await response.json();
+        // Проверяем Content-Type перед парсингом JSON
+        const contentType = response.headers.get('content-type') || '';
+        let data;
+        
+        if (contentType.includes('application/json')) {
+            data = await response.json();
+        } else {
+            // Если ответ не JSON, пытаемся прочитать как текст для диагностики
+            const text = await response.text();
+            throw new Error(`Сервер вернул некорректный ответ (${response.status}). Возможно, микросервис недоступен.`);
+        }
         
         if (loading) loading.style.display = 'none';
         if (btn) btn.disabled = false;
@@ -1053,7 +1097,14 @@ async function trainModels() {
             error.style.display = 'block';
             const errorMsg = document.getElementById('trainModelsErrorMessage');
             if (errorMsg) {
-                errorMsg.textContent = `Ошибка сети: ${err.message}`;
+                // Улучшенное сообщение об ошибке
+                let errorText = 'Ошибка сети';
+                if (err.message) {
+                    errorText = err.message;
+                } else if (err instanceof TypeError && err.message && err.message.includes('JSON')) {
+                    errorText = 'Сервер вернул некорректный ответ. Возможно, микросервис недоступен.';
+                }
+                errorMsg.textContent = errorText;
             }
         }
     }
@@ -1091,7 +1142,17 @@ async function uploadDatasets(event) {
             body: formData
         });
         
-        const data = await response.json();
+        // Проверяем Content-Type перед парсингом JSON
+        const contentType = response.headers.get('content-type') || '';
+        let data;
+        
+        if (contentType.includes('application/json')) {
+            data = await response.json();
+        } else {
+            // Если ответ не JSON, пытаемся прочитать как текст для диагностики
+            const text = await response.text();
+            throw new Error(`Сервер вернул некорректный ответ (${response.status}). Возможно, микросервис недоступен.`);
+        }
         
         if (loading) loading.style.display = 'none';
         if (btn) btn.disabled = false;

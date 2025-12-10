@@ -206,13 +206,17 @@ async def get_models_info(current_user: str = Depends(get_admin_user)):
         
         return JSONResponse(content=result)
         
-    except HTTPException:
-        raise
+    except HTTPException as e:
+        # Преобразуем HTTPException в JSONResponse для корректной обработки в JavaScript
+        return JSONResponse(
+            status_code=e.status_code,
+            content={"status": "error", "message": e.detail or "Ошибка получения информации о моделях"}
+        )
     except Exception as e:
         logger.error(f"Error getting models info: {str(e)}")
         return JSONResponse(
             status_code=500,
-            content={"status": "error", "message": f"Failed to get models info: {str(e)}"}
+            content={"status": "error", "message": f"Ошибка получения информации о моделях: {str(e)}"}
         )
 
 @router.post("/admin/models/datasets/upload")
@@ -267,20 +271,25 @@ async def upload_datasets(
             "version": version
         })
         
-    except HTTPException:
-        raise
+    except HTTPException as e:
+        # Преобразуем HTTPException в JSONResponse для корректной обработки в JavaScript
+        return JSONResponse(
+            status_code=e.status_code,
+            content={"status": "error", "message": e.detail or "Ошибка загрузки датасетов"}
+        )
     except Exception as e:
         logger.error(f"Error uploading datasets: {str(e)}")
         error_message = str(e)
+        status_code = 500
         if "Неверный формат версии" in error_message or "Файл должен быть" in error_message:
-            raise HTTPException(status_code=400, detail=error_message)
+            status_code = 400
         elif "Не удалось загрузить версию датасетов" in error_message:
-            raise HTTPException(status_code=500, detail="Не удалось загрузить версию датасетов")
-        else:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Ошибка загрузки версии датасетов: {error_message}"
-            )
+            status_code = 500
+        
+        return JSONResponse(
+            status_code=status_code,
+            content={"status": "error", "message": error_message or "Ошибка загрузки версии датасетов"}
+        )
 
 @router.post("/admin/models/train")
 async def train_models(current_user: str = Depends(get_admin_user)):
@@ -292,13 +301,17 @@ async def train_models(current_user: str = Depends(get_admin_user)):
         
         return JSONResponse(content=result)
         
-    except HTTPException:
-        raise
+    except HTTPException as e:
+        # Преобразуем HTTPException в JSONResponse для корректной обработки в JavaScript
+        return JSONResponse(
+            status_code=e.status_code,
+            content={"status": "error", "message": e.detail or "Ошибка обучения моделей"}
+        )
     except Exception as e:
         logger.error(f"Error training models: {str(e)}")
-        raise HTTPException(
+        return JSONResponse(
             status_code=500,
-            detail=f"Ошибка обучения моделей: {str(e)}"
+            content={"status": "error", "message": f"Ошибка обучения моделей: {str(e)}"}
         )
 
 @router.post("/admin/models/switch")
@@ -332,22 +345,27 @@ async def switch_model_version(
         
         return JSONResponse(content=result)
         
-    except HTTPException:
-        raise
+    except HTTPException as e:
+        # Преобразуем HTTPException в JSONResponse для корректной обработки в JavaScript
+        return JSONResponse(
+            status_code=e.status_code,
+            content={"status": "error", "message": e.detail or "Ошибка смены версии модели"}
+        )
     except Exception as e:
         logger.error(f"Error switching model version: {str(e)}")
         error_message = str(e)
+        status_code = 500
         if "Неверный формат версии" in error_message:
-            raise HTTPException(status_code=400, detail=error_message)
+            status_code = 400
         elif "Файл модели не найден" in error_message or "Файл векторизатора не найден" in error_message or "Файлы модели повреждены" in error_message:
-            raise HTTPException(status_code=400, detail=error_message)
+            status_code = 400
         elif "Не удалось изменить версию модели" in error_message:
-            raise HTTPException(status_code=500, detail="Не удалось изменить версию модели")
-        else:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Ошибка смены версии модели: {error_message}"
-            )
+            status_code = 500
+        
+        return JSONResponse(
+            status_code=status_code,
+            content={"status": "error", "message": error_message or "Ошибка смены версии модели"}
+        )
 
 @router.post("/admin/workers")
 async def add_worker(current_user: str = Depends(get_admin_user)):
