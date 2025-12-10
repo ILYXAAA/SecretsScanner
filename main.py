@@ -209,6 +209,7 @@ async def maintenance_mode_middleware(request: Request, call_next):
         path.startswith("/ico/") or 
         path.startswith(f"{BASE_URL}/ico/") or
         path.startswith("/api/") or
+        path.startswith(f"/get_results") or # Для получения CallBack'ов при сканировании
         path.startswith(f"{BASE_URL}/api/") or
         path.startswith(f"{BASE_URL}/admin") or
         path == f"{BASE_URL}/maintenance" or
