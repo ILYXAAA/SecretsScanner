@@ -44,7 +44,7 @@ def get_maintenance_mode(db: Session) -> bool:
         logger.error(f"Error getting maintenance mode: {e}")
         return False
 
-def set_maintenance_mode(db: Session, enabled: bool, updated_by: str):
+def set_maintenance_mode(db: Session, enabled: bool, updated_by: str, end_time: str = None):
     """Set maintenance mode status in database"""
     try:
         from datetime import datetime
@@ -64,12 +64,44 @@ def set_maintenance_mode(db: Session, enabled: bool, updated_by: str):
             )
             db.add(setting)
         
+        # Сохраняем время окончания работ
+        if enabled and end_time:
+            end_time_setting = db.query(Settings).filter(Settings.key == 'maintenance_end_time').first()
+            if end_time_setting:
+                end_time_setting.value = end_time
+                end_time_setting.updated_by = updated_by
+                end_time_setting.updated_at = datetime.now()
+            else:
+                end_time_setting = Settings(
+                    key='maintenance_end_time',
+                    value=end_time,
+                    updated_by=updated_by,
+                    updated_at=datetime.now()
+                )
+                db.add(end_time_setting)
+        elif not enabled:
+            # При выключении режима удаляем время окончания
+            end_time_setting = db.query(Settings).filter(Settings.key == 'maintenance_end_time').first()
+            if end_time_setting:
+                db.delete(end_time_setting)
+        
         db.commit()
         return True
     except Exception as e:
         logger.error(f"Error setting maintenance mode: {e}")
         db.rollback()
         return False
+
+def get_maintenance_end_time(db: Session) -> str:
+    """Get maintenance end time from database"""
+    try:
+        setting = db.query(Settings).filter(Settings.key == 'maintenance_end_time').first()
+        if setting:
+            return setting.value
+        return None
+    except Exception as e:
+        logger.error(f"Error getting maintenance end time: {e}")
+        return None
 
 def check_active_scans(db: Session) -> int:
     """Check if there are active running scans"""
@@ -300,11 +332,13 @@ async def admin_panel(request: Request, current_user: str = Depends(get_admin_us
     if current_secret_key != "Not set":
         current_secret_key = f"{current_secret_key[0:8]}***"
     maintenance_mode = get_maintenance_mode(db)
+    maintenance_end_time = get_maintenance_end_time(db) if maintenance_mode else None
     return templates.TemplateResponse("admin.html", {
         "request": request,
         "current_secret_key": current_secret_key,
         "current_user": current_user,
-        "maintenance_mode": maintenance_mode
+        "maintenance_mode": maintenance_mode,
+        "maintenance_end_time": maintenance_end_time
     })
 
 @router.get("/admin/users")
@@ -415,6 +449,7 @@ async def delete_user(username: str, _: str = Depends(get_admin_user),
 async def toggle_maintenance_mode(
     request: Request,
     enabled: str = Form(...),
+    end_time: str = Form(None),
     current_user: str = Depends(get_admin_user),
     db: Session = Depends(get_db)
 ):
@@ -434,10 +469,24 @@ async def toggle_maintenance_mode(
                     }
                 )
         
+        # Валидация времени (формат HH:MM)
+        if is_enabled and end_time and end_time.strip():
+            import re
+            time_pattern = r'^([0-1][0-9]|2[0-3]):[0-5][0-9]$'
+            if not re.match(time_pattern, end_time.strip()):
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "status": "error",
+                        "message": "Неверный формат времени. Используйте формат HH:MM (например, 18:30)"
+                    }
+                )
+        
         # Set maintenance mode
-        if set_maintenance_mode(db, is_enabled, current_user):
+        end_time_value = end_time.strip() if end_time and end_time.strip() else None
+        if set_maintenance_mode(db, is_enabled, current_user, end_time_value):
             mode_text = "включен" if is_enabled else "выключен"
-            logger.warning(f"Maintenance mode {mode_text} by {current_user}")
+            logger.warning(f"Maintenance mode {mode_text} by {current_user}" + (f" (до {end_time_value})" if end_time_value else ""))
             return JSONResponse(
                 status_code=200,
                 content={
@@ -468,11 +517,13 @@ async def get_maintenance_mode_status(
     try:
         maintenance_mode = get_maintenance_mode(db)
         active_scans_count = check_active_scans(db)
+        end_time = get_maintenance_end_time(db) if maintenance_mode else None
         return JSONResponse(
             status_code=200,
             content={
                 "maintenance_mode": maintenance_mode,
-                "active_scans_count": active_scans_count
+                "active_scans_count": active_scans_count,
+                "end_time": end_time
             }
         )
     except Exception as e:

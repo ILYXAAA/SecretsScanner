@@ -237,8 +237,11 @@ async def maintenance_mode_middleware(request: Request, call_next):
                 # If not admin, redirect to maintenance page
                 if not is_admin:
                     from services.templates import templates
+                    from routes.admin_routes import get_maintenance_end_time
+                    end_time = get_maintenance_end_time(db)
                     return templates.TemplateResponse("maintenance.html", {
-                        "request": request
+                        "request": request,
+                        "end_time": end_time
                     })
         finally:
             db.close()

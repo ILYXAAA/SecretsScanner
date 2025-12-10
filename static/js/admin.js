@@ -72,6 +72,13 @@ document.addEventListener('DOMContentLoaded', function() {
             form.appendChild(hiddenInput);
         });
     }
+    
+    // Инициализация поля времени для режима технических работ
+    const maintenanceSwitch = document.getElementById('maintenanceModeSwitch');
+    const endTimeContainer = document.getElementById('maintenanceEndTimeContainer');
+    if (maintenanceSwitch && maintenanceSwitch.checked && endTimeContainer) {
+        endTimeContainer.style.display = 'block';
+    }
 });
 
 async function loadApiTokens(page = 1, search = '') {
@@ -255,16 +262,29 @@ async function toggleMaintenanceMode(enabled) {
     
     const statusDiv = document.getElementById('maintenanceModeStatus');
     const switchElement = document.getElementById('maintenanceModeSwitch');
+    const endTimeContainer = document.getElementById('maintenanceEndTimeContainer');
+    const endTimeInput = document.getElementById('maintenanceEndTime');
     
-    // Show confirmation
-    const action = enabled ? 'включить' : 'выключить';
-    const confirmMessage = enabled 
-        ? 'Вы уверены, что хотите включить режим технических работ? Все обычные пользователи будут перенаправлены на страницу технического обслуживания.'
-        : 'Вы уверены, что хотите выключить режим технических работ?';
+    // Показываем/скрываем поле времени при включении/выключении
+    if (enabled) {
+        endTimeContainer.style.display = 'block';
+    } else {
+        endTimeContainer.style.display = 'none';
+        if (endTimeInput) endTimeInput.value = '';
+    }
     
-    if (!confirm(confirmMessage)) {
-        // Revert switch state
-        switchElement.checked = !enabled;
+    // Если включаем режим, не показываем подтверждение сразу - пользователь может указать время
+    if (!enabled) {
+        const confirmMessage = 'Вы уверены, что хотите выключить режим технических работ?';
+        if (!confirm(confirmMessage)) {
+            switchElement.checked = !enabled;
+            return;
+        }
+    }
+    
+    // Если включаем, показываем подтверждение после того как пользователь может указать время
+    if (enabled) {
+        // Не блокируем переключатель, чтобы пользователь мог указать время
         return;
     }
     
@@ -272,7 +292,7 @@ async function toggleMaintenanceMode(enabled) {
     switchElement.disabled = true;
     statusDiv.style.display = 'block';
     statusDiv.className = 'maintenance-status info';
-    statusDiv.textContent = enabled ? 'Проверка активных сканирований...' : 'Выключение режима технических работ...';
+    statusDiv.textContent = 'Выключение режима технических работ...';
     
     try {
         const formData = new FormData();
@@ -303,6 +323,85 @@ async function toggleMaintenanceMode(enabled) {
         console.error('Error toggling maintenance mode:', error);
         // Revert switch state on error
         switchElement.checked = !enabled;
+        statusDiv.className = 'maintenance-status error';
+        statusDiv.textContent = 'Ошибка соединения с сервером';
+    } finally {
+        maintenanceModeToggleInProgress = false;
+        switchElement.disabled = false;
+    }
+}
+
+async function applyMaintenanceMode() {
+    if (maintenanceModeToggleInProgress) {
+        return;
+    }
+    
+    const statusDiv = document.getElementById('maintenanceModeStatus');
+    const switchElement = document.getElementById('maintenanceModeSwitch');
+    const endTimeInput = document.getElementById('maintenanceEndTime');
+    
+    // Если переключатель выключен, включаем его
+    if (!switchElement.checked) {
+        switchElement.checked = true;
+    }
+    
+    const isAlreadyEnabled = switchElement.getAttribute('data-enabled') === 'true';
+    const confirmMessage = isAlreadyEnabled
+        ? 'Вы уверены, что хотите обновить время окончания технических работ?'
+        : 'Вы уверены, что хотите включить режим технических работ? Все обычные пользователи будут перенаправлены на страницу технического обслуживания.';
+    
+    if (!confirm(confirmMessage)) {
+        if (!isAlreadyEnabled) {
+            switchElement.checked = false;
+        }
+        return;
+    }
+    
+    maintenanceModeToggleInProgress = true;
+    switchElement.disabled = true;
+    statusDiv.style.display = 'block';
+    statusDiv.className = 'maintenance-status info';
+    statusDiv.textContent = isAlreadyEnabled ? 'Обновление времени...' : 'Проверка активных сканирований...';
+    
+    try {
+        const formData = new FormData();
+        formData.append('enabled', 'true');
+        
+        // Добавляем время окончания, если указано
+        if (endTimeInput && endTimeInput.value) {
+            formData.append('end_time', endTimeInput.value);
+        }
+        
+        const response = await fetch('/secret_scanner/admin/toggle-maintenance-mode', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.status === 'success') {
+            statusDiv.className = 'maintenance-status success';
+            statusDiv.textContent = data.message;
+            switchElement.setAttribute('data-enabled', 'true');
+            
+            // Hide status after 3 seconds
+            setTimeout(() => {
+                statusDiv.style.display = 'none';
+            }, 3000);
+        } else {
+            // Revert switch state on error if it wasn't already enabled
+            if (!isAlreadyEnabled) {
+                switchElement.checked = false;
+            }
+            statusDiv.className = 'maintenance-status error';
+            statusDiv.textContent = data.message || 'Ошибка при изменении режима технических работ';
+        }
+    } catch (error) {
+        console.error('Error toggling maintenance mode:', error);
+        // Revert switch state on error if it wasn't already enabled
+        if (!isAlreadyEnabled) {
+            switchElement.checked = false;
+        }
         statusDiv.className = 'maintenance-status error';
         statusDiv.textContent = 'Ошибка соединения с сервером';
     } finally {

@@ -177,11 +177,24 @@
                             <span class="switch-text">Режим технических работ</span>
                             <label class="switch">
                                 <input type="checkbox" id="maintenanceModeSwitch" 
-                                       {% if maintenance_mode %}checked{% endif %}
+                                       {% if maintenance_mode %}checked data-enabled="true"{% endif %}
                                        onchange="toggleMaintenanceMode(this.checked)">
                                 <span class="slider"></span>
                             </label>
                         </label>
+                        <div id="maintenanceEndTimeContainer" style="margin-top: 1rem; {% if not maintenance_mode %}display: none;{% endif %}">
+                            <label for="maintenanceEndTime" style="display: block; margin-bottom: 0.5rem; color: #666; font-size: 0.9rem;">
+                                Примерное время возобновления работы (необязательно):
+                            </label>
+                            <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                <input type="time" id="maintenanceEndTime" 
+                                       value="{% if maintenance_end_time %}{{ maintenance_end_time }}{% endif %}"
+                                       style="padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; font-size: 0.9rem; width: 150px;">
+                                <button type="button" class="btn btn-primary" onclick="applyMaintenanceMode()" style="padding: 0.5rem 1rem;">
+                                    {% if maintenance_mode %}Обновить{% else %}Включить{% endif %}
+                                </button>
+                            </div>
+                        </div>
                         <div id="maintenanceModeStatus" class="maintenance-status" style="margin-top: 1rem; display: none;"></div>
                     </div>
                 </div>
