@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request, Form, Depends, BackgroundTasks, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, text
+from sqlalchemy import and_
 from dotenv import set_key, load_dotenv
 import secrets
 import logging
@@ -14,7 +14,7 @@ import uuid
 import re
 from services.auth import get_admin_user, get_user_db, get_password_hash
 from services.backup_service import create_database_backup, get_backup_status, list_backups
-from models import User, Secret, Scan, Project
+from models import User, Secret, Scan, Project, Settings
 from services.templates import templates
 from services.database import get_db
 import json
@@ -36,10 +36,9 @@ def get_current_secret_key():
 def get_maintenance_mode(db: Session) -> bool:
     """Get maintenance mode status from database"""
     try:
-        result = db.execute(text("SELECT value FROM settings WHERE key = 'maintenance_mode'"))
-        row = result.fetchone()
-        if row:
-            return row[0].lower() == 'true'
+        setting = db.query(Settings).filter(Settings.key == 'maintenance_mode').first()
+        if setting:
+            return setting.value.lower() == 'true'
         return False
     except Exception as e:
         logger.error(f"Error getting maintenance mode: {e}")
@@ -48,15 +47,23 @@ def get_maintenance_mode(db: Session) -> bool:
 def set_maintenance_mode(db: Session, enabled: bool, updated_by: str):
     """Set maintenance mode status in database"""
     try:
+        from datetime import datetime
         value = 'true' if enabled else 'false'
-        db.execute(text("""
-            INSERT INTO settings (key, value, updated_by, updated_at)
-            VALUES ('maintenance_mode', :value, :updated_by, CURRENT_TIMESTAMP)
-            ON CONFLICT(key) DO UPDATE SET
-                value = :value,
-                updated_by = :updated_by,
-                updated_at = CURRENT_TIMESTAMP
-        """), {"value": value, "updated_by": updated_by})
+        setting = db.query(Settings).filter(Settings.key == 'maintenance_mode').first()
+        
+        if setting:
+            setting.value = value
+            setting.updated_by = updated_by
+            setting.updated_at = datetime.now()
+        else:
+            setting = Settings(
+                key='maintenance_mode',
+                value=value,
+                updated_by=updated_by,
+                updated_at=datetime.now()
+            )
+            db.add(setting)
+        
         db.commit()
         return True
     except Exception as e:

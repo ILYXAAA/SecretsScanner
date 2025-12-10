@@ -91,6 +91,14 @@ class ApiUsage(Base):
     ip_address = Column(String, nullable=True)
     user_agent = Column(String, nullable=True)
 
+class Settings(Base):
+    __tablename__ = "settings"
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String, unique=True, nullable=False, index=True)
+    value = Column(Text, nullable=False)
+    updated_at = Column(DateTime, default=datetime.now)
+    updated_by = Column(String, nullable=True)
+
 # Separate Base for users (different database)
 UserBase = declarative_base()
 

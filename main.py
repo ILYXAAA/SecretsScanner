@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 # Import configuration
 from config import BASE_URL, APP_HOST, APP_PORT, TIMEOUT
 # Import models and database setup
-from models import AuthenticationException, Scan, MultiScan
+from models import AuthenticationException, Scan, MultiScan, Settings
 from services.database import initialize_database
 from services.auth import ensure_user_database, auth_exception_handler
 from services.backup_service import backup_scheduler
@@ -194,7 +194,6 @@ app.add_middleware(BaseHTTPMiddleware, dispatch=log_api_request)
 async def maintenance_mode_middleware(request: Request, call_next):
     """Check maintenance mode and redirect non-admin users to maintenance page"""
     from services.database import SessionLocal
-    from sqlalchemy import text
     from services.auth import get_current_user
     
     # Skip maintenance check for:
@@ -223,9 +222,8 @@ async def maintenance_mode_middleware(request: Request, call_next):
     try:
         db = SessionLocal()
         try:
-            result = db.execute(text("SELECT value FROM settings WHERE key = 'maintenance_mode'"))
-            row = result.fetchone()
-            maintenance_mode = row[0].lower() == 'true' if row else False
+            setting = db.query(Settings).filter(Settings.key == 'maintenance_mode').first()
+            maintenance_mode = setting.value.lower() == 'true' if setting else False
             
             if maintenance_mode:
                 # Check if user is admin
