@@ -63,7 +63,7 @@ async def login(request: Request, username: str = Form(...), password: str = For
             value=access_token, 
             httponly=True,
             secure=True if os.getenv("HTTPS", "false").lower() == "true" else False,
-            samesite="strict",
+            samesite="lax",
             max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60
         )
         user_logger.info(f"User '{username}' successfully logged in")
