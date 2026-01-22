@@ -127,7 +127,7 @@ class SecretsScanner:
         try:
             # Prepare request
             headers = {
-                'Authorization': f'Bearer {self.api_token}',
+                'X-API-TOKEN': f'Bearer {self.api_token}',
                 'Content-Type': 'application/json',
                 'User-Agent': 'SecretsScanner-Python-Client/1.0'
             }

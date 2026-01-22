@@ -15,7 +15,7 @@ class SecretscannerClient:
         self.base_url = base_url.rstrip('/')
         self.api_url = urljoin(self.base_url + '/', 'api/v1/')
         self.headers = {
-            'Authorization': f'Bearer {api_token}',
+            'X-API-KEY': f'Bearer {api_token}',
             'Content-Type': 'application/json'
         }
     

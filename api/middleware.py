@@ -85,8 +85,8 @@ def record_request(token_id: int):
     token_data["day"].append(current_time)
 
 def extract_bearer_token(request: Request) -> Optional[str]:
-    """Extract Bearer token from Authorization header"""
-    auth_header = request.headers.get("Authorization")
+    """Extract Bearer token from X-API-TOKEN header"""
+    auth_header = request.headers.get("X-API-TOKEN")
     
     if not auth_header:
         return None
@@ -110,14 +110,14 @@ async def get_api_token(request: Request, db: Session = Depends(get_db)) -> ApiT
     """
     start_time = time.time()
     
-    # Extract token from Authorization header
+    # Extract token from X-API-TOKEN header
     token_string = extract_bearer_token(request)
     
     if not token_string:
-        logger.error(f"[API] Missing or invalid Authorization header from '{request.client.host}'")
+        logger.error(f"[API] Missing or invalid X-API-TOKEN header from '{request.client.host}'")
         raise HTTPException(
             status_code=401,
-            detail={"success": False, "message": "Missing or invalid Authorization header"}
+            detail={"success": False, "message": "Missing or invalid X-API-TOKEN header"}
         )
     
     # Get token from database
@@ -127,12 +127,12 @@ async def get_api_token(request: Request, db: Session = Depends(get_db)) -> ApiT
         logger.error(f"[API] Invalid token attempt from '{request.client.host}'")
         raise HTTPException(
             status_code=401,
-            detail={"success": False, "message": "Invalid API token"}
+            detail={"success": False, "message": "Invalid X-API-TOKEN token"}
         )
     
     # Check if token is active
     if not token.is_active:
-        logger.error(f"[API: {token.name}] Inactive token used from '{request.client.host}'")
+        logger.error(f"[API: {token.name}] Inactive X-API-TOKEN used from '{request.client.host}'")
         raise HTTPException(
             status_code=401,
             detail={"success": False, "message": "API token is inactive"}
@@ -140,7 +140,7 @@ async def get_api_token(request: Request, db: Session = Depends(get_db)) -> ApiT
     
     # Check if token is expired
     if is_token_expired(token):
-        logger.error(f"[API: {token.name}] Expired token used from '{request.client.host}'")
+        logger.error(f"[API: {token.name}] Expired X-API-TOKEN used from '{request.client.host}'")
         raise HTTPException(
             status_code=401,
             detail={"success": False, "message": "API token has expired"}
@@ -211,7 +211,7 @@ async def log_api_request(request: Request, call_next):
         token_id = None
         
         try:
-            auth_header = request.headers.get("Authorization")
+            auth_header = request.headers.get("X-API-TOKEN")
             if auth_header and auth_header.startswith("Bearer "):
                 token_string = auth_header[7:].strip()
                 if token_string:
