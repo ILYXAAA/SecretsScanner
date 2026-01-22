@@ -175,6 +175,115 @@ body::before {
     font-style: italic;
 }
 
+/* Admin login section */
+.admin-login-section {
+    margin-top: 2.5rem;
+    padding-top: 2rem;
+    border-top: 2px solid #e1e5e9;
+}
+
+.admin-login-divider {
+    text-align: center;
+    margin-bottom: 1.5rem;
+    position: relative;
+}
+
+.admin-login-divider::before,
+.admin-login-divider::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    width: 30%;
+    height: 1px;
+    background: #e1e5e9;
+}
+
+.admin-login-divider::before {
+    left: 0;
+}
+
+.admin-login-divider::after {
+    right: 0;
+}
+
+.admin-login-divider span {
+    background: rgba(255, 255, 255, 0.95);
+    padding: 0 1rem;
+    color: #666;
+    font-size: 0.9rem;
+    position: relative;
+    z-index: 1;
+}
+
+.admin-login-form {
+    max-width: 400px;
+    margin: 0 auto;
+}
+
+.admin-login-form .form-group {
+    margin-bottom: 1.25rem;
+    text-align: left;
+}
+
+.admin-login-form label {
+    display: block;
+    margin-bottom: 0.5rem;
+    color: #555;
+    font-size: 0.95rem;
+    font-weight: 500;
+}
+
+.admin-login-form input {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    border: 2px solid #e1e5e9;
+    border-radius: 8px;
+    font-size: 1rem;
+    transition: all 0.3s ease;
+    background: #fff;
+}
+
+.admin-login-form input:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.btn-login {
+    width: 100%;
+    padding: 0.875rem 1.5rem;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    margin-top: 0.5rem;
+}
+
+.btn-login:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
+}
+
+.btn-login:active {
+    transform: translateY(0);
+}
+
+.error-message {
+    background: #fee;
+    color: #c33;
+    padding: 0.875rem 1rem;
+    border-radius: 8px;
+    border-left: 4px solid #c33;
+    margin-bottom: 1.25rem;
+    font-size: 0.95rem;
+    text-align: left;
+    animation: fadeIn 0.3s ease-out;
+}
+
 @media (max-width: 768px) {
     .maintenance-container {
         padding: 1rem;
@@ -203,6 +312,15 @@ body::before {
     
     .gear-2 {
         font-size: 2.5rem;
+    }
+    
+    .admin-login-form {
+        max-width: 100%;
+    }
+    
+    .admin-login-divider::before,
+    .admin-login-divider::after {
+        width: 25%;
     }
 }
 

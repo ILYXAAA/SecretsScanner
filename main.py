@@ -213,6 +213,7 @@ async def maintenance_mode_middleware(request: Request, call_next):
         path.startswith(f"{BASE_URL}/api/") or
         path.startswith(f"{BASE_URL}/admin") or
         path == f"{BASE_URL}/maintenance" or
+        path == f"{BASE_URL}/maintenance/login" or
         path == f"{BASE_URL}/login" or
         path == f"{BASE_URL}/logout" or
         path == "/favicon.ico" or

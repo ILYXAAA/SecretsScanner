@@ -76,3 +76,98 @@ async def logout():
     response = RedirectResponse(url=get_full_url(""), status_code=302)
     response.delete_cookie(key="auth_token")
     return response
+
+@router.get("/maintenance", response_class=HTMLResponse)
+async def maintenance_page(request: Request):
+    """Maintenance page with admin login form"""
+    from services.database import SessionLocal
+    from routes.admin_routes import get_maintenance_end_time
+    
+    db = SessionLocal()
+    try:
+        end_time = get_maintenance_end_time(db)
+        return templates.TemplateResponse("maintenance.html", {
+            "request": request,
+            "end_time": end_time
+        })
+    finally:
+        db.close()
+
+@router.post("/maintenance/login")
+async def maintenance_login(request: Request, username: str = Form(...), password: str = Form(...), user_db: Session = Depends(get_user_db)):
+    """Login for admin on maintenance page - only allows admin users"""
+    try:
+        logger.info(f"Maintenance login POST request received for username: '{username}'")
+        
+        if verify_credentials(username, password, user_db):
+            # Check if user is admin
+            if username != "admin":
+                from services.database import SessionLocal
+                from routes.admin_routes import get_maintenance_end_time
+                
+                db = SessionLocal()
+                try:
+                    end_time = get_maintenance_end_time(db)
+                finally:
+                    db.close()
+                
+                user_logger.warning(f"Non-admin user '{username}' attempted to login during maintenance")
+                return templates.TemplateResponse("maintenance.html", {
+                    "request": request,
+                    "end_time": end_time,
+                    "error": "Только администратор может войти во время технических работ"
+                })
+            
+            # Admin login successful
+            access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+            access_token = create_access_token(
+                data={"sub": username}, expires_delta=access_token_expires
+            )
+            response = RedirectResponse(url=get_full_url("admin"), status_code=302)
+            response.set_cookie(
+                key="auth_token", 
+                value=access_token, 
+                httponly=True,
+                secure=True if os.getenv("HTTPS", "false").lower() == "true" else False,
+                samesite="lax",
+                max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60
+            )
+            user_logger.info(f"Admin '{username}' successfully logged in during maintenance")
+            logger.info(f"Admin '{username}' successfully logged in during maintenance, redirecting to admin panel")
+            return response
+        
+        # Invalid credentials
+        from services.database import SessionLocal
+        from routes.admin_routes import get_maintenance_end_time
+        
+        db = SessionLocal()
+        try:
+            end_time = get_maintenance_end_time(db)
+        finally:
+            db.close()
+        
+        user_logger.error(f"Failed maintenance login attempt for username: '{username}'")
+        logger.warning(f"Failed maintenance login attempt for username: '{username}'")
+        return templates.TemplateResponse("maintenance.html", {
+            "request": request,
+            "end_time": end_time,
+            "error": "Неверные учетные данные"
+        })
+    except Exception as e:
+        logger.error(f"Error in maintenance_login: {e}", exc_info=True)
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        from services.database import SessionLocal
+        from routes.admin_routes import get_maintenance_end_time
+        
+        db = SessionLocal()
+        try:
+            end_time = get_maintenance_end_time(db)
+        finally:
+            db.close()
+        
+        return templates.TemplateResponse("maintenance.html", {
+            "request": request,
+            "end_time": end_time,
+            "error": f"Ошибка при авторизации: {str(e)}"
+        })

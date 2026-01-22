@@ -27,11 +27,51 @@
                     {% endif %}
                 </p>
             </div>
+            
+            <div class="admin-login-section">
+                <div class="admin-login-divider">
+                    <span>Для администратора</span>
+                </div>
+                {% if error %}
+                <div class="error-message">{{ error }}</div>
+                {% endif %}
+                <form method="post" action="/secret_scanner/maintenance/login" class="admin-login-form" id="maintenanceLoginForm">
+                    <div class="form-group">
+                        <label for="username">Имя пользователя</label>
+                        <input type="text" id="username" name="username" required autocomplete="username">
+                    </div>
+                    <div class="form-group">
+                        <label for="password">Пароль</label>
+                        <input type="password" id="password" name="password" required autocomplete="current-password">
+                    </div>
+                    <button type="submit" class="btn-login" id="loginBtn">Войти как администратор</button>
+                </form>
+            </div>
+            
             <div class="maintenance-footer">
                 <p>Спасибо за понимание</p>
             </div>
         </div>
     </div>
+    <script>
+        // Handle form submission
+        const form = document.getElementById('maintenanceLoginForm');
+        const loginBtn = document.getElementById('loginBtn');
+        
+        if (form && loginBtn) {
+            form.addEventListener('submit', function(e) {
+                // Show loading state
+                loginBtn.disabled = true;
+                loginBtn.textContent = '⏳ Вход...';
+                
+                // Re-enable button after timeout in case of error
+                setTimeout(() => {
+                    loginBtn.disabled = false;
+                    loginBtn.textContent = 'Войти как администратор';
+                }, 10000);
+            });
+        }
+    </script>
 </body>
 </html>
 
