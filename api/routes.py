@@ -286,21 +286,34 @@ async def api_project_check(
     },
     summary="Start repository scan",
     description="""
-    Start scanning a specific commit of a repository for secrets and credentials.
+    Start scanning a repository for secrets and credentials. Supports scanning by commit, branch, or tag.
     
     **Required Permission:** `scan`
+    
+    **Supported Repository Types:** Azure DevOps and Devzone only
     
     **Prerequisites:**
     - Project must exist (use `/project/add` first if needed)
     - Repository must be accessible
-    - Commit hash must exist in the repository
+    - Reference (commit/branch/tag) must exist in the repository
+    
+    **Reference Formats:**
+    - **URL with ref:** Provide repository URL with ref parameter or path:
+      - Branch: `?version=GBbranch_name`
+      - Tag: `?version=GTtag_name`
+      - Commit: `?version=GCcommit_hash` or `/commit/commit_hash`
+    - **Base URL with ref_type+ref:** Provide base repository URL and separate ref_type and ref:
+      - `ref_type`: "Commit", "Branch", or "Tag"
+      - `ref`: Reference value (commit hash, branch name, or tag name)
+    - **Legacy format:** Provide base URL and `commit` parameter (deprecated)
     
     **Process:**
-    1. Validates repository URL and commit hash
-    2. Finds existing project
-    3. Creates scan record
-    4. Queues scan job in microservice
-    5. Returns scan ID for tracking
+    1. Parses repository URL to extract ref information (if present)
+    2. Validates repository URL and reference
+    3. Finds existing project
+    4. Creates scan record
+    5. Queues scan job in microservice
+    6. Returns scan ID for tracking
     
     **Tracking:**
     Use the returned `scan_id` with `/scan/{scan_id}/status` to monitor progress
@@ -319,27 +332,43 @@ async def api_scan(
     start_time = time.time()
     
     try:
-        # Validate repository URL and find/create project
+        from api.url_parser import parse_repo_url_with_ref
+        
+        # Parse repository URL to extract ref information
         try:
-            normalized_url = validate_repo_url(request.repository, HUB_TYPE)
+            parsed = parse_repo_url_with_ref(request.repository)
+            base_repo_url = parsed['base_repo_url']
+            ref_type = parsed['ref_type']
+            ref = parsed['ref']
         except ValueError as e:
-            return JSONResponse(
-                status_code=400,
-                content={"success": False, "message": str(e)}
-            )
+            # If parsing fails, try to use ref_type+ref or commit from request
+            try:
+                base_repo_url = validate_repo_url(request.repository, HUB_TYPE)
+                if request.ref_type and request.ref:
+                    ref_type = request.ref_type
+                    ref = request.ref
+                elif request.commit:
+                    # Backward compatibility
+                    ref_type = "Commit"
+                    ref = request.commit
+                else:
+                    return JSONResponse(
+                        status_code=400,
+                        content={"success": False, "message": f"Could not parse ref from URL: {str(e)}. Provide ref_type and ref, or use URL with ref."}
+                    )
+            except ValueError as ve:
+                return JSONResponse(
+                    status_code=400,
+                    content={"success": False, "message": str(ve)}
+                )
         
         # Find project by repository URL
-        project = db.query(Project).filter(Project.repo_url == normalized_url).first()
+        project = db.query(Project).filter(Project.repo_url == base_repo_url).first()
         if not project:
             return JSONResponse(
                 status_code=404,
                 content={"success": False, "message": "Project not found. Please add the project first."}
             )
-        # if project.created_by != f"API:{token.name}":
-        #     return JSONResponse(
-        #         status_code=403,
-        #         content={"success": False, "message": "You are not permitted to launch this scan"}
-        #     )
         
         # Check microservice health
         if not await check_microservice_health():
@@ -353,8 +382,8 @@ async def api_scan(
         scan = Scan(
             id=scan_id,
             project_name=project.name,
-            ref_type="Commit",
-            ref=request.commit,
+            ref_type=ref_type,
+            ref=ref,
             status="pending",
             started_by=f"API:{token.name}"
         )
@@ -369,8 +398,8 @@ async def api_scan(
                 microservice_request = {
                     "ProjectName": project.name,
                     "RepoUrl": project.repo_url,
-                    "RefType": "Commit",
-                    "Ref": request.commit,
+                    "RefType": ref_type,
+                    "Ref": ref,
                     "CallbackUrl": callback_url
                 }
                 
@@ -384,12 +413,12 @@ async def api_scan(
                     result = response.json()
                     if result.get("status") == "accepted":
                         scan.status = "running" 
-                        scan.ref = result.get("Ref", request.commit)
+                        scan.ref = result.get("Ref", ref)
                         db.commit()
                         
                         response_time = int((time.time() - start_time) * 1000)
                         logger.info(f"[API: {token.name}] Scan started: '{scan_id}' ({response_time}ms)")
-                        user_logger.info(f"API token '{token.name}' started scan for project '{project.name}' (commit: {request.commit})")
+                        user_logger.info(f"API token '{token.name}' started scan for project '{project.name}' ({ref_type}: {ref})")
                         
                         return ScanResponse(
                             success=True,
@@ -480,25 +509,39 @@ async def api_scan(
     summary="Start multiple repository scans",
     description="""
     Start scanning multiple repositories simultaneously. Maximum 10 repositories per request.
+    Supports scanning by commit, branch, or tag for each repository.
     
     **Required Permission:** `multi_scan`
+    
+    **Supported Repository Types:** Azure DevOps and Devzone only
     
     **Prerequisites:**
     - All projects must exist (use `/project/add` for each if needed)
     - All repositories must be accessible
-    - All commit hashes must exist in their respective repositories
+    - All references (commit/branch/tag) must exist in their respective repositories
+    
+    **Reference Formats (for each repository):**
+    - **URL with ref:** Provide repository URL with ref parameter or path:
+      - Branch: `?version=GBbranch_name`
+      - Tag: `?version=GTtag_name`
+      - Commit: `?version=GCcommit_hash` or `/commit/commit_hash`
+    - **Base URL with ref_type+ref:** Provide base repository URL and separate ref_type and ref:
+      - `ref_type`: "Commit", "Branch", or "Tag"
+      - `ref`: Reference value (commit hash, branch name, or tag name)
+    - **Legacy format:** Provide base URL and `commit` parameter (deprecated)
     
     **Limitations:**
     - Maximum 10 repositories per multi-scan
     - All repositories must pass validation before any scans start
     
     **Process:**
-    1. Validates all repository URLs and commit hashes
-    2. Verifies all projects exist
-    3. Creates individual scan records
-    4. Creates multi-scan record for tracking
-    5. Queues all scans in microservice
-    6. Returns multi-scan ID for tracking
+    1. Parses all repository URLs to extract ref information (if present)
+    2. Validates all repository URLs and references
+    3. Verifies all projects exist
+    4. Creates individual scan records
+    5. Creates multi-scan record for tracking
+    6. Queues all scans in microservice
+    7. Returns multi-scan ID for tracking
     
     **Tracking:**
     Use the returned multi-scan ID with individual scan tracking endpoints.
@@ -541,21 +584,43 @@ async def api_multi_scan(
         scan_records = []
         individual_scan_ids = []
         
+        from api.url_parser import parse_repo_url_with_ref
+        
         for item in request:
+            # Parse repository URL to extract ref information
             try:
-                normalized_url = validate_repo_url(item.repository, HUB_TYPE)
+                parsed = parse_repo_url_with_ref(item.repository)
+                base_repo_url = parsed['base_repo_url']
+                ref_type = parsed['ref_type']
+                ref = parsed['ref']
             except ValueError as e:
-                return JSONResponse(
-                    status_code=400,
-                    content={"success": False, "message": f"Invalid repository URL: {e}"}
-                )
+                # If parsing fails, try to use ref_type+ref or commit from request
+                try:
+                    base_repo_url = validate_repo_url(item.repository, HUB_TYPE)
+                    if item.ref_type and item.ref:
+                        ref_type = item.ref_type
+                        ref = item.ref
+                    elif item.commit:
+                        # Backward compatibility
+                        ref_type = "Commit"
+                        ref = item.commit
+                    else:
+                        return JSONResponse(
+                            status_code=400,
+                            content={"success": False, "message": f"Invalid repository URL for item: {str(e)}. Provide ref_type and ref, or use URL with ref."}
+                        )
+                except ValueError as ve:
+                    return JSONResponse(
+                        status_code=400,
+                        content={"success": False, "message": f"Invalid repository URL: {str(ve)}"}
+                    )
             
             # Find project
-            project = db.query(Project).filter(Project.repo_url == normalized_url).first()
+            project = db.query(Project).filter(Project.repo_url == base_repo_url).first()
             if not project:
                 return JSONResponse(
                     status_code=404,
-                    content={"success": False, "message": f"Project not found for repository: {normalized_url}"}
+                    content={"success": False, "message": f"Project not found for repository: {base_repo_url}"}
                 )
             
             # Create scan record
@@ -566,16 +631,16 @@ async def api_multi_scan(
             scan_requests.append({
                 "ProjectName": project.name,
                 "RepoUrl": project.repo_url,
-                "RefType": "Commit",
-                "Ref": item.commit,
+                "RefType": ref_type,
+                "Ref": ref,
                 "CallbackUrl": callback_url
             })
             
             scan = Scan(
                 id=scan_id,
                 project_name=project.name,
-                ref_type="Commit",
-                ref=item.commit,
+                ref_type=ref_type,
+                ref=ref,
                 status="pending",
                 started_by=f"API:{token.name}"
             )

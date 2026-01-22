@@ -81,16 +81,26 @@ class ScanRequest(BaseModel):
     """Start a single repository scan"""
     repository: str = Field(
         ...,
-        description="Repository URL to scan",
-        example="https://github.com/user/awesome-project",
+        description="Repository URL to scan. Can be base URL or URL with ref (branch/tag/commit). For Azure/Devzone: supports ?version=GBbranch, ?version=GTtag, ?version=GCcommit, or /commit/hash",
+        example="http://server/collection/project/_git/repo?version=GBmain",
         min_length=1
     )
-    commit: str = Field(
-        ...,
-        description="Git commit hash to scan (7-40 alphanumeric characters)",
+    commit: Optional[str] = Field(
+        None,
+        description="[DEPRECATED] Git commit hash to scan (7-40 alphanumeric characters). Use repository URL with ref instead.",
         example="abc123def456",
         min_length=7,
         max_length=40
+    )
+    ref_type: Optional[str] = Field(
+        None,
+        description="Reference type: 'Commit', 'Branch', or 'Tag'. Required if repository is base URL without ref.",
+        example="Branch"
+    )
+    ref: Optional[str] = Field(
+        None,
+        description="Reference value: commit hash, branch name, or tag name. Required if repository is base URL without ref.",
+        example="main"
     )
     
     @field_validator('repository')
@@ -103,6 +113,9 @@ class ScanRequest(BaseModel):
     @field_validator('commit')
     @classmethod
     def validate_commit(cls, v):
+        if v is None:
+            return v
+        
         if not v or not v.strip():
             raise ValueError('Commit cannot be empty')
         
@@ -113,13 +126,64 @@ class ScanRequest(BaseModel):
             raise ValueError('Commit should be a valid hash (7-40 alphanumeric characters)')
         
         return v
+    
+    @field_validator('ref_type')
+    @classmethod
+    def validate_ref_type(cls, v):
+        if v is None:
+            return v
+        
+        v = v.strip()
+        if v not in ['Commit', 'Branch', 'Tag']:
+            raise ValueError("ref_type must be one of: 'Commit', 'Branch', 'Tag'")
+        return v
+    
+    @model_validator(mode='after')
+    def validate_ref_info(self):
+        """Validate that either repository contains ref, or ref_type+ref are provided, or commit is provided (deprecated)"""
+        from api.url_parser import parse_repo_url_with_ref
+        
+        # Try to parse ref from repository URL
+        try:
+            parsed = parse_repo_url_with_ref(self.repository)
+            # If repository contains ref, use it
+            if parsed['ref_type'] != 'Branch' or parsed['ref'] != 'main':
+                # Repository contains explicit ref, ignore other parameters
+                return self
+        except (ValueError, Exception):
+            # Repository doesn't contain ref, need ref_type+ref or commit
+            pass
+        
+        # Repository is base URL, need ref_type+ref or commit
+        if self.ref_type and self.ref:
+            return self
+        elif self.commit:
+            # Backward compatibility: use commit
+            return self
+        else:
+            raise ValueError("Either provide repository URL with ref (e.g., ?version=GBbranch), or provide ref_type and ref, or provide commit (deprecated)")
+        
+        return self
 
     class Config:
         json_schema_extra = {
-            "example": {
-                "repository": "https://github.com/user/awesome-project",
-                "commit": "abc123def456"
-            }
+            "examples": [
+                {
+                    "repository": "http://server/collection/project/_git/repo?version=GBmain",
+                    "description": "Scan branch using URL with ref"
+                },
+                {
+                    "repository": "http://server/collection/project/_git/repo",
+                    "ref_type": "Branch",
+                    "ref": "main",
+                    "description": "Scan branch using base URL with ref_type and ref"
+                },
+                {
+                    "repository": "http://server/collection/project/_git/repo",
+                    "commit": "abc123def456",
+                    "description": "Scan commit (deprecated, use ref_type='Commit' and ref instead)"
+                }
+            ]
         }
 
 
@@ -127,13 +191,23 @@ class MultiScanRequestItem(BaseModel):
     """Individual scan item for multi-scan request"""
     repository: str = Field(
         ...,
-        description="Repository URL to scan",
-        example="https://github.com/user/project-1"
+        description="Repository URL to scan. Can be base URL or URL with ref (branch/tag/commit). For Azure/Devzone: supports ?version=GBbranch, ?version=GTtag, ?version=GCcommit, or /commit/hash",
+        example="http://server/collection/project/_git/repo?version=GBmain"
     )
-    commit: str = Field(
-        ...,
-        description="Git commit hash to scan",
+    commit: Optional[str] = Field(
+        None,
+        description="[DEPRECATED] Git commit hash to scan. Use repository URL with ref instead.",
         example="abc123def456"
+    )
+    ref_type: Optional[str] = Field(
+        None,
+        description="Reference type: 'Commit', 'Branch', or 'Tag'. Required if repository is base URL without ref.",
+        example="Branch"
+    )
+    ref: Optional[str] = Field(
+        None,
+        description="Reference value: commit hash, branch name, or tag name. Required if repository is base URL without ref.",
+        example="main"
     )
     
     @field_validator('repository')
@@ -146,6 +220,9 @@ class MultiScanRequestItem(BaseModel):
     @field_validator('commit')
     @classmethod
     def validate_commit(cls, v):
+        if v is None:
+            return v
+        
         if not v or not v.strip():
             raise ValueError('Commit cannot be empty')
         
@@ -156,6 +233,44 @@ class MultiScanRequestItem(BaseModel):
             raise ValueError('Commit should be a valid hash (7-40 alphanumeric characters)')
         
         return v
+    
+    @field_validator('ref_type')
+    @classmethod
+    def validate_ref_type(cls, v):
+        if v is None:
+            return v
+        
+        v = v.strip()
+        if v not in ['Commit', 'Branch', 'Tag']:
+            raise ValueError("ref_type must be one of: 'Commit', 'Branch', 'Tag'")
+        return v
+    
+    @model_validator(mode='after')
+    def validate_ref_info(self):
+        """Validate that either repository contains ref, or ref_type+ref are provided, or commit is provided (deprecated)"""
+        from api.url_parser import parse_repo_url_with_ref
+        
+        # Try to parse ref from repository URL
+        try:
+            parsed = parse_repo_url_with_ref(self.repository)
+            # If repository contains ref, use it
+            if parsed['ref_type'] != 'Branch' or parsed['ref'] != 'main':
+                # Repository contains explicit ref, ignore other parameters
+                return self
+        except (ValueError, Exception):
+            # Repository doesn't contain ref, need ref_type+ref or commit
+            pass
+        
+        # Repository is base URL, need ref_type+ref or commit
+        if self.ref_type and self.ref:
+            return self
+        elif self.commit:
+            # Backward compatibility: use commit
+            return self
+        else:
+            raise ValueError("Either provide repository URL with ref (e.g., ?version=GBbranch), or provide ref_type and ref, or provide commit (deprecated)")
+        
+        return self
 
 
 # For multi-scan, we expect a direct list of items

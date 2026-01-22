@@ -3,28 +3,47 @@
 SecretsScanner API Client
 
 A Python client for interacting with the SecretsScanner API service.
+Supports Azure DevOps and Devzone repositories only.
 
 Usage example:
     from SecretScannerClient import SecretsScanner
     
     API_KEY = "ss_live_..."
-    SCANNER_URL = "http://127.0.0.1:8000/secret_Scanner"
+    SCANNER_URL = "http://127.0.0.1:8000/secret_scanner"
     TIMEOUT = 60
     
     scanner = SecretsScanner(api_token=API_KEY, base_url=SCANNER_URL, scans_timeout=TIMEOUT)
     
     # Check if project exists
-    project_info = scanner.check_project("https://github.com/user/repo")
+    project_info = scanner.check_project("http://server/collection/project/_git/repo")
     
     # Add project
-    success = scanner.add_project("https://github.com/user/repo")
+    success = scanner.add_project("http://server/collection/project/_git/repo")
     
-    # Quick scan with automatic waiting and report saving
+    # Scan by branch (using URL with ref)
     result = scanner.quick_scan(
-        "https://github.com/user/repo", 
-        "abc123def456",
+        "http://server/collection/project/_git/repo?version=GBmain",
         save_report=True,
         report_filename="my_scan.json"
+    )
+    
+    # Scan by branch (using base URL with ref_type and ref)
+    result = scanner.quick_scan(
+        "http://server/collection/project/_git/repo",
+        ref_type="Branch",
+        ref="main",
+        save_report=True
+    )
+    
+    # Scan by tag
+    result = scanner.quick_scan(
+        "http://server/collection/project/_git/repo?version=GTv1.0.0"
+    )
+    
+    # Scan by commit (deprecated, but still supported)
+    result = scanner.quick_scan(
+        "http://server/collection/project/_git/repo",
+        commit="abc123def456"
     )
 """
 
@@ -80,22 +99,82 @@ class SecretsScanner:
         if self.verbose:
             print(f"[SecretsScanner] {message}")
     
-    def _validate_repository_url(self, repository: str) -> bool:
-        """Simple validation of repository URL"""
+    def _validate_repository_url(self, repository: str, allow_ref: bool = False) -> bool:
+        """
+        Validate repository URL (Azure/Devzone only)
+        
+        Args:
+            repository: Repository URL to validate
+            allow_ref: If True, allow URLs with ref parameters/paths
+            
+        Returns:
+            True if valid, False otherwise
+        """
         if not repository or not isinstance(repository, str):
             return False
         
         repository = repository.strip()
         
-        # Must be HTTPS URL
-        if not repository.startswith(('http://', 'https://')):
+        # Must be HTTP/HTTPS URL or git@ format for Devzone
+        if not (repository.startswith(('http://', 'https://')) or 
+                repository.startswith('git@git.devzone.local:')):
             return False
         
-        # Should not contain commit paths or parameters
-        if '/commit/' in repository or '?' in repository:
+        # Check if it's Azure DevOps or Devzone
+        is_azure = '_git' in repository
+        is_devzone = 'devzone.local' in repository.lower()
+        
+        if not (is_azure or is_devzone):
             return False
+        
+        # If ref is not allowed, check for ref indicators
+        if not allow_ref:
+            if '/commit/' in repository or '?' in repository:
+                return False
         
         return True
+    
+    def _parse_repository_url(self, repository: str) -> dict:
+        """
+        Parse repository URL to extract base URL and ref information
+        
+        Args:
+            repository: Repository URL (may contain ref)
+            
+        Returns:
+            Dict with 'base_repo_url', 'ref_type', and 'ref' keys
+            
+        Raises:
+            ValueError: If URL format is invalid
+        """
+        try:
+            # Try to import and use the API parser
+            import sys
+            import os
+            # Add parent directory to path to import api.url_parser
+            parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if parent_dir not in sys.path:
+                sys.path.insert(0, parent_dir)
+            
+            from api.url_parser import parse_repo_url_with_ref
+            return parse_repo_url_with_ref(repository)
+        except ImportError:
+            # Fallback: simple parsing if API module not available
+            # This is a simplified version - full parsing is in api.url_parser
+            if not self._validate_repository_url(repository, allow_ref=True):
+                raise ValueError("Invalid repository URL format. Only Azure DevOps and Devzone URLs are supported.")
+            
+            # For now, return base URL and default ref
+            # Full parsing should use api.url_parser module
+            base_url = repository.split('?')[0].split('/commit/')[0]
+            if base_url.endswith('.git'):
+                base_url = base_url[:-4]
+            
+            return {
+                "base_repo_url": base_url,
+                "ref_type": "Branch",
+                "ref": "main"
+            }
     
     def _validate_commit_hash(self, commit: str) -> bool:
         """Simple validation of commit hash"""
@@ -173,14 +252,21 @@ class SecretsScanner:
         Check if project exists in the system
         
         Args:
-            repository: Repository URL to check
+            repository: Repository URL to check (base URL, ref will be ignored)
             
         Returns:
             Dict with 'exists' (bool) and 'project_name' (str) keys
             or None if error occurred
         """
-        if not self._validate_repository_url(repository):
-            self.last_error = "Invalid repository URL format"
+        # Extract base URL if repository contains ref
+        try:
+            parsed = self._parse_repository_url(repository)
+            repository = parsed['base_repo_url']
+        except ValueError:
+            pass  # If parsing fails, use repository as-is
+        
+        if not self._validate_repository_url(repository, allow_ref=False):
+            self.last_error = "Invalid repository URL format. Only Azure DevOps and Devzone URLs are supported."
             self._log(f"Error: {self.last_error}")
             return None
         
@@ -209,13 +295,20 @@ class SecretsScanner:
         Add new project to the system
         
         Args:
-            repository: Repository URL to add
+            repository: Repository URL to add (base URL, ref will be ignored)
             
         Returns:
             True if project was created successfully, False otherwise
         """
-        if not self._validate_repository_url(repository):
-            self.last_error = "Invalid repository URL format"
+        # Extract base URL if repository contains ref
+        try:
+            parsed = self._parse_repository_url(repository)
+            repository = parsed['base_repo_url']
+        except ValueError:
+            pass  # If parsing fails, use repository as-is
+        
+        if not self._validate_repository_url(repository, allow_ref=False):
+            self.last_error = "Invalid repository URL format. Only Azure DevOps and Devzone URLs are supported."
             self._log(f"Error: {self.last_error}")
             return False
         
@@ -238,33 +331,79 @@ class SecretsScanner:
         
         return success
     
-    def start_scan(self, repository: str, commit: str) -> Optional[str]:
+    def start_scan(self, repository: str, commit: Optional[str] = None, 
+                   ref_type: Optional[str] = None, ref: Optional[str] = None) -> Optional[str]:
         """
         Start a single repository scan
         
         Args:
-            repository: Repository URL to scan
-            commit: Git commit hash to scan
+            repository: Repository URL to scan (can contain ref, e.g., ?version=GBbranch)
+            commit: [DEPRECATED] Git commit hash to scan. Use repository URL with ref or ref_type+ref instead.
+            ref_type: Reference type: 'Commit', 'Branch', or 'Tag'. Required if repository is base URL.
+            ref: Reference value (commit hash, branch name, or tag name). Required if repository is base URL.
             
         Returns:
             Scan ID string if successful, None if error occurred
         """
-        if not self._validate_repository_url(repository):
-            self.last_error = "Invalid repository URL format"
+        # Parse repository URL to extract ref if present
+        try:
+            parsed = self._parse_repository_url(repository)
+            base_repo_url = parsed['base_repo_url']
+            parsed_ref_type = parsed['ref_type']
+            parsed_ref = parsed['ref']
+            
+            # If repository contains explicit ref (not default), use it
+            if parsed_ref_type != 'Branch' or parsed_ref != 'main':
+                ref_type = parsed_ref_type
+                ref = parsed_ref
+                repository = base_repo_url
+        except ValueError as e:
+            self.last_error = f"Invalid repository URL: {str(e)}"
             self._log(f"Error: {self.last_error}")
             return None
         
-        if not self._validate_commit_hash(commit):
-            self.last_error = "Invalid commit hash format"
+        # Validate base repository URL
+        if not self._validate_repository_url(repository, allow_ref=False):
+            self.last_error = "Invalid repository URL format. Only Azure DevOps and Devzone URLs are supported."
             self._log(f"Error: {self.last_error}")
             return None
         
-        self._log(f"Starting scan: {repository} @ {commit}")
+        # Determine ref_type and ref
+        if ref_type and ref:
+            # Use provided ref_type and ref
+            pass
+        elif commit:
+            # Backward compatibility: use commit
+            ref_type = "Commit"
+            ref = commit
+        else:
+            self.last_error = "Either provide repository URL with ref, or provide ref_type and ref, or provide commit (deprecated)"
+            self._log(f"Error: {self.last_error}")
+            return None
+        
+        # Validate ref_type
+        if ref_type not in ['Commit', 'Branch', 'Tag']:
+            self.last_error = "ref_type must be one of: 'Commit', 'Branch', 'Tag'"
+            self._log(f"Error: {self.last_error}")
+            return None
+        
+        # Validate commit hash if ref_type is Commit
+        if ref_type == 'Commit' and not self._validate_commit_hash(ref):
+            self.last_error = "Invalid commit hash format (7-40 alphanumeric characters)"
+            self._log(f"Error: {self.last_error}")
+            return None
+        
+        self._log(f"Starting scan: {repository} ({ref_type}: {ref})")
         
         data = {
             "repository": repository,
-            "commit": commit
+            "ref_type": ref_type,
+            "ref": ref
         }
+        
+        # Include commit for backward compatibility if provided
+        if commit:
+            data["commit"] = commit
         
         response = self._make_request('POST', '/scan', data)
         
@@ -285,7 +424,11 @@ class SecretsScanner:
         Start scanning multiple repositories
         
         Args:
-            repositories: List of dicts with 'repository' and 'commit' keys
+            repositories: List of dicts with:
+                - 'repository': Repository URL (can contain ref, e.g., ?version=GBbranch)
+                - 'commit': [DEPRECATED] Git commit hash. Use repository URL with ref or ref_type+ref instead.
+                - 'ref_type': Reference type: 'Commit', 'Branch', or 'Tag' (optional)
+                - 'ref': Reference value (optional)
             
         Returns:
             List of scan IDs if successful, None if error occurred
@@ -300,7 +443,8 @@ class SecretsScanner:
             self._log(f"Error: {self.last_error}")
             return None
         
-        # Validate all repositories and commits
+        # Validate and normalize all repositories
+        normalized_repos = []
         for i, repo_data in enumerate(repositories):
             if not isinstance(repo_data, dict):
                 self.last_error = f"Repository {i+1}: Invalid format, expected dict"
@@ -308,21 +452,74 @@ class SecretsScanner:
                 return None
             
             repository = repo_data.get('repository', '')
-            commit = repo_data.get('commit', '')
+            commit = repo_data.get('commit')
+            ref_type = repo_data.get('ref_type')
+            ref = repo_data.get('ref')
             
-            if not self._validate_repository_url(repository):
-                self.last_error = f"Repository {i+1}: Invalid URL format"
+            # Parse repository URL to extract ref if present
+            try:
+                parsed = self._parse_repository_url(repository)
+                base_repo_url = parsed['base_repo_url']
+                parsed_ref_type = parsed['ref_type']
+                parsed_ref = parsed['ref']
+                
+                # If repository contains explicit ref (not default), use it
+                if parsed_ref_type != 'Branch' or parsed_ref != 'main':
+                    ref_type = parsed_ref_type
+                    ref = parsed_ref
+                    repository = base_repo_url
+            except ValueError as e:
+                self.last_error = f"Repository {i+1}: Invalid URL format - {str(e)}"
                 self._log(f"Error: {self.last_error}")
                 return None
             
-            if not self._validate_commit_hash(commit):
-                self.last_error = f"Repository {i+1}: Invalid commit hash format"
+            # Validate base repository URL
+            if not self._validate_repository_url(repository, allow_ref=False):
+                self.last_error = f"Repository {i+1}: Invalid URL format. Only Azure DevOps and Devzone URLs are supported."
                 self._log(f"Error: {self.last_error}")
                 return None
+            
+            # Determine ref_type and ref
+            if ref_type and ref:
+                # Use provided ref_type and ref
+                pass
+            elif commit:
+                # Backward compatibility: use commit
+                ref_type = "Commit"
+                ref = commit
+            else:
+                self.last_error = f"Repository {i+1}: Either provide repository URL with ref, or provide ref_type and ref, or provide commit (deprecated)"
+                self._log(f"Error: {self.last_error}")
+                return None
+            
+            # Validate ref_type
+            if ref_type not in ['Commit', 'Branch', 'Tag']:
+                self.last_error = f"Repository {i+1}: ref_type must be one of: 'Commit', 'Branch', 'Tag'"
+                self._log(f"Error: {self.last_error}")
+                return None
+            
+            # Validate commit hash if ref_type is Commit
+            if ref_type == 'Commit' and not self._validate_commit_hash(ref):
+                self.last_error = f"Repository {i+1}: Invalid commit hash format (7-40 alphanumeric characters)"
+                self._log(f"Error: {self.last_error}")
+                return None
+            
+            # Build normalized request item
+            normalized_item = {
+                "repository": repository,
+                "ref_type": ref_type,
+                "ref": ref
+            }
+            
+            # Include commit for backward compatibility if provided
+            if commit:
+                normalized_item["commit"] = commit
+            
+            normalized_repos.append(normalized_item)
         
-        self._log(f"Starting multi-scan with {len(repositories)} repositories")
+        self._log(f"Starting multi-scan with {len(normalized_repos)} repositories")
         
-        response = self._make_request('POST', '/multi_scan', repositories)
+        response = self._make_request('POST', '/multi_scan', normalized_repos)
         
         if response is None:
             return None
@@ -401,22 +598,26 @@ class SecretsScanner:
             self._log(f"Scan {scan_id}: {self.last_error}")
             return None
     
-    def quick_scan(self, repository: str, commit: str, save_report: bool = True, 
-                  report_filename: Optional[str] = None) -> Optional[ScanResult]:
+    def quick_scan(self, repository: str, commit: Optional[str] = None, 
+                   ref_type: Optional[str] = None, ref: Optional[str] = None,
+                   save_report: bool = True, 
+                   report_filename: Optional[str] = None) -> Optional[ScanResult]:
         """
         Perform a complete scan with automatic waiting and optional report saving
         
         Args:
-            repository: Repository URL to scan
-            commit: Git commit hash to scan
+            repository: Repository URL to scan (can contain ref, e.g., ?version=GBbranch)
+            commit: [DEPRECATED] Git commit hash to scan. Use repository URL with ref or ref_type+ref instead.
+            ref_type: Reference type: 'Commit', 'Branch', or 'Tag'. Required if repository is base URL.
+            ref: Reference value (commit hash, branch name, or tag name). Required if repository is base URL.
             save_report: Whether to save results to JSON file
-            report_filename: Custom filename for report (default: {project_name}_{short_commit}.json)
+            report_filename: Custom filename for report (default: {project_name}_{short_ref}.json)
             
         Returns:
             ScanResult object if successful, None if error or timeout
         """
         # Start the scan
-        scan_id = self.start_scan(repository, commit)
+        scan_id = self.start_scan(repository, commit, ref_type, ref)
         if not scan_id:
             return None
         
@@ -443,10 +644,13 @@ class SecretsScanner:
                         # Generate default filename
                         project_info = self.check_project(repository)
                         project_name = project_info.get('project_name', 'unknown') if project_info else 'unknown'
-                        short_commit = commit[:8]
-                        report_filename = f"{project_name}_{short_commit}.json"
+                        # Use ref if available, otherwise use commit
+                        short_ref = (ref[:8] if ref else commit[:8]) if (ref or commit) else 'unknown'
+                        report_filename = f"{project_name}_{short_ref}.json"
                     
-                    self._save_report(result, repository, commit, report_filename)
+                    # Use ref if available, otherwise use commit
+                    ref_value = ref if ref else commit
+                    self._save_report(result, repository, ref_value, report_filename)
                 
                 return result
             
@@ -468,13 +672,13 @@ class SecretsScanner:
         self._log(f"Timeout waiting for scan completion: {scan_id}")
         return None
     
-    def _save_report(self, scan_result: ScanResult, repository: str, commit: str, filename: str):
+    def _save_report(self, scan_result: ScanResult, repository: str, ref: str, filename: str):
         """Save scan results to JSON file"""
         report_data = {
             "report_metadata": {
                 "generated_at": datetime.now().isoformat(),
                 "repository": repository,
-                "commit": commit,
+                "ref": ref,
                 "scan_id": scan_result.scan_id
             },
             "scan_summary": {
