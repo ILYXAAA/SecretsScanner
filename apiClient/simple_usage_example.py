@@ -201,6 +201,25 @@ try:
 except Exception as e:
     print(f"Исключение при получении результатов: {e}")
 
+### Экспорт HTML отчета ###
+print("\n=== Экспорт HTML отчета ===")
+try:
+    if 'scan_id' in locals() and scan_id:
+        scan_status = Scanner.get_scan_status(scan_id)
+        if scan_status == "completed":
+            # Экспорт HTML отчета
+            html_exported = Scanner.export_html_report(scan_id, "scan_report.html")
+            if html_exported:
+                print(f"HTML отчет успешно сохранен: scan_report.html")
+            else:
+                print(f"Ошибка экспорта HTML отчета: {Scanner.get_last_error()}")
+        else:
+            print(f"Сканирование еще не завершено, статус: {scan_status}")
+    else:
+        print("Нет активного scan_id для экспорта HTML отчета")
+except Exception as e:
+    print(f"Исключение при экспорте HTML отчета: {e}")
+
 print("\n=== Справка по форматам ссылок ===")
 print("""
 Поддерживаемые форматы ссылок для Azure DevOps и Devzone:

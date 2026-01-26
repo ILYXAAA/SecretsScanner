@@ -45,6 +45,10 @@ Usage example:
         "http://server/collection/project/_git/repo",
         commit="abc123def456"
     )
+    
+    # Export HTML report
+    if result:
+        scanner.export_html_report(result.scan_id, "my_report.html")
 """
 
 import json
@@ -696,6 +700,81 @@ class SecretsScanner:
             
         except Exception as e:
             self._log(f"Failed to save report: {e}")
+    
+    def export_html_report(self, scan_id: str, filename: Optional[str] = None) -> bool:
+        """
+        Export scan results as HTML report
+        
+        Args:
+            scan_id: Scan identifier
+            filename: Optional filename to save the report (default: {project_name}_{ref}.html)
+            
+        Returns:
+            True if report was saved successfully, False otherwise
+        """
+        if not scan_id:
+            self.last_error = "Empty scan ID"
+            self._log(f"Error: {self.last_error}")
+            return False
+        
+        self._log(f"Exporting HTML report for scan: {scan_id}")
+        
+        url = f"{self.api_base}/scan/{scan_id}/export-html"
+        
+        try:
+            headers = {
+                'X-API-TOKEN': f'Bearer {self.api_token}',
+                'User-Agent': 'SecretsScanner-Python-Client/1.0'
+            }
+            
+            req = urllib.request.Request(url, headers=headers)
+            
+            with urllib.request.urlopen(req, timeout=60) as response:
+                if response.status != 200:
+                    try:
+                        error_data = json.loads(response.read().decode('utf-8'))
+                        self.last_error = error_data.get('message', f'HTTP {response.status}')
+                    except:
+                        self.last_error = f'HTTP {response.status}: {response.reason}'
+                    self._log(f"HTTP Error: {self.last_error}")
+                    return False
+                
+                # Get filename from Content-Disposition header if not provided
+                if not filename:
+                    content_disposition = response.headers.get('Content-Disposition', '')
+                    if 'filename=' in content_disposition:
+                        filename = content_disposition.split('filename=')[1].strip('"\'')
+                    else:
+                        filename = f"scan_{scan_id}.html"
+                
+                # Save HTML content
+                html_content = response.read().decode('utf-8')
+                
+                with open(filename, 'w', encoding='utf-8') as f:
+                    f.write(html_content)
+                
+                self._log(f"HTML report saved to: {filename}")
+                return True
+                
+        except urllib.error.HTTPError as e:
+            try:
+                error_data = json.loads(e.read().decode('utf-8'))
+                self.last_error = error_data.get('message', f'HTTP {e.code}')
+            except:
+                self.last_error = f'HTTP {e.code}: {e.reason}'
+            
+            self._log(f"HTTP Error: {self.last_error}")
+            return False
+            
+        except urllib.error.URLError as e:
+            self.last_error = f"Connection error: {e.reason}"
+            self._log(f"Connection Error: {self.last_error}")
+            return False
+            
+        except Exception as e:
+            self.last_error = f"Unexpected error: {e}"
+            self._log(f"Error: {self.last_error}")
+            return False
     
     def get_last_error(self) -> Optional[str]:
         """Get the last error message"""

@@ -3,11 +3,13 @@ import uuid
 import json
 import logging
 import urllib.parse
+import asyncio
 from datetime import datetime
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 import httpx
 
 from services.database import get_db
@@ -21,6 +23,7 @@ from api.schemas import (
 from config import MICROSERVICE_URL, APP_HOST, APP_PORT, HUB_TYPE, BASE_URL, get_auth_headers
 from routes.project_routes import validate_repo_url
 from services.microservice_client import check_microservice_health
+from utils.html_report_generator import generate_html_report
 
 logger = logging.getLogger("main")
 user_logger = logging.getLogger("user_actions")
@@ -967,6 +970,158 @@ async def api_scan_results(
         
     except Exception as e:
         logger.error(f"[API: {token.name}] Error getting scan results: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "message": "Internal server error"}
+        )
+
+@router.get(
+    "/scan/{scan_id}/export-html",
+    responses={
+        200: {
+            "description": "HTML report generated successfully",
+            "content": {"text/html": {}}
+        },
+        400: {
+            "description": "Bad Request - Invalid scan ID, scan not completed, or too many secrets",
+            "model": ErrorResponse
+        },
+        401: {
+            "description": "Unauthorized - Invalid or missing API token",
+            "model": ErrorResponse
+        },
+        403: {
+            "description": "Forbidden - Insufficient permissions (scan_results required) or scan not created by this API token",
+            "model": ErrorResponse
+        },
+        404: {
+            "description": "Not Found - Scan not found",
+            "model": ErrorResponse
+        },
+        429: {
+            "description": "Rate Limit Exceeded",
+            "model": ErrorResponse
+        },
+        500: {
+            "description": "Internal Server Error",
+            "model": ErrorResponse
+        }
+    },
+    summary="Export scan results as HTML report",
+    description="""
+    Export scan results as a formatted HTML report. Only available for scans created via API.
+    
+    **Required Permission:** `scan_results`
+    
+    **Prerequisites:**
+    - Scan must exist and be created by the same API token
+    - Scan must be completed (status: "completed")
+    - Maximum 3000 secrets allowed (for performance reasons)
+    
+    **Limitations:**
+    - Only scans created via API can be exported
+    - HTML reports are limited to 3000 secrets maximum
+    - For scans with more secrets, use JSON export (`/scan/{scan_id}/results`)
+    
+    **Rate Limits:** Consumes 1 request from your quota
+    """,
+    tags=["Scanning"]
+)
+async def api_scan_export_html(
+    scan_id: str,
+    db: Session = Depends(get_db),
+    token: ApiToken = Depends(require_permission("scan_results"))
+):
+    """Export scan results as HTML report via API"""
+    start_time = time.time()
+    
+    try:
+        # Validate scan ID format
+        if not validate_scan_id(scan_id):
+            return JSONResponse(
+                status_code=400,
+                content={"success": False, "message": "Invalid scan ID format"}
+            )
+        
+        scan = db.query(Scan).filter(Scan.id == scan_id).first()
+        
+        if not scan:
+            logger.warning(f"[API: {token.name}] Scan not found: '{scan_id}'")
+            return JSONResponse(
+                status_code=404,
+                content={"success": False, "message": "Scan not found"}
+            )
+        
+        # Check if scan was created by this API token
+        if scan.started_by != f"API:{token.name}":
+            logger.error(f"[API: {token.name}] Access to scan not permitted: '{scan_id}'")
+            return JSONResponse(
+                status_code=403,
+                content={"success": False, "message": "Access denied. This scan was not created by your API token."}
+            )
+        
+        # Check if scan is completed
+        if scan.status != "completed":
+            return JSONResponse(
+                status_code=400,
+                content={"success": False, "message": f"Scan is not completed. Current status: {scan.status}"}
+            )
+        
+        # Get project
+        project = db.query(Project).filter(Project.name == scan.project_name).first()
+        if not project:
+            return JSONResponse(
+                status_code=404,
+                content={"success": False, "message": "Project not found"}
+            )
+        
+        # Count secrets before loading
+        secrets_count = db.query(func.count(Secret.id)).filter(
+            Secret.scan_id == scan_id,
+            Secret.is_exception == False
+        ).scalar() or 0
+        
+        # Check limit
+        if secrets_count > 3000:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "message": f"Cannot generate HTML report: too many secrets ({secrets_count}). Maximum allowed: 3000. Please use JSON export instead."
+                }
+            )
+        
+        # Get secrets (exclude exceptions)
+        secrets = db.query(Secret).filter(
+            Secret.scan_id == scan_id,
+            Secret.is_exception == False
+        ).order_by(
+            Secret.severity == 'Potential',
+            Secret.path,
+            Secret.line
+        ).all()
+        
+        # Generate HTML report in separate thread
+        html_content = await asyncio.to_thread(
+            generate_html_report, scan, project, secrets, HUB_TYPE
+        )
+        
+        # Generate filename
+        ref_short = scan.ref[:7] if scan.ref else "unknown"
+        filename = f"{scan.project_name}_{ref_short}.html"
+        safe_filename = filename.encode('ascii', 'ignore').decode('ascii')
+        
+        response_time = int((time.time() - start_time) * 1000)
+        logger.info(f"[API: {token.name}] HTML report exported: '{scan_id}' -> {secrets_count} secrets ({response_time}ms)")
+        user_logger.info(f"API token '{token.name}' exported HTML report for scan '{scan_id}'")
+        
+        return HTMLResponse(
+            content=html_content,
+            headers={"Content-Disposition": f"attachment; filename={safe_filename}"}
+        )
+        
+    except Exception as e:
+        logger.error(f"[API: {token.name}] Error exporting HTML report: {e}")
         return JSONResponse(
             status_code=500,
             content={"success": False, "message": "Internal server error"}
