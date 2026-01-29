@@ -365,6 +365,15 @@ async def api_scan(
                     content={"success": False, "message": str(ve)}
                 )
         
+        # If parser returned default (Branch/main) but client sent ref_type+ref or commit in body, prefer body
+        if ref_type == "Branch" and ref == "main":
+            if request.ref_type and request.ref:
+                ref_type = request.ref_type
+                ref = request.ref
+            elif request.commit:
+                ref_type = "Commit"
+                ref = request.commit
+        
         # Find project by repository URL
         project = db.query(Project).filter(Project.repo_url == base_repo_url).first()
         if not project:
