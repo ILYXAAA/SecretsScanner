@@ -28,6 +28,13 @@ router = APIRouter()
 download_tasks: Dict[str, dict] = {}
 projects_download_tasks: Dict[str, dict] = {}
 
+# Языки, исключённые из статистики экспорта
+EXCLUDED_LANGUAGES = frozenset({
+    "db", "shell", "powershell", "markdown", "dockerfile", "certs", "archive",
+    "image", "video", "audio", "document", "fonts", "backup", "logs", "conf",
+    "binary", "forbidden", "other"
+})
+
 def get_current_secret_key():
     """Get current SECRET_KEY from environment"""
     load_dotenv()
@@ -900,529 +907,103 @@ async def toggle_api_token(
             content={"status": "error", "message": str(e)}
         )
 
-def create_projects_html_report(projects_data: list, technologies: list) -> str:
-    """Create HTML report for projects with technologies"""
-    html_template = """<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Отчет по проектам с технологиями</title>
-    <style>
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            margin: 20px;
-            background: #f8f9fa;
-        }}
-        .container {{
-            max-width: 1200px;
-            margin: 0 auto;
-            background: white;
-            padding: 30px;
-            border-radius: 12px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        }}
-        h1 {{
-            color: #333;
-            border-bottom: 3px solid #28a745;
-            padding-bottom: 10px;
-            margin-bottom: 20px;
-        }}
-        .summary {{
-            background: #e8f5e8;
-            padding: 20px;
-            border-radius: 8px;
-            margin-bottom: 30px;
-            border-left: 4px solid #28a745;
-        }}
-        .summary h3 {{
-            margin-top: 0;
-            color: #155724;
-        }}
-        .project {{
-            background: #f8f9fa;
-            margin: 20px 0;
-            padding: 25px;
-            border-radius: 8px;
-            border-left: 4px solid #007bff;
-            border: 1px solid #dee2e6;
-        }}
-        .project-header {{
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 15px;
-            flex-wrap: wrap;
-            gap: 10px;
-        }}
-        .project-name {{
-            font-size: 1.4em;
-            font-weight: 600;
-            color: #333;
-        }}
-        .project-url {{
-            font-family: monospace;
-            background: #e9ecef;
-            padding: 5px 10px;
-            border-radius: 4px;
-            font-size: 0.9em;
-        }}
-        .project-url a {{
-            color: #007bff;
-            text-decoration: none;
-        }}
-        .project-url a:hover {{
-            text-decoration: underline;
-        }}
-        .tech-section {{
-            margin: 15px 0;
-        }}
-        .tech-title {{
-            font-weight: 600;
-            color: #495057;
-            margin-bottom: 10px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }}
-        .tech-badge {{
-            display: inline-block;
-            background: #007bff;
-            color: white;
-            padding: 6px 12px;
-            border-radius: 4px;
-            font-size: 0.85em;
-            margin: 3px;
-            font-weight: 500;
-        }}
-        .framework-details {{
-            background: white;
-            padding: 15px;
-            border-radius: 6px;
-            margin: 15px 0;
-            border: 1px solid #dee2e6;
-        }}
-        .detection-item {{
-            margin: 8px 0;
-            padding: 8px;
-            background: #f1f3f4;
-            border-radius: 4px;
-            font-family: monospace;
-            font-size: 0.9em;
-            word-break: break-all;
-        }}
-        .language-stats {{
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin-top: 15px;
-        }}
-        .language-item {{
-            background: white;
-            padding: 8px 12px;
-            border-radius: 6px;
-            border: 1px solid #dee2e6;
-            font-size: 0.9em;
-            min-width: 120px;
-        }}
-        .percentage {{
-            color: #28a745;
-            font-weight: 600;
-        }}
-        .meta-info {{
-            color: #6c757d;
-            font-size: 0.9em;
-            margin-top: 15px;
-            padding-top: 15px;
-            border-top: 1px solid #dee2e6;
-        }}
-        .no-projects {{
-            text-align: center;
-            color: #6c757d;
-            font-style: italic;
-            padding: 40px;
-            background: #f8f9fa;
-            border-radius: 8px;
-            border: 1px solid #dee2e6;
-        }}
-        .icon {{
-            font-style: normal;
-        }}
-        /* Collapsible sections */
-        .collapsible {{
-            cursor: pointer;
-            padding: 12px 15px;
-            background: #ffffff;
-            border: 1px solid #007bff;
-            border-radius: 6px;
-            margin: 15px 0 0 0;
-            user-select: none;
-            transition: all 0.3s ease;
-            color: #007bff;
-            font-weight: 500;
-        }}
-        .collapsible:hover {{
-            background: #e7f3ff;
-            border-color: #0056b3;
-        }}
-        .collapsible.active {{
-            background: #007bff;
-            color: white;
-            border-color: #0056b3;
-        }}
-        .collapsible-content {{
-            display: none;
-            padding: 20px;
-            background: white;
-            border: 1px solid #007bff;
-            border-top: none;
-            border-radius: 0 0 6px 6px;
-            margin-bottom: 0;
-        }}
-        .collapsible-content.active {{
-            display: block;
-        }}
-        .chevron {{
-            float: right;
-            transition: transform 0.3s ease;
-            font-weight: bold;
-        }}
-        .chevron.down {{
-            transform: rotate(180deg);
-        }}
-        .control-button {{
-            background: #007bff;
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.9em;
-            font-weight: 500;
-            transition: background-color 0.2s;
-        }}
-        .control-button:hover {{
-            background: #0056b3;
-        }}
-        .section-divider {{
-            border-top: 2px solid #dee2e6;
-            margin: 25px 0 15px 0;
-            padding-top: 15px;
-        }}
-        @media (max-width: 768px) {{
-            .project-header {{
-                flex-direction: column;
-                align-items: flex-start;
-            }}
-            .language-stats {{
-                flex-direction: column;
-            }}
-            .language-item {{
-                min-width: auto;
-                width: 100%;
-            }}
-            .container {{
-                margin: 10px;
-                padding: 20px;
-            }}
-        }}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>📊 Отчет по проектам с технологиями</h1>
-        
-        <div class="summary">
-            <h3>📋 Сводка</h3>
-            <p><strong>Искомые технологии:</strong> {technologies_str}</p>
-            <p><strong>Найдено проектов:</strong> {total_projects}</p>
-            <p><strong>Дата создания отчета:</strong> {report_date}</p>
-            
-            <div style="margin-top: 20px;">
-                <button onclick="toggleAllDetails()" class="control-button">
-                    📊 Показать/скрыть всю дополнительную информацию
-                </button>
-            </div>
-        </div>
-        
-        {projects_html}
-    </div>
-    
-    <script>
-        let allExpanded = false;
-        
-        function toggleCollapsible(element) {{
-            const content = element.nextElementSibling;
-            const chevron = element.querySelector('.chevron');
-            
-            element.classList.toggle('active');
-            content.classList.toggle('active');
-            chevron.classList.toggle('down');
-        }}
-        
-        function toggleAllDetails() {{
-            const collapsibles = document.querySelectorAll('.collapsible');
-            const contents = document.querySelectorAll('.collapsible-content');
-            const chevrons = document.querySelectorAll('.chevron');
-            
-            allExpanded = !allExpanded;
-            
-            collapsibles.forEach(function(collapsible) {{
-                if (allExpanded) {{
-                    collapsible.classList.add('active');
-                }} else {{
-                    collapsible.classList.remove('active');
-                }}
-            }});
-            
-            contents.forEach(function(content) {{
-                if (allExpanded) {{
-                    content.classList.add('active');
-                }} else {{
-                    content.classList.remove('active');
-                }}
-            }});
-            
-            chevrons.forEach(function(chevron) {{
-                if (allExpanded) {{
-                    chevron.classList.add('down');
-                }} else {{
-                    chevron.classList.remove('down');
-                }}
-            }});
-        }}
-        
-        // Add click handlers to all collapsible elements
-        document.addEventListener('DOMContentLoaded', function() {{
-            const collapsibles = document.querySelectorAll('.collapsible');
-            collapsibles.forEach(function(collapsible) {{
-                collapsible.addEventListener('click', function() {{
-                    toggleCollapsible(this);
-                }});
-            }});
-        }});
-    </script>
-</body>
-</html>"""
-    
-    if not projects_data:
-        projects_html = '<div class="no-projects">📭 Проекты с указанными технологиями не найдены</div>'
-    else:
-        projects_html = ""
-        
-        for project_info in projects_data:
-            project = project_info['project']
-            latest_scan = project_info['latest_scan']
-            language_stats = project_info['language_stats']
-            framework_stats = project_info['framework_stats']
-            matched_techs = project_info['matched_technologies']
-            
-            # Формируем HTML для проекта
-            project_html = f"""
-        <div class="project">
-            <div class="project-header">
-                <div class="project-name">🚀 {project.name}</div>
-                <div class="project-url"><a href="{project.repo_url}" target="_blank" rel="noopener">{project.repo_url}</a></div>
-            </div>
-            
-            <div class="tech-section">
-                <div class="tech-title">🎯 Найденные технологии:</div>
-                <div>"""
-            
-            for tech in matched_techs:
-                project_html += f'<span class="tech-badge">{tech}</span>'
-            
-            project_html += """
-                </div>
-            </div>"""
-            
-            # Проверяем есть ли дополнительная информация для показа
-            has_framework_details = framework_stats and any(
-                framework.lower() in [tech.lower() for tech in matched_techs] 
-                for framework in framework_stats.keys()
-            )
-            
-            has_additional_info = has_framework_details or language_stats
-            
-            # Если есть дополнительная информация, добавляем сворачиваемую секцию
-            if has_additional_info:
-                project_html += """
-            <div class="collapsible">
-                <span>📊 Дополнительная информация</span>
-                <span class="chevron">▼</span>
-            </div>
-            <div class="collapsible-content">"""
-                
-                # Добавляем детали по фреймворкам
-                if has_framework_details:
-                    project_html += """
-                <div class="tech-title">🔧 Детали по фреймворкам:</div>"""
-                    
-                    for framework, details in framework_stats.items():
-                        if framework.lower() in [tech.lower() for tech in matched_techs]:
-                            project_html += f"""
-                <div class="framework-details">
-                    <strong>📦 {framework}</strong>
-                    <div style="margin-top: 8px;">
-                        <em>Обнаружения ({len(details['detections'])} файлов):</em>"""
-                            
-                            for detection in details['detections']:
-                                project_html += f'<div class="detection-item">📄 {detection}</div>'
-                            
-                            project_html += """
-                    </div>
-                </div>"""
-                
-                # Добавляем статистику по языкам
-                if language_stats:
-                    # Добавляем разделитель если есть и фреймворки и языки
-                    if has_framework_details:
-                        project_html += '<div class="section-divider"></div>'
-                    
-                    project_html += """
-                <div class="tech-title">💻 Статистика по языкам:</div>
-                <div class="language-stats">"""
-                    
-                    for lang_stat in language_stats:
-                        icon = lang_stat.get('icon', '📄')
-                        project_html += f"""
-                <div class="language-item">
-                    <span class="icon">{icon}</span> <strong>{lang_stat['language']}</strong>
-                    <div><span class="percentage">{lang_stat['percentage']}%</span></div>
-                    <small>{lang_stat['count']} файлов</small>
-                </div>"""
-                    
-                    project_html += """
-                </div>"""
-                
-                project_html += """
-            </div>"""
-            
-            # Метаинформация
-            scan_date = latest_scan.started_at.strftime("%d.%m.%Y %H:%M") if latest_scan and latest_scan.started_at else "Неизвестно"
-            created_date = project.created_at.strftime("%d.%m.%Y") if project.created_at else "Неизвестно"
-            
-            project_html += f"""
-            <div class="meta-info">
-                ℹ️ <strong>Создан:</strong> {created_date} | 
-                <strong>Автор:</strong> {project.created_by} | 
-                <strong>Последнее сканирование:</strong> {scan_date}
-            </div>
-        </div>"""
-            
-            projects_html += project_html
-    
-    from datetime import datetime
-    return html_template.format(
-        technologies_str=", ".join(technologies),
-        total_projects=len(projects_data),
-        report_date=datetime.now().strftime("%d.%m.%Y %H:%M"),
-        projects_html=projects_html
-    )
-
-async def prepare_projects_download(task_id: str, technologies: list):
-    """Background task to prepare projects download"""
+async def prepare_languages_frameworks_stats_download(task_id: str):
+    """Фоновая задача: формирует JSON отчёт статистики по языкам/фреймворкам."""
     from services.database import SessionLocal
     db = SessionLocal()
-    
     try:
         projects_download_tasks[task_id]["status"] = "processing"
-        projects_download_tasks[task_id]["message"] = "Поиск проектов с указанными технологиями..."
-        
-        # Получаем все проекты с их последними сканами
+        projects_download_tasks[task_id]["message"] = "Сбор статистики по проектам..."
+
         projects = db.query(Project).all()
-        matched_projects = []
-        processed_count = 0
-        
-        projects_download_tasks[task_id]["message"] = f"Проверка {len(projects)} проектов..."
-        
-        for project in projects:
-            processed_count += 1
-            
-            # Получаем последний скан для проекта
+        lang_agg: Dict[str, dict] = {}  # lang -> {projects_count, files_count}
+        fw_agg: Dict[str, int] = {}     # framework -> projects_count
+        projects_detail: list = []
+
+        for i, project in enumerate(projects):
             latest_scan = db.query(Scan).filter(
                 Scan.project_name == project.name
             ).order_by(Scan.started_at.desc()).first()
-            
             if not latest_scan:
+                projects_detail.append({
+                    "name": project.name,
+                    "repo_url": project.repo_url or "",
+                    "languages": [],
+                    "frameworks": []
+                })
                 continue
-            
-            # Проверяем языки и фреймворки
-            matched_technologies = []
-            language_stats = []
-            framework_stats = {}
-            
-            # Получаем статистику языков
+
+            proj_langs: list = []
+            proj_fws: list = []
+
             if latest_scan.detected_languages:
                 try:
                     detected_languages = json.loads(latest_scan.detected_languages)
-                    # Проверяем языки
-                    for lang_name in detected_languages.keys():
-                        if lang_name.lower() in [tech.lower() for tech in technologies]:
-                            matched_technologies.append(lang_name)
-                    
-                    # Формируем статистику для отчета
-                    language_stats = get_language_stats_from_project_scan(latest_scan)
-                        
+                    for lang_name, lang_data in detected_languages.items():
+                        if lang_name.lower() in EXCLUDED_LANGUAGES:
+                            continue
+                        proj_langs.append(lang_name)
+                        files_count = lang_data.get("Files", 0)
+                        if lang_name not in lang_agg:
+                            lang_agg[lang_name] = {"projects_count": 0, "files_count": 0}
+                        lang_agg[lang_name]["projects_count"] += 1
+                        lang_agg[lang_name]["files_count"] += files_count
                 except json.JSONDecodeError:
                     pass
-            
-            # Получаем статистику фреймворков
+
             if latest_scan.detected_frameworks:
                 try:
                     detected_frameworks = json.loads(latest_scan.detected_frameworks)
-                    # Проверяем фреймворки
                     for fw_name in detected_frameworks.keys():
-                        if fw_name.lower() in [tech.lower() for tech in technologies]:
-                            matched_technologies.append(fw_name)
-                    
-                    # Формируем статистику для отчета
-                    framework_stats = get_framework_stats_from_project_scan(latest_scan)
-                        
+                        proj_fws.append(fw_name)
+                        fw_agg[fw_name] = fw_agg.get(fw_name, 0) + 1
                 except json.JSONDecodeError:
                     pass
-            
-            if matched_technologies:
-                matched_projects.append({
-                    'project': project,
-                    'latest_scan': latest_scan,
-                    'language_stats': language_stats,
-                    'framework_stats': framework_stats,
-                    'matched_technologies': list(set(matched_technologies))  # убираем дубликаты
-                })
-            
-            # Обновляем прогресс каждые 10 проектов
-            if processed_count % 10 == 0:
-                projects_download_tasks[task_id]["message"] = f"Обработано {processed_count}/{len(projects)} проектов. Найдено: {len(matched_projects)}"
-        
-        if not matched_projects:
-            projects_download_tasks[task_id]["status"] = "error"
-            projects_download_tasks[task_id]["message"] = "Проекты с указанными технологиями не найдены"
-            return
-        
-        projects_download_tasks[task_id]["message"] = f"Найдено {len(matched_projects)} проектов. Создание HTML отчета..."
-        
-        # Создаем HTML отчет
-        html_content = create_projects_html_report(matched_projects, technologies)
-        
-        # Сохраняем файл
+
+            projects_detail.append({
+                "name": project.name,
+                "repo_url": project.repo_url or "",
+                "languages": sorted(proj_langs),
+                "frameworks": sorted(proj_fws)
+            })
+
+            if (i + 1) % 10 == 0:
+                projects_download_tasks[task_id]["message"] = f"Обработано {i + 1}/{len(projects)} проектов"
+
+        languages_sorted = sorted(
+            [{"language": k, "projects_count": v["projects_count"], "files_count": v["files_count"]}
+             for k, v in lang_agg.items()],
+            key=lambda x: (x["projects_count"], x["files_count"]),
+            reverse=True
+        )
+        frameworks_sorted = sorted(
+            [{"framework": k, "projects_count": v} for k, v in fw_agg.items()],
+            key=lambda x: x["projects_count"],
+            reverse=True
+        )
+
+        report = {
+            "projects_count": len(projects),
+            "languages": languages_sorted,
+            "frameworks": frameworks_sorted,
+            "projects": projects_detail
+        }
+
         tmp_dir = "tmp"
         os.makedirs(tmp_dir, exist_ok=True)
-        html_path = os.path.join(tmp_dir, f"projects_report_{task_id}.html")
-        
-        with open(html_path, 'w', encoding='utf-8') as f:
-            f.write(html_content)
-        
-        projects_download_tasks[task_id]["file_path"] = html_path
-        projects_download_tasks[task_id]["filename"] = f"projects_technologies_report.html"
-        projects_download_tasks[task_id]["content_type"] = "text/html"
+        json_path = os.path.join(tmp_dir, f"languages_frameworks_stats_{task_id}.json")
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(report, f, ensure_ascii=False, indent=2)
+
+        projects_download_tasks[task_id]["file_path"] = json_path
+        projects_download_tasks[task_id]["filename"] = "languages_frameworks_stats.json"
+        projects_download_tasks[task_id]["content_type"] = "application/json"
         projects_download_tasks[task_id]["status"] = "ready"
-        projects_download_tasks[task_id]["message"] = f"Отчет готов к скачиванию ({len(matched_projects)} проектов)"
-        
+        projects_download_tasks[task_id]["message"] = "Отчёт готов к скачиванию"
     except Exception as e:
-        logger.error(f"Error preparing projects download: {e}")
+        logger.error(f"Error preparing languages/frameworks stats: {e}")
         projects_download_tasks[task_id]["status"] = "error"
-        projects_download_tasks[task_id]["message"] = f"Ошибка: {str(e)}"
+        projects_download_tasks[task_id]["message"] = str(e)
     finally:
         db.close()
 
@@ -1510,42 +1091,11 @@ def get_framework_stats_from_project_scan(scan):
 # Добавить эти маршруты в конец файла admin_routes.py
 
 @router.post("/admin/export-projects")
-async def export_projects(background_tasks: BackgroundTasks, 
-                         technologies: list = Form(..., alias="technologies[]"),
+async def export_projects(background_tasks: BackgroundTasks,
                          _: str = Depends(get_admin_user)):
-    """Export projects with specific technologies - admin only"""
+    """Экспорт статистики по языкам/фреймворкам — JSON отчёт (админ)."""
     try:
-        if not technologies:
-            return JSONResponse(
-                status_code=400,
-                content={"status": "error", "message": "Не выбраны технологии для поиска"}
-            )
-        
-        # Нормализуем технологии
-        normalized_technologies = []
-        tech_mapping = {
-            'nestjs': 'NestJS',
-            'vue': 'Vue',
-            'angular': 'Angular',
-            'scala': 'Scala',
-            'dart': 'Dart',
-            'groovy': 'Groovy'
-        }
-        
-        for tech in technologies:
-            if tech.lower() in tech_mapping:
-                normalized_technologies.append(tech_mapping[tech.lower()])
-        
-        if not normalized_technologies:
-            return JSONResponse(
-                status_code=400,
-                content={"status": "error", "message": "Неизвестные технологии"}
-            )
-        
-        # Генерируем уникальный ID задачи
         task_id = str(uuid.uuid4())
-        
-        # Инициализируем задачу
         projects_download_tasks[task_id] = {
             "status": "started",
             "message": "Инициализация...",
@@ -1553,14 +1103,10 @@ async def export_projects(background_tasks: BackgroundTasks,
             "filename": None,
             "content_type": None
         }
-        
-        # Запускаем фоновую задачу
-        background_tasks.add_task(prepare_projects_download, task_id, normalized_technologies)
-        
+        background_tasks.add_task(prepare_languages_frameworks_stats_download, task_id)
         return {"status": "success", "task_id": task_id}
-        
     except Exception as e:
-        logger.error(f"Error starting projects export: {e}")
+        logger.error(f"Error starting languages/frameworks stats export: {e}")
         return JSONResponse(
             status_code=500,
             content={"status": "error", "message": str(e)}

@@ -23,6 +23,7 @@ problematic_secrets.txt
 tmp/
 rules.yml
 unique_extensions.txt
+SecretsScanner_service
 
 # Distribution / packaging
 .Python

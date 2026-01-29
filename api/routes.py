@@ -432,22 +432,41 @@ async def api_scan(
                         scan.status = "failed"
                         scan.error_message = result.get("message", "Unknown error")
                         db.commit()
+                        logger.warning(
+                            f"[API: {token.name}] Microservice returned 200 but status != accepted: "
+                            f"project={project.name}, ref_type={ref_type}, ref={ref}, "
+                            f"response={result}"
+                        )
                         return JSONResponse(
                             status_code=400,
                             content={"success": False, "message": result.get("message", "Scan failed")}
                         )
                 else:
                     scan.status = "failed"
+                    try:
+                        err_body = response.json()
+                    except Exception:
+                        err_body = response.text or "(empty)"
+                    logger.error(
+                        f"[API: {token.name}] Microservice error on POST /scan: "
+                        f"status={response.status_code}, project={project.name}, ref_type={ref_type}, ref={ref}, "
+                        f"response_body={err_body}"
+                    )
                     db.commit()
+                    msg = err_body.get("message", response.text) if isinstance(err_body, dict) else (response.text or "Microservice error")
                     return JSONResponse(
                         status_code=response.status_code,
-                        content={"success": False, "message": "Microservice error"}
+                        content={"success": False, "message": msg}
                     )
                     
         except httpx.TimeoutException:
             scan.status = "failed"
             scan.error_message = "Microservice timeout"
             db.commit()
+            logger.error(
+                f"[API: {token.name}] Microservice timeout on POST /scan: "
+                f"project={project.name}, ref_type={ref_type}, ref={ref}"
+            )
             return JSONResponse(
                 status_code=408,
                 content={"success": False, "message": "Microservice timeout"}
@@ -456,13 +475,18 @@ async def api_scan(
             scan.status = "failed"
             scan.error_message = str(e)
             db.commit()
+            logger.error(
+                f"[API: {token.name}] Exception calling microservice POST /scan: "
+                f"project={project.name}, ref_type={ref_type}, ref={ref}, error={e}",
+                exc_info=True
+            )
             return JSONResponse(
                 status_code=500,
                 content={"success": False, "message": "Connection error"}
             )
             
     except Exception as e:
-        logger.error(f"[API: {token.name}] Error starting scan: {e}")
+        logger.error(f"[API: {token.name}] Error starting scan: {e}", exc_info=True)
         return JSONResponse(
             status_code=500,
             content={"success": False, "message": "Internal server error"}
@@ -698,21 +722,33 @@ async def api_multi_scan(
                             scan.status = "failed"
                             scan.error_message = result.get("message", "Multi-scan failed")
                         db.commit()
-                        
+                        logger.warning(
+                            f"[API: {token.name}] Microservice returned 200 but status != accepted for multi_scan: "
+                            f"multi_scan_id={multi_scan_id}, repos_count={len(scan_requests)}, response={result}"
+                        )
                         return JSONResponse(
                             status_code=400,
                             content={"success": False, "message": result.get("message", "Multi-scan failed")}
                         )
                 else:
                     # Mark all scans as failed
+                    try:
+                        err_body = response.json()
+                    except Exception:
+                        err_body = response.text or "(empty)"
+                    logger.error(
+                        f"[API: {token.name}] Microservice error on POST /multi_scan: "
+                        f"status={response.status_code}, multi_scan_id={multi_scan_id}, repos_count={len(scan_requests)}, "
+                        f"response_body={err_body}"
+                    )
                     for scan in scan_records:
-                        scan.status = "failed" 
+                        scan.status = "failed"
                         scan.error_message = "Microservice error"
                     db.commit()
-                    
+                    msg = err_body.get("message", response.text) if isinstance(err_body, dict) else (response.text or "Microservice error")
                     return JSONResponse(
                         status_code=response.status_code,
-                        content={"success": False, "message": "Microservice error"}
+                        content={"success": False, "message": msg}
                     )
                     
         except httpx.TimeoutException:
@@ -720,16 +756,22 @@ async def api_multi_scan(
                 scan.status = "failed"
                 scan.error_message = "Microservice timeout"
             db.commit()
-            
+            logger.error(
+                f"[API: {token.name}] Microservice timeout on POST /multi_scan: multi_scan_id={multi_scan_id}, repos_count={len(scan_requests)}"
+            )
             return JSONResponse(
                 status_code=408,
                 content={"success": False, "message": "Microservice timeout"}
             )
         except Exception as e:
             for scan in scan_records:
-                scan.status = "failed" 
+                scan.status = "failed"
                 scan.error_message = str(e)
             db.commit()
+            logger.error(
+                f"[API: {token.name}] Exception calling microservice POST /multi_scan: multi_scan_id={multi_scan_id}, error={e}",
+                exc_info=True
+            )
             
             return JSONResponse(
                 status_code=500,
@@ -737,7 +779,7 @@ async def api_multi_scan(
             )
             
     except Exception as e:
-        logger.error(f"[API: {token.name}] Error starting multi-scan: {e}")
+        logger.error(f"[API: {token.name}] Error starting multi-scan: {e}", exc_info=True)
         return JSONResponse(
             status_code=500,
             content={"success": False, "message": "Internal server error"}

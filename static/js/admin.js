@@ -802,39 +802,19 @@ async function handleProjectsExport(e) {
     const exportMessage = document.getElementById('exportProjectsMessage');
     const downloadSection = document.getElementById('downloadProjectsSection');
     
-    // Get selected technologies
-    const selectedTechs = [];
-    const checkboxes = document.querySelectorAll('input[name="tech_filter"]:checked');
-    checkboxes.forEach(cb => {
-        selectedTechs.push(cb.value);
-    });
-    
-    if (selectedTechs.length === 0) {
-        alert('Выберите хотя бы одну технологию для поиска');
-        return;
-    }
-    
-    // Disable form and show progress
     exportBtn.disabled = true;
     exportProgress.style.display = 'block';
     downloadSection.style.display = 'none';
     exportMessage.textContent = 'Инициализация...';
     
-    // Reset spinner visibility
     const spinner = exportProgress.querySelector('.spinner');
     const checkmark = exportProgress.querySelector('.checkmark');
     if (spinner) spinner.style.display = 'inline-block';
     if (checkmark) checkmark.style.display = 'none';
     
     try {
-        const formData = new FormData();
-        selectedTechs.forEach(tech => {
-            formData.append('technologies[]', tech);
-        });
-        
         const response = await fetch('/secret_scanner/admin/export-projects', {
-            method: 'POST',
-            body: formData
+            method: 'POST'
         });
         
         const data = await response.json();
@@ -850,8 +830,6 @@ async function handleProjectsExport(e) {
         console.error('Projects export error:', error);
         exportMessage.textContent = `Ошибка: ${error.message}`;
         exportBtn.disabled = false;
-        // Hide spinner on error
-        const spinner = exportProgress.querySelector('.spinner');
         if (spinner) spinner.style.display = 'none';
     }
 }
