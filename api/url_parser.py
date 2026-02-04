@@ -136,6 +136,14 @@ def _parse_azure_devops_url(repo_url: str) -> Dict[str, str]:
 
 def _parse_devzone_url(repo_url: str) -> Dict[str, str]:
     """Parse Devzone repository URL"""
+    # Normalize legacy/malformed DevZone URL format:
+    # - https://git.devzone.local:devzone/group/project/repo -> https://git.devzone.local/devzone/group/project/repo
+    # Some systems incorrectly use ":devzone" as a namespace separator; DevZone expects "/devzone".
+    if isinstance(repo_url, str) and repo_url.startswith(("http://git.devzone.local:devzone/", "https://git.devzone.local:devzone/")):
+        scheme, rest = repo_url.split("://", 1)
+        rest = rest.replace("git.devzone.local:devzone/", "git.devzone.local/devzone/", 1)
+        repo_url = f"{scheme}://{rest}"
+
     try:
         url_obj = urlparse(repo_url)
     except Exception as e:

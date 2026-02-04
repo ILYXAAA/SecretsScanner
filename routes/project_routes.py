@@ -19,6 +19,7 @@ router = APIRouter()
 
 def validate_repo_url(repo_url: str, hub_type: str) -> str:
     """Validate and normalize repository URL based on hub type"""
+    repo_url = (repo_url or "").strip()
     
     # Проверяем что URL не содержит параметров версии или commit в пути
     if "?" in repo_url:
@@ -29,6 +30,14 @@ def validate_repo_url(repo_url: str, hub_type: str) -> str:
     
     # Check for devzone URLs first
     if "devzone.local" in repo_url:
+        # Normalize legacy/malformed DevZone URL format:
+        # - https://git.devzone.local:devzone/group/project/repo -> https://git.devzone.local/devzone/group/project/repo
+        # Some systems incorrectly use ":devzone" as a namespace separator; DevZone expects "/devzone".
+        if repo_url.startswith(("http://git.devzone.local:devzone/", "https://git.devzone.local:devzone/")):
+            scheme, rest = repo_url.split("://", 1)
+            rest = rest.replace("git.devzone.local:devzone/", "git.devzone.local/devzone/", 1)
+            repo_url = f"{scheme}://{rest}"
+
         # Convert git@ format to https for devzone
         if repo_url.startswith("git@git.devzone.local:"):
             # Extract path after the colon

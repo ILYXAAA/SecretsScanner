@@ -478,6 +478,13 @@ def sanitize_repository_url(repo_url: str) -> str:
     
     # Remove trailing slashes
     repo_url = repo_url.rstrip('/')
+
+    # Normalize legacy/malformed DevZone URL format:
+    # - https://git.devzone.local:devzone/group/project/repo -> https://git.devzone.local/devzone/group/project/repo
+    if repo_url.startswith(("http://git.devzone.local:devzone/", "https://git.devzone.local:devzone/")):
+        scheme, rest = repo_url.split("://", 1)
+        rest = rest.replace("git.devzone.local:devzone/", "git.devzone.local/devzone/", 1)
+        repo_url = f"{scheme}://{rest}"
     
     # Basic URL validation
     if not repo_url.startswith(('http://', 'https://', 'git@')):
