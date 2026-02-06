@@ -67,11 +67,12 @@ except ImportError:
 class ScanResult:
     """Container for scan results"""
     
-    def __init__(self, scan_id: str, status: str, results: Optional[List[Dict]] = None):
+    def __init__(self, scan_id: str, status: str, results: Optional[List[Dict]] = None, commit: Optional[str] = None):
         self.scan_id = scan_id
         self.status = status
         self.results = results or []
         self.secret_count = len(self.results) if self.results else 0
+        self.commit = commit  # Resolved commit hash from API (if available)
 
 
 class SecretsScanner:
@@ -94,6 +95,8 @@ class SecretsScanner:
         self.scans_timeout = scans_timeout
         self.verbose = verbose
         self.last_error = None
+        self._last_scan_commit: Optional[str] = None
+        self._last_multi_scan_commits: Optional[List[str]] = None
         
         if self.verbose:
             print(f"SecretsScanner client initialized for {self.base_url}")
@@ -416,12 +419,18 @@ class SecretsScanner:
         
         if response.get('success', False):
             scan_id = response.get('scan_id')
-            self._log(f"Scan started with ID: {scan_id}")
+            self._last_scan_commit = response.get('commit')
+            self._log(f"Scan started with ID: {scan_id}" + (f", commit: {self._last_scan_commit}" if self._last_scan_commit else ""))
             return scan_id
         else:
+            self._last_scan_commit = None
             self.last_error = response.get('message', 'Unknown error')
             self._log(f"Failed to start scan: {self.last_error}")
             return None
+    
+    def get_last_scan_commit(self) -> Optional[str]:
+        """Return resolved commit hash from last successful start_scan, or None."""
+        return self._last_scan_commit
     
     def start_multi_scan(self, repositories: List[Dict[str, str]]) -> Optional[List[str]]:
         """
@@ -531,8 +540,13 @@ class SecretsScanner:
         if response.get('success', False):
             # Parse JSON array of scan IDs
             scan_ids_json = response.get('scan_id', '[]')
+            commits_json = response.get('commits', '[]')
             try:
-                scan_ids = json.loads(scan_ids_json)
+                scan_ids = json.loads(scan_ids_json) if isinstance(scan_ids_json, str) else scan_ids_json
+                try:
+                    self._last_multi_scan_commits = json.loads(commits_json) if isinstance(commits_json, str) else (commits_json or [])
+                except (TypeError, json.JSONDecodeError):
+                    self._last_multi_scan_commits = []
                 self._log(f"Multi-scan started with {len(scan_ids)} scan IDs")
                 return scan_ids
             except json.JSONDecodeError:
@@ -540,9 +554,14 @@ class SecretsScanner:
                 self._log(f"Error: {self.last_error}")
                 return None
         else:
+            self._last_multi_scan_commits = None
             self.last_error = response.get('message', 'Unknown error')
             self._log(f"Failed to start multi-scan: {self.last_error}")
             return None
+    
+    def get_last_multi_scan_commits(self) -> Optional[List[str]]:
+        """Return list of resolved commit hashes from last successful start_multi_scan (same order as scan IDs), or None."""
+        return self._last_multi_scan_commits
     
     def get_scan_status(self, scan_id: str) -> Optional[str]:
         """
@@ -641,6 +660,7 @@ class SecretsScanner:
                 result = self.get_scan_results(scan_id)
                 if result is None:
                     return None
+                result.commit = result.commit or self.get_last_scan_commit()
                 
                 # Save report if requested
                 if save_report:
@@ -648,12 +668,10 @@ class SecretsScanner:
                         # Generate default filename
                         project_info = self.check_project(repository)
                         project_name = project_info.get('project_name', 'unknown') if project_info else 'unknown'
-                        # Use ref if available, otherwise use commit
-                        short_ref = (ref[:8] if ref else commit[:8]) if (ref or commit) else 'unknown'
+                        short_ref = (result.commit or ref or commit or 'unknown')[:8]
                         report_filename = f"{project_name}_{short_ref}.json"
                     
-                    # Use ref if available, otherwise use commit
-                    ref_value = ref if ref else commit
+                    ref_value = result.commit or ref or commit
                     self._save_report(result, repository, ref_value, report_filename)
                 
                 return result
@@ -683,6 +701,7 @@ class SecretsScanner:
                 "generated_at": datetime.now().isoformat(),
                 "repository": repository,
                 "ref": ref,
+                "commit": getattr(scan_result, 'commit', None),
                 "scan_id": scan_result.scan_id
             },
             "scan_summary": {
