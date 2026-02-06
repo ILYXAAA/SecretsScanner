@@ -323,6 +323,7 @@ class ScanResponse(BaseModel):
     success: bool = Field(description="Whether the scan was started successfully")
     message: str = Field(description="Human-readable result message")
     scan_id: Optional[str] = Field(None, description="Unique scan identifier for tracking progress", example="550e8400-e29b-41d4-a716-446655440000")
+    commit: Optional[str] = Field(None, description="Resolved commit hash (always returned for accepted scans, regardless of ref_type)")
 
     class Config:
         json_schema_extra = {
@@ -330,7 +331,8 @@ class ScanResponse(BaseModel):
                 {
                     "success": True,
                     "message": "Scan has been queued",
-                    "scan_id": "550e8400-e29b-41d4-a716-446655440000"
+                    "scan_id": "550e8400-e29b-41d4-a716-446655440000",
+                    "commit": "9c0be9b0fff53e247bfa024b2169d4da3e2f71c3"
                 },
                 {
                     "success": False,
@@ -345,6 +347,7 @@ class MultiScanResponse(BaseModel):
     success: bool = Field(description="Whether the multi-scan was started successfully")
     message: str = Field(description="Human-readable result message")
     scan_id: Optional[str] = Field(None, description="JSON array of individual scan IDs", example='["550e8400-e29b-41d4-a716-446655440000", "550e8400-e29b-41d4-a716-446655440001"]')
+    commits: Optional[str] = Field(None, description="JSON array of resolved commit hashes, same order as scan_id")
 
     class Config:
         json_schema_extra = {
@@ -352,7 +355,8 @@ class MultiScanResponse(BaseModel):
                 {
                     "success": True,
                     "message": "Multi-scan has been queued",
-                    "scan_id": "550e8400-e29b-41d4-a716-446655440001"
+                    "scan_id": "[\"550e8400-...\", \"550e8400-...\"]",
+                    "commits": "[\"abc123...\", \"def456...\"]"
                 },
                 {
                     "success": False,

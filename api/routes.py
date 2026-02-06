@@ -424,8 +424,11 @@ async def api_scan(
                 if response.status_code == 200:
                     result = response.json()
                     if result.get("status") == "accepted":
-                        scan.status = "running" 
+                        resolved_commit = result.get("commit")
+                        scan.status = "running"
                         scan.ref = result.get("Ref", ref)
+                        if resolved_commit:
+                            scan.repo_commit = resolved_commit
                         db.commit()
                         
                         response_time = int((time.time() - start_time) * 1000)
@@ -435,7 +438,8 @@ async def api_scan(
                         return ScanResponse(
                             success=True,
                             message="Scan has been queued",
-                            scan_id=scan_id
+                            scan_id=scan_id,
+                            commit=resolved_commit
                         )
                     else:
                         scan.status = "failed"
@@ -711,9 +715,19 @@ async def api_multi_scan(
                 if response.status_code == 200:
                     result = response.json()
                     if result.get("status") == "accepted":
-                        # Update scan records to running
-                        for scan in scan_records:
-                            scan.status = "running"
+                        scan_data_list = result.get("data", [])
+                        commits_list = []
+                        for i, scan_record in enumerate(scan_records):
+                            scan_record.status = "running"
+                            if i < len(scan_data_list):
+                                c = scan_data_list[i].get("commit")
+                                if c:
+                                    scan_record.repo_commit = c
+                                    commits_list.append(c)
+                                else:
+                                    commits_list.append(scan_record.repo_commit or "")
+                            else:
+                                commits_list.append("")
                         db.commit()
                         
                         response_time = int((time.time() - start_time) * 1000)
@@ -723,7 +737,8 @@ async def api_multi_scan(
                         return MultiScanResponse(
                             success=True,
                             message="Multi-scan has been queued",
-                            scan_id=json.dumps(individual_scan_ids)  # Возвращаем список scan_id как JSON string
+                            scan_id=json.dumps(individual_scan_ids),
+                            commits=json.dumps(commits_list)
                         )
                     else:
                         # Mark all scans as failed
