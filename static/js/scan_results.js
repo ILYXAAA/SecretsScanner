@@ -21,6 +21,43 @@ let projectRepoUrl = '';
 let scanCommit = '';
 let hubType = '';
 
+// Ограничение контекста в деталях (строк/символов), полный контекст — в модалке
+const CONTEXT_PREVIEW_LINES = 5;
+const CONTEXT_PREVIEW_CHARS = 400;
+
+function truncateContext(rawContext) {
+    if (!rawContext || typeof rawContext !== 'string') return { text: '', hasMore: false };
+    const lines = rawContext.split('\n');
+    const overLines = lines.length > CONTEXT_PREVIEW_LINES;
+    const previewLines = lines.slice(0, CONTEXT_PREVIEW_LINES).join('\n');
+    const overChars = previewLines.length > CONTEXT_PREVIEW_CHARS;
+    const text = overChars ? previewLines.slice(0, CONTEXT_PREVIEW_CHARS) : previewLines;
+    const truncated = (overLines ? text + '\n...' : (overChars ? text + '...' : text));
+    const hasMore = rawContext.length > truncated.length || overLines || overChars;
+    return { text: truncated, hasMore };
+}
+
+function openContextModal() {
+    const full = (typeof window._detailPanelFullContext === 'string') ? window._detailPanelFullContext : '';
+    const el = document.getElementById('contextModalContent');
+    if (el) {
+        // Декодируем HTML-сущности (&#x27; → '), т.к. контекст может приходить уже экранированным
+        try {
+            const doc = new DOMParser().parseFromString(full, 'text/html');
+            el.textContent = doc.body ? doc.body.textContent : full;
+        } catch (_) {
+            el.textContent = full;
+        }
+    }
+    const modal = document.getElementById('contextModal');
+    if (modal) modal.style.display = 'block';
+}
+
+function closeContextModal() {
+    const modal = document.getElementById('contextModal');
+    if (modal) modal.style.display = 'none';
+}
+
 // Получаем данные из data-атрибутов
 function loadDataFromAttributes() {
     projectRepoUrl = document.body.dataset.projectRepoUrl || '';
@@ -958,10 +995,14 @@ function loadSecretDetails(secretId) {
         fileUrl = '#';
     }
     
+    window._detailPanelFullContext = secretData.context || '';
+
+    const { text: contextPreview, hasMore: contextHasMore } = truncateContext(secretData.context || '');
+    const safeContextPreview = safeHtml(contextPreview);
+
     // Данные уже экранированы на сервере
     const safeSecret = safeHtml(secretData.secret || '');
     const safePath = safeHtml(secretData.path || '');
-    const safeContext = safeHtml(secretData.context || '');
     const safeType = safeHtml(secretData.type || '');
     const safeComment = safeHtml(secretData.exception_comment || '');
     
@@ -1103,9 +1144,14 @@ function loadSecretDetails(secretId) {
             
             <div class="detail-section">
                 <h4>📝 Контекст</h4>
-                <div class="detail-field" style="white-space: pre-wrap; overflow-x: auto;">
-                    ${safeContext}
+                <div class="detail-field context-preview" style="white-space: pre-wrap; overflow-x: auto;">
+                    ${safeContextPreview}
                 </div>
+                ${contextHasMore ? `
+                <button type="button" class="btn btn-secondary context-more-btn" onclick="openContextModal()" style="margin-top: 0.5rem;">
+                    Подробнее
+                </button>
+                ` : ''}
             </div>
             
             <div class="detail-section">
