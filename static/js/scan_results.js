@@ -37,14 +37,30 @@ function truncateContext(rawContext) {
     return { text: truncated, hasMore };
 }
 
+function _decodeHtmlEntities(str) {
+    if (!str || typeof str !== 'string') return '';
+    const doc = new DOMParser().parseFromString(str, 'text/html');
+    return doc.body ? doc.body.textContent : str;
+}
+
 function openContextModal() {
     const full = (typeof window._detailPanelFullContext === 'string') ? window._detailPanelFullContext : '';
+    const secretValue = (typeof window._detailPanelFullContextSecret === 'string') ? window._detailPanelFullContextSecret : '';
     const el = document.getElementById('contextModalContent');
     if (el) {
-        // Декодируем HTML-сущности (&#x27; → '), т.к. контекст может приходить уже экранированным
         try {
-            const doc = new DOMParser().parseFromString(full, 'text/html');
-            el.textContent = doc.body ? doc.body.textContent : full;
+            let decoded = _decodeHtmlEntities(full).replace(/\r\n/g, '\n');
+            const toHighlight = _decodeHtmlEntities(secretValue).trim();
+            const pos = toHighlight ? decoded.indexOf(toHighlight) : -1;
+            if (pos !== -1) {
+                const highlightLen = toHighlight.length;
+                const before = escapeHtml(decoded.slice(0, pos));
+                const match = escapeHtml(decoded.slice(pos, pos + highlightLen));
+                const after = escapeHtml(decoded.slice(pos + highlightLen));
+                el.innerHTML = before + '<mark class="context-secret-highlight">' + match + '</mark>' + after;
+            } else {
+                el.textContent = decoded;
+            }
         } catch (_) {
             el.textContent = full;
         }
@@ -996,6 +1012,7 @@ function loadSecretDetails(secretId) {
     }
     
     window._detailPanelFullContext = secretData.context || '';
+    window._detailPanelFullContextSecret = secretData.secret || '';
 
     const { text: contextPreview, hasMore: contextHasMore } = truncateContext(secretData.context || '');
     const safeContextPreview = safeHtml(contextPreview);

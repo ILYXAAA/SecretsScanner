@@ -980,3 +980,12 @@ body {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
 }
+
+/* Подсветка секрета в модальном окне полного контекста */
+.context-secret-highlight {
+    background: #fef3c7;
+    color: #92400e;
+    padding: 0.1em 0.2em;
+    border-radius: 3px;
+    font-weight: 600;
+}
