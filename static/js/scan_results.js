@@ -21,20 +21,48 @@ let projectRepoUrl = '';
 let scanCommit = '';
 let hubType = '';
 
-// Ограничение контекста в деталях (строк/символов), полный контекст — в модалке
-const CONTEXT_PREVIEW_LINES = 5;
-const CONTEXT_PREVIEW_CHARS = 400;
+// Ограничение контекста в деталях: окно вокруг секрета (строк до/после), полный контекст — в модалке
+const CONTEXT_PREVIEW_LINES_BEFORE = 2;
+const CONTEXT_PREVIEW_LINES_AFTER = 2;
+const CONTEXT_PREVIEW_MAX_LINES = 15;  // макс. строк в превью, если секрет не найден
+const CONTEXT_PREVIEW_MAX_CHARS = 500;
 
-function truncateContext(rawContext) {
+/** Превью контекста так, чтобы секрет гарантированно попадал в видимую часть (окно строк до/после). */
+function truncateContextAroundSecret(rawContext, rawSecret) {
     if (!rawContext || typeof rawContext !== 'string') return { text: '', hasMore: false };
-    const lines = rawContext.split('\n');
-    const overLines = lines.length > CONTEXT_PREVIEW_LINES;
-    const previewLines = lines.slice(0, CONTEXT_PREVIEW_LINES).join('\n');
-    const overChars = previewLines.length > CONTEXT_PREVIEW_CHARS;
-    const text = overChars ? previewLines.slice(0, CONTEXT_PREVIEW_CHARS) : previewLines;
-    const truncated = (overLines ? text + '\n...' : (overChars ? text + '...' : text));
-    const hasMore = rawContext.length > truncated.length || overLines || overChars;
-    return { text: truncated, hasMore };
+    const decoded = _decodeHtmlEntities(rawContext).replace(/\r\n/g, '\n');
+    const decodedSecret = _decodeHtmlEntities(rawSecret || '').trim();
+    const lines = decoded.split('\n');
+    const pos = decodedSecret ? decoded.indexOf(decodedSecret) : -1;
+
+    if (pos !== -1) {
+        let charCount = 0;
+        let secretLineIndex = 0;
+        for (let i = 0; i < lines.length; i++) {
+            if (charCount + lines[i].length >= pos) {
+                secretLineIndex = i;
+                break;
+            }
+            charCount += lines[i].length + 1;
+        }
+        const start = Math.max(0, secretLineIndex - CONTEXT_PREVIEW_LINES_BEFORE);
+        const end = Math.min(lines.length, secretLineIndex + CONTEXT_PREVIEW_LINES_AFTER + 1);
+        const previewLines = lines.slice(start, end);
+        let text = previewLines.join('\n');
+        if (text.length > CONTEXT_PREVIEW_MAX_CHARS) {
+            const secretStartInPreview = text.indexOf(decodedSecret);
+            const half = Math.floor(CONTEXT_PREVIEW_MAX_CHARS / 2);
+            const from = Math.max(0, secretStartInPreview - half);
+            text = (from > 0 ? '...' : '') + text.slice(from, from + CONTEXT_PREVIEW_MAX_CHARS) + (from + CONTEXT_PREVIEW_MAX_CHARS < text.length ? '...' : '');
+        }
+        const hasMore = start > 0 || end < lines.length || text.length < decoded.length;
+        return { text: (start > 0 ? '...\n' : '') + text + (end < lines.length ? '\n...' : ''), hasMore };
+    }
+
+    const previewLines = lines.slice(0, CONTEXT_PREVIEW_MAX_LINES).join('\n');
+    const text = previewLines.length > CONTEXT_PREVIEW_MAX_CHARS ? previewLines.slice(0, CONTEXT_PREVIEW_MAX_CHARS) + '...' : previewLines;
+    const hasMore = lines.length > CONTEXT_PREVIEW_MAX_LINES || previewLines.length > CONTEXT_PREVIEW_MAX_CHARS;
+    return { text: text + (lines.length > CONTEXT_PREVIEW_MAX_LINES ? '\n...' : ''), hasMore };
 }
 
 function _decodeHtmlEntities(str) {
@@ -1014,8 +1042,19 @@ function loadSecretDetails(secretId) {
     window._detailPanelFullContext = secretData.context || '';
     window._detailPanelFullContextSecret = secretData.secret || '';
 
-    const { text: contextPreview, hasMore: contextHasMore } = truncateContext(secretData.context || '');
-    const safeContextPreview = safeHtml(contextPreview);
+    const { text: contextPreview, hasMore: contextHasMore } = truncateContextAroundSecret(secretData.context || '', secretData.secret || '');
+    const decodedPreview = _decodeHtmlEntities(contextPreview);
+    const decodedSecret = _decodeHtmlEntities(secretData.secret || '').trim();
+    let contextDisplayHtml;
+    const secretPos = decodedSecret ? decodedPreview.indexOf(decodedSecret) : -1;
+    if (secretPos !== -1) {
+        const before = escapeHtml(decodedPreview.slice(0, secretPos));
+        const match = escapeHtml(decodedPreview.slice(secretPos, secretPos + decodedSecret.length));
+        const after = escapeHtml(decodedPreview.slice(secretPos + decodedSecret.length));
+        contextDisplayHtml = before + '<mark class="context-secret-highlight">' + match + '</mark>' + after;
+    } else {
+        contextDisplayHtml = escapeHtml(decodedPreview);
+    }
 
     // Данные уже экранированы на сервере
     const safeSecret = safeHtml(secretData.secret || '');
@@ -1162,7 +1201,7 @@ function loadSecretDetails(secretId) {
             <div class="detail-section">
                 <h4>📝 Контекст</h4>
                 <div class="detail-field context-preview" style="white-space: pre-wrap; overflow-x: auto;">
-                    ${safeContextPreview}
+                    ${contextDisplayHtml}
                 </div>
                 ${contextHasMore ? `
                 <button type="button" class="btn btn-secondary context-more-btn" onclick="openContextModal()" style="margin-top: 0.5rem;">
