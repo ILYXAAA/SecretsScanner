@@ -27,17 +27,22 @@ const CONTEXT_PREVIEW_LINES_AFTER = 2;
 const CONTEXT_PREVIEW_MAX_LINES = 15;  // макс. строк в превью, если секрет не найден
 const CONTEXT_PREVIEW_MAX_CHARS = 500;
 
-/** Превью контекста так, чтобы секрет гарантированно попадал в видимую часть (окно строк до/после). */
+/** Превью контекста: окно вокруг строки с секретом (по подстроке или по середине блока). Секрет всегда в видимой части. */
 function truncateContextAroundSecret(rawContext, rawSecret) {
     if (!rawContext || typeof rawContext !== 'string') return { text: '', hasMore: false };
     const decoded = _decodeHtmlEntities(rawContext).replace(/\r\n/g, '\n');
-    const decodedSecret = _decodeHtmlEntities(rawSecret || '').trim();
     const lines = decoded.split('\n');
+    if (lines.length === 0) {
+        return { text: decoded || rawContext, hasMore: false };
+    }
+
+    const decodedSecret = _decodeHtmlEntities(rawSecret || '').trim();
     const pos = decodedSecret ? decoded.indexOf(decodedSecret) : -1;
+    let secretLineIndex;
 
     if (pos !== -1) {
         let charCount = 0;
-        let secretLineIndex = 0;
+        secretLineIndex = 0;
         for (let i = 0; i < lines.length; i++) {
             if (charCount + lines[i].length >= pos) {
                 secretLineIndex = i;
@@ -45,24 +50,27 @@ function truncateContextAroundSecret(rawContext, rawSecret) {
             }
             charCount += lines[i].length + 1;
         }
-        const start = Math.max(0, secretLineIndex - CONTEXT_PREVIEW_LINES_BEFORE);
-        const end = Math.min(lines.length, secretLineIndex + CONTEXT_PREVIEW_LINES_AFTER + 1);
-        const previewLines = lines.slice(start, end);
-        let text = previewLines.join('\n');
-        if (text.length > CONTEXT_PREVIEW_MAX_CHARS) {
-            const secretStartInPreview = text.indexOf(decodedSecret);
-            const half = Math.floor(CONTEXT_PREVIEW_MAX_CHARS / 2);
-            const from = Math.max(0, secretStartInPreview - half);
-            text = (from > 0 ? '...' : '') + text.slice(from, from + CONTEXT_PREVIEW_MAX_CHARS) + (from + CONTEXT_PREVIEW_MAX_CHARS < text.length ? '...' : '');
-        }
-        const hasMore = start > 0 || end < lines.length || text.length < decoded.length;
-        return { text: (start > 0 ? '...\n' : '') + text + (end < lines.length ? '\n...' : ''), hasMore };
+    } else {
+        // Секрет не найден подстрокой — контекст обычно "N строк до + строка с секретом + M строк после", берём окно вокруг середины
+        secretLineIndex = Math.floor(lines.length / 2);
     }
 
-    const previewLines = lines.slice(0, CONTEXT_PREVIEW_MAX_LINES).join('\n');
-    const text = previewLines.length > CONTEXT_PREVIEW_MAX_CHARS ? previewLines.slice(0, CONTEXT_PREVIEW_MAX_CHARS) + '...' : previewLines;
-    const hasMore = lines.length > CONTEXT_PREVIEW_MAX_LINES || previewLines.length > CONTEXT_PREVIEW_MAX_CHARS;
-    return { text: text + (lines.length > CONTEXT_PREVIEW_MAX_LINES ? '\n...' : ''), hasMore };
+    const start = Math.max(0, secretLineIndex - CONTEXT_PREVIEW_LINES_BEFORE);
+    const end = Math.min(lines.length, secretLineIndex + CONTEXT_PREVIEW_LINES_AFTER + 1);
+    const previewLines = lines.slice(start, end);
+    let text = previewLines.join('\n');
+    if (text.length > CONTEXT_PREVIEW_MAX_CHARS) {
+        const secretStartInPreview = decodedSecret ? text.indexOf(decodedSecret) : -1;
+        const half = Math.floor(CONTEXT_PREVIEW_MAX_CHARS / 2);
+        const from = secretStartInPreview >= 0
+            ? Math.max(0, secretStartInPreview - half)
+            : 0;
+        text = (from > 0 ? '...' : '') + text.slice(from, from + CONTEXT_PREVIEW_MAX_CHARS) + (from + CONTEXT_PREVIEW_MAX_CHARS < text.length ? '...' : '');
+    }
+    const hasMore = start > 0 || end < lines.length || text.length < decoded.length;
+    const prefix = start > 0 ? '...\n' : '';
+    const suffix = end < lines.length ? '\n...' : '';
+    return { text: prefix + text + suffix, hasMore };
 }
 
 function _decodeHtmlEntities(str) {
