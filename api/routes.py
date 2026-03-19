@@ -885,14 +885,6 @@ async def api_scan_status(
                 message="Scan not found"
             )
         
-        if scan.started_by != f"API:{token.name}":
-            logger.error(f"[API: {token.name}] Access to scan not permitted: '{scan_id}'")
-            return ScanStatusResponse(
-                scan_id=scan_id,
-                status="not_found", 
-                message="Scan not found"
-            )
-        
         response_time = int((time.time() - start_time) * 1000)
         
         # Map internal status to API status
@@ -998,13 +990,6 @@ async def api_scan_results(
                 status="not_found"
             )
         
-        if scan.started_by != f"API:{token.name}":
-            logger.error(f"[API: {token.name}] Access to scan not permitted: '{scan_id}'")
-            return ScanResultsResponse(
-                scan_id=scan_id,
-                status="not_found"
-            )
-        
         if scan.status != "completed":
             return ScanResultsResponse(
                 scan_id=scan_id,
@@ -1057,7 +1042,7 @@ async def api_scan_results(
             "model": ErrorResponse
         },
         403: {
-            "description": "Forbidden - Insufficient permissions (scan_results required) or scan not created by this API token",
+            "description": "Forbidden - Insufficient permissions (scan_results required)",
             "model": ErrorResponse
         },
         404: {
@@ -1075,17 +1060,16 @@ async def api_scan_results(
     },
     summary="Export scan results as HTML report",
     description="""
-    Export scan results as a formatted HTML report. Only available for scans created via API.
+    Export scan results as a formatted HTML report.
     
     **Required Permission:** `scan_results`
     
     **Prerequisites:**
-    - Scan must exist and be created by the same API token
+    - Scan must exist
     - Scan must be completed (status: "completed")
     - Maximum 3000 secrets allowed (for performance reasons)
     
     **Limitations:**
-    - Only scans created via API can be exported
     - HTML reports are limited to 3000 secrets maximum
     - For scans with more secrets, use JSON export (`/scan/{scan_id}/results`)
     
@@ -1116,14 +1100,6 @@ async def api_scan_export_html(
             return JSONResponse(
                 status_code=404,
                 content={"success": False, "message": "Scan not found"}
-            )
-        
-        # Check if scan was created by this API token
-        if scan.started_by != f"API:{token.name}":
-            logger.error(f"[API: {token.name}] Access to scan not permitted: '{scan_id}'")
-            return JSONResponse(
-                status_code=403,
-                content={"success": False, "message": "Access denied. This scan was not created by your API token."}
             )
         
         # Check if scan is completed

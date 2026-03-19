@@ -775,9 +775,9 @@ async def create_api_token(
     name: str = Form(...),
     expires_days: int = Form(default=365),
     permissions: str = Form(default="{}"),
-    requests_per_minute: int = Form(default=60),
-    requests_per_hour: int = Form(default=1000),
-    requests_per_day: int = Form(default=10000),
+    requests_per_minute: int = Form(default=1000),
+    requests_per_hour: int = Form(default=100000),
+    requests_per_day: int = Form(default=1000000),
     admin_user: str = Depends(get_admin_user),
     db: Session = Depends(get_db)
 ):
