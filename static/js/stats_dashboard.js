@@ -17,6 +17,10 @@ function hideLoading() {
     document.getElementById('loadingOverlay').classList.add('hidden');
 }
 
+function downloadRefutedHashes() {
+    window.location.href = '/secret_scanner/stats/download-refuted-hashes';
+}
+
 // Fetch KPI data
 async function loadKPIData() {
     try {

@@ -1,10 +1,14 @@
 from fastapi import APIRouter, Request, Depends
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_, distinct, case
 from datetime import datetime, timedelta
 from typing import Optional
 import logging
+import os
+import tempfile
+import zipfile
+from starlette.background import BackgroundTask
 
 from models import Project, Scan, Secret, User
 from services.auth import get_current_user, get_user_db
@@ -13,6 +17,15 @@ from services.templates import templates
 
 router = APIRouter()
 logger = logging.getLogger("main")
+
+
+def _cleanup_temp_file(file_path: str):
+    """Best-effort cleanup for temp download files."""
+    try:
+        if file_path and os.path.exists(file_path):
+            os.remove(file_path)
+    except Exception:
+        pass
 
 @router.get("/stats-dashboard", response_class=HTMLResponse)
 async def stats_dashboard(
@@ -261,6 +274,55 @@ async def get_status_distribution(
         result["fp_rate"] = 0
 
     return result
+
+
+@router.get("/stats/download-refuted-hashes")
+async def download_refuted_hashes(
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Download UNIQUE hash_from_ci values of all Refuted secrets.
+    Output format: hash1;hash2;...
+    Returns TXT or ZIP if content is large.
+    """
+    hashes = db.query(distinct(Secret.hash_from_ci)).join(
+        Scan, Secret.scan_id == Scan.id
+    ).filter(
+        Scan.status == "completed",
+        Secret.status == "Refuted",
+        Secret.hash_from_ci.isnot(None),
+        Secret.hash_from_ci != ""
+    ).all()
+
+    unique_hashes = sorted([h[0] for h in hashes if h and h[0]])
+    txt_content = ";".join(unique_hashes)
+
+    # Use zip for large payloads
+    use_zip = len(txt_content.encode("utf-8")) > 2 * 1024 * 1024  # 2MB
+    tmp_dir = tempfile.gettempdir()
+
+    if use_zip:
+        zip_path = os.path.join(tmp_dir, f"falses_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip")
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
+            zipf.writestr("falses.txt", txt_content)
+        return FileResponse(
+            path=zip_path,
+            filename="falses.zip",
+            media_type="application/zip",
+            background=BackgroundTask(_cleanup_temp_file, zip_path)
+        )
+
+    txt_path = os.path.join(tmp_dir, f"falses_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
+    with open(txt_path, "w", encoding="utf-8") as f:
+        f.write(txt_content)
+
+    return FileResponse(
+        path=txt_path,
+        filename="falses.txt",
+        media_type="text/plain",
+        background=BackgroundTask(_cleanup_temp_file, txt_path)
+    )
 
 @router.get("/api/stats/scan-activity")
 async def get_scan_activity(

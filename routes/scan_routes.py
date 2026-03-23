@@ -13,6 +13,7 @@ import logging
 import html
 import gzip
 import base64
+import hashlib
 
 from config import get_full_url, MICROSERVICE_URL, APP_HOST, APP_PORT, HUB_TYPE, get_auth_headers
 from models import Project, Scan, Secret
@@ -26,6 +27,15 @@ logger = logging.getLogger("main")
 user_logger = logging.getLogger("user_actions")
 
 router = APIRouter()
+
+
+def build_hash_from_ci(file_path: str, secret_value: str, line_number: int) -> str:
+    """
+    SHA-256 hash for external CI matching:
+    file (path) + secret (value) + line_number.
+    """
+    raw = f"{file_path}{secret_value}{line_number}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 def decompress_callback_data(payload: dict) -> dict:
     """Decompress callback data if it's compressed"""
@@ -505,6 +515,11 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
                             path=sanitize_string(result.get("path", "")),
                             line=result.get("line", 0),
                             secret=sanitize_string(result.get("secret", "")),
+                            hash_from_ci=build_hash_from_ci(
+                                sanitize_string(result.get("path", "")),
+                                sanitize_string(result.get("secret", "")),
+                                result.get("line", 0)
+                            ),
                             context=sanitize_string(result.get("context", "")),
                             severity=severity,
                             confidence=result.get("confidence", 1.0),
@@ -562,6 +577,11 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
                         path=manual_secret.path,
                         line=manual_secret.line,
                         secret=manual_secret.secret,
+                        hash_from_ci=build_hash_from_ci(
+                            manual_secret.path or "",
+                            manual_secret.secret or "",
+                            manual_secret.line or 0
+                        ),
                         context=manual_secret.context,
                         severity=manual_secret.severity,
                         type=manual_secret.type,
@@ -979,6 +999,11 @@ async def add_custom_secret(request: Request, scan_id: str = Form(...), secret_v
             path=normalized_path,
             line=line,
             secret=modified_secret_value,
+            hash_from_ci=build_hash_from_ci(
+                normalized_path or "",
+                modified_secret_value or "",
+                line or 0
+            ),
             context=full_context,
             severity="High",
             confidence=1.0,

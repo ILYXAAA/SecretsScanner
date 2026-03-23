@@ -40,6 +40,7 @@ class Secret(Base):
     path = Column(String)
     line = Column(Integer)
     secret = Column(String)
+    hash_from_ci = Column(String, index=True)
     context = Column(Text)
     severity = Column(String)
     type = Column(String)
