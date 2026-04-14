@@ -34,7 +34,9 @@ def build_hash_from_ci(file_path: str, secret_value: str, line_number: int) -> s
     SHA-256 hash for external CI matching:
     file (path) + secret (value) + line_number.
     """
-    raw = f"{file_path}{secret_value}{line_number}"
+    # DevZone paths may include internal prefix "/devzone_repository/" which should not affect hashes
+    normalized_path = (file_path or "").replace("/devzone_repository/", "")
+    raw = f"{normalized_path}{secret_value}{line_number}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 def decompress_callback_data(payload: dict) -> dict:

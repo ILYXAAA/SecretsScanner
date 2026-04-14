@@ -1,6 +1,7 @@
 """
 Add hash_from_ci field to secrets and backfill data.
-Calculates SHA-256 from: file path + secret value + line number (concatenated, no delimiter).
+Calculates SHA-256 from: normalized file path + secret value + line number (concatenated, no delimiter).
+Normalizes file path by removing "/devzone_repository/" prefix.
 """
 
 
@@ -22,7 +23,7 @@ def upgrade(migration_system):
         updated = 0
 
         for row in rows:
-            path = row[1] or ""
+            path = (row[1] or "").replace("/devzone_repository/", "")
             secret = row[2] or ""
             line = row[3] or 0
             raw = f"{path}{secret}{line}"
