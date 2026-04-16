@@ -17,8 +17,72 @@ function hideLoading() {
     document.getElementById('loadingOverlay').classList.add('hidden');
 }
 
+function _formatDefaultHashesVersion() {
+    const d = new Date();
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const dd = pad2(d.getDate());
+    const mm = pad2(d.getMonth() + 1);
+    const yyyy = d.getFullYear();
+    const hh = pad2(d.getHours());
+    const min = pad2(d.getMinutes());
+    return `v${dd}.${mm}.${yyyy}_${hh}.${min}`;
+}
+
+function openDownloadHashesModal() {
+    const modal = document.getElementById('downloadHashesModal');
+    const input = document.getElementById('hashesVersionInput');
+    if (input) input.value = _formatDefaultHashesVersion();
+    if (modal) modal.style.display = 'block';
+    if (input) setTimeout(() => input.focus(), 0);
+}
+
+function closeDownloadHashesModal() {
+    const modal = document.getElementById('downloadHashesModal');
+    if (modal) modal.style.display = 'none';
+}
+
+function _setLoadingOverlay(text) {
+    const el = document.getElementById('loadingOverlayText');
+    if (el) el.textContent = text || 'Загрузка...';
+}
+
+async function confirmDownloadRefutedHashes() {
+    const input = document.getElementById('hashesVersionInput');
+    const version = input ? (input.value || '').trim() : '';
+    closeDownloadHashesModal();
+
+    _setLoadingOverlay('Готовим файл для скачивания...');
+    showLoading();
+
+    const url = '/secret_scanner/stats/download-refuted-hashes?version=' + encodeURIComponent(version);
+    try {
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const blob = await response.blob();
+        const contentType = response.headers.get('content-type') || '';
+        const defaultFilename = contentType.includes('zip') ? 'falses.zip' : 'falses.txt';
+
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = defaultFilename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    } catch (e) {
+        console.error('Download hashes failed:', e);
+        alert('Ошибка при подготовке файла. Попробуйте позже.');
+    } finally {
+        hideLoading();
+        _setLoadingOverlay('Загрузка данных...');
+    }
+}
+
 function downloadRefutedHashes() {
-    window.location.href = '/secret_scanner/stats/download-refuted-hashes';
+    openDownloadHashesModal();
 }
 
 // Fetch KPI data

@@ -368,7 +368,34 @@
         <!-- Loading Overlay -->
         <div class="loading-overlay" id="loadingOverlay">
             <div class="loading-spinner"></div>
-            <div class="loading-text">Загрузка данных...</div>
+            <div class="loading-text" id="loadingOverlayText">Загрузка данных...</div>
+        </div>
+
+        <!-- Modal: download refuted hashes -->
+        <div id="downloadHashesModal" style="display:none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 10000;"
+             onclick="if (event.target === this) closeDownloadHashesModal();">
+            <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 1.25rem; border-radius: 12px; width: 92%; max-width: 520px;"
+                 onclick="event.stopPropagation();">
+                <div style="display:flex; justify-content: space-between; align-items:center; gap: 1rem; margin-bottom: 1rem;">
+                    <h3 style="margin:0; color:#1f2937;">Скачать хеши Refuted</h3>
+                    <button type="button" onclick="closeDownloadHashesModal()" style="background:none; border:none; font-size:1.5rem; cursor:pointer; color:#6b7280;">×</button>
+                </div>
+
+                <div style="margin-bottom: 0.75rem; color:#4b5563; font-size:0.9rem;">
+                    Версия будет добавлена первой строкой в `falses.txt` в формате `[версия]`.
+                </div>
+
+                <div style="display:flex; flex-direction:column; gap: 0.5rem; margin-bottom: 1rem;">
+                    <label for="hashesVersionInput" style="font-weight:600; color:#374151;">Версия</label>
+                    <input id="hashesVersionInput" type="text" style="padding:0.7rem 0.8rem; border:1px solid #e5e7eb; border-radius:8px; font-family: monospace;"
+                           placeholder="v16.04.2026_13.06" />
+                </div>
+
+                <div style="display:flex; justify-content:flex-end; gap: 0.75rem;">
+                    <button type="button" class="btn" style="background:#fff; border:1px solid #e5e7eb; color:#374151;" onclick="closeDownloadHashesModal()">Отмена</button>
+                    <button type="button" class="btn btn-primary" id="downloadHashesConfirmBtn" onclick="confirmDownloadRefutedHashes()">Скачать</button>
+                </div>
+            </div>
         </div>
     </div>
 

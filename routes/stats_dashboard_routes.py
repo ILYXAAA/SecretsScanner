@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, Request, Depends, Query
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_, distinct, case
@@ -278,6 +278,7 @@ async def get_status_distribution(
 
 @router.get("/stats/download-refuted-hashes")
 async def download_refuted_hashes(
+    version: str = Query("", description="Version header to embed into falses.txt"),
     current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -296,7 +297,17 @@ async def download_refuted_hashes(
     ).all()
 
     unique_hashes = sorted([h[0] for h in hashes if h and h[0]])
-    txt_content = ";".join(unique_hashes)
+
+    # Sanitize version header (single line, bracket-safe)
+    version = (version or "").strip()
+    version = version.replace("\r", " ").replace("\n", " ")
+    version = version.replace("[", "").replace("]", "")
+    if len(version) > 80:
+        version = version[:80]
+    if not version:
+        version = "unknown"
+
+    txt_content = f"[{version}]\n" + ";".join(unique_hashes)
 
     # Use zip for large payloads
     use_zip = len(txt_content.encode("utf-8")) > 2 * 1024 * 1024  # 2MB
