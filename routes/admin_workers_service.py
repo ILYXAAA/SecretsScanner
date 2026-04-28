@@ -8,7 +8,7 @@ import re
 from typing import Optional
 
 from config import get_auth_headers
-from services.auth import get_current_user
+from services.auth import get_admin_user
 from services.database import get_db
 from services.templates import templates
 
@@ -20,18 +20,6 @@ router = APIRouter()
 # Get admin API key from environment
 ADMIN_MICROSERVICE_API_KEY = os.getenv("ADMIN_MICROSERVICE_API_KEY")
 MICROSERVICE_URL = os.getenv("MICROSERVICE_URL", "http://localhost:8001")
-
-def is_admin(user: str) -> bool:
-    """Check if user has admin privileges"""
-    # You can customize this logic based on your admin users definition
-    # For now, assuming admin user is simply "admin"
-    return user == "admin"
-
-async def get_admin_user(current_user: str = Depends(get_current_user)) -> str:
-    """Dependency to check if current user is admin"""
-    if not is_admin(current_user):
-        raise HTTPException(status_code=403, detail="Access denied. Admin privileges required.")
-    return current_user
 
 def get_admin_headers() -> dict:
     """Get headers with admin API key for microservice requests"""

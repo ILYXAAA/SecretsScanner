@@ -1,6 +1,7 @@
 from fastapi import Request, HTTPException, Depends
 from fastapi.responses import RedirectResponse
 from sqlalchemy import create_engine
+from sqlalchemy import inspect, text
 from sqlalchemy.orm import sessionmaker, Session
 from passlib.context import CryptContext
 from jose import JWTError, jwt
@@ -16,6 +17,10 @@ logger = logging.getLogger("main")
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+USER_ROLE = "user"
+ADMIN_ROLE = "admin"
+VALID_ROLES = {USER_ROLE, ADMIN_ROLE}
+
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
 
@@ -28,7 +33,20 @@ def ensure_user_database():
     
     user_engine = create_engine(USERS_DATABASE_URL, connect_args={"check_same_thread": False} if "sqlite" in USERS_DATABASE_URL else {})
     UserBase.metadata.create_all(bind=user_engine)
+    ensure_user_schema(user_engine)
     logger.info("User database initialized")
+
+def ensure_user_schema(user_engine):
+    """Ensure existing user databases have role support."""
+    inspector = inspect(user_engine)
+    columns = {column["name"] for column in inspector.get_columns("users")}
+
+    with user_engine.begin() as conn:
+        if "role" not in columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN role VARCHAR DEFAULT 'user' NOT NULL"))
+
+        conn.execute(text("UPDATE users SET role = 'user' WHERE role IS NULL OR role = ''"))
+        conn.execute(text("UPDATE users SET role = 'admin' WHERE username = 'admin'"))
 
 def get_user_db():
     auth_dir = Path("Auth")
@@ -37,6 +55,7 @@ def get_user_db():
     user_engine = create_engine(USERS_DATABASE_URL, connect_args={"check_same_thread": False} if "sqlite" in USERS_DATABASE_URL else {})
     
     UserBase.metadata.create_all(bind=user_engine)
+    ensure_user_schema(user_engine)
     
     UserSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=user_engine)
     db = UserSessionLocal()
@@ -85,6 +104,8 @@ async def get_current_user(request: Request):
     auth_dir.mkdir(exist_ok=True)
     
     user_engine = create_engine(USERS_DATABASE_URL, connect_args={"check_same_thread": False} if "sqlite" in USERS_DATABASE_URL else {})
+    UserBase.metadata.create_all(bind=user_engine)
+    ensure_user_schema(user_engine)
     UserSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=user_engine)
     user_db = UserSessionLocal()
     
@@ -97,9 +118,35 @@ async def get_current_user(request: Request):
     
     return username
 
+def get_user_role(username: str) -> str:
+    """Get user role from auth database."""
+    if not username:
+        return USER_ROLE
+
+    auth_dir = Path("Auth")
+    auth_dir.mkdir(exist_ok=True)
+
+    user_engine = create_engine(USERS_DATABASE_URL, connect_args={"check_same_thread": False} if "sqlite" in USERS_DATABASE_URL else {})
+    UserBase.metadata.create_all(bind=user_engine)
+    ensure_user_schema(user_engine)
+
+    UserSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=user_engine)
+    user_db = UserSessionLocal()
+
+    try:
+        user = user_db.query(User).filter(User.username == username).first()
+        if not user:
+            return USER_ROLE
+        if user.username == "admin" and user.role != ADMIN_ROLE:
+            user.role = ADMIN_ROLE
+            user_db.commit()
+        return user.role if user.role in VALID_ROLES else USER_ROLE
+    finally:
+        user_db.close()
+
 def is_admin(username: str) -> bool:
-    """Check if user is admin"""
-    return username == "admin"
+    """Check if user has admin role."""
+    return get_user_role(username) == ADMIN_ROLE
 
 async def get_admin_user(request: Request):
     """Dependency to check if current user is admin"""

@@ -17,7 +17,7 @@
             <a href="/secret_scanner/dashboard">📌 Главная</a>
             <a href="/secret_scanner/multi-scan">🔄 Мультискан</a>
             <a href="/secret_scanner/stats-dashboard" class="active">📊 Аналитика</a>
-            {% if current_user == "admin" %}
+            {% if is_admin_user(current_user) %}
                 <a href="/secret_scanner/admin">🛡️ Админ панель</a>
                 <a href="/secret_scanner/admin/workers" class="active">🛠️ Сервис</a>
             {% endif %}

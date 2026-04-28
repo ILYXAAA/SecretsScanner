@@ -194,7 +194,7 @@ app.add_middleware(BaseHTTPMiddleware, dispatch=log_api_request)
 async def maintenance_mode_middleware(request: Request, call_next):
     """Check maintenance mode and redirect non-admin users to maintenance page"""
     from services.database import SessionLocal
-    from services.auth import get_current_user
+    from services.auth import get_current_user, is_admin as user_is_admin
     
     # Skip maintenance check for:
     # - Maintenance page itself
@@ -232,7 +232,7 @@ async def maintenance_mode_middleware(request: Request, call_next):
                 is_admin = False
                 try:
                     current_user = await get_current_user(request)
-                    is_admin = current_user == "admin"
+                    is_admin = user_is_admin(current_user)
                 except:
                     pass  # User not authenticated
                 

@@ -7,6 +7,10 @@ import re
 from typing import Dict, Optional, Tuple
 
 
+def _canonical_base_repo_url(repo_url: str) -> str:
+    """Canonical base repository URL for matching projects."""
+    return (repo_url or "").strip().rstrip('/').lower()
+
 def parse_repo_url_with_ref(repo_url: str) -> Dict[str, str]:
     """
     Parse repository URL and extract reference information (commit, branch, or tag)
@@ -38,7 +42,7 @@ def parse_repo_url_with_ref(repo_url: str) -> Dict[str, str]:
         return _parse_devzone_url(repo_url)
     
     # Check if it's an Azure DevOps URL
-    if "_git" in repo_url:
+    if "_git" in repo_url.lower():
         return _parse_azure_devops_url(repo_url)
     
     raise ValueError("Unsupported repository URL format. Only Azure DevOps and Devzone URLs are supported.")
@@ -52,11 +56,12 @@ def _parse_azure_devops_url(repo_url: str) -> Dict[str, str]:
         raise ValueError(f"Invalid URL format: {e}")
     
     path_parts = [p for p in url_obj.path.strip('/').split('/') if p]
+    path_parts_lower = [p.lower() for p in path_parts]
     
-    if '_git' not in path_parts:
+    if '_git' not in path_parts_lower:
         raise ValueError("URL does not contain '_git'")
     
-    git_index = path_parts.index('_git')
+    git_index = path_parts_lower.index('_git')
     
     if git_index + 1 >= len(path_parts):
         raise ValueError("URL is invalid: repository name missing after '_git'")
@@ -80,7 +85,7 @@ def _parse_azure_devops_url(repo_url: str) -> Dict[str, str]:
     # Check for commit in path (format: /commit/hash)
     commit_index = -1
     try:
-        commit_index = path_parts.index('commit')
+        commit_index = path_parts_lower.index('commit')
     except ValueError:
         pass
     
@@ -122,10 +127,11 @@ def _parse_azure_devops_url(repo_url: str) -> Dict[str, str]:
     
     # Clean base repo URL - remove commit path and query parameters
     clean_path = url_obj.path
-    if '/commit/' in clean_path:
-        clean_path = clean_path.split('/commit/')[0]
+    commit_pos = clean_path.lower().find('/commit/')
+    if commit_pos != -1:
+        clean_path = clean_path[:commit_pos]
     
-    base_repo_url = f"{url_obj.scheme}://{url_obj.netloc}{clean_path}"
+    base_repo_url = _canonical_base_repo_url(f"{url_obj.scheme}://{url_obj.netloc}{clean_path}")
     
     return {
         "base_repo_url": base_repo_url,
@@ -139,8 +145,9 @@ def _parse_devzone_url(repo_url: str) -> Dict[str, str]:
     # Normalize legacy/malformed DevZone URL format:
     # - https://git.devzone.local:devzone/group/project/repo -> https://git.devzone.local/devzone/group/project/repo
     # Some systems incorrectly use ":devzone" as a namespace separator; DevZone expects "/devzone".
-    if isinstance(repo_url, str) and repo_url.startswith(("http://git.devzone.local:devzone/", "https://git.devzone.local:devzone/")):
-        scheme, rest = repo_url.split("://", 1)
+    repo_url_lower = repo_url.lower() if isinstance(repo_url, str) else ""
+    if isinstance(repo_url, str) and repo_url_lower.startswith(("http://git.devzone.local:devzone/", "https://git.devzone.local:devzone/")):
+        scheme, rest = repo_url_lower.split("://", 1)
         rest = rest.replace("git.devzone.local:devzone/", "git.devzone.local/devzone/", 1)
         repo_url = f"{scheme}://{rest}"
 
@@ -150,11 +157,11 @@ def _parse_devzone_url(repo_url: str) -> Dict[str, str]:
         raise ValueError(f"Invalid URL format: {e}")
     
     # Convert git@ format to https if needed
-    if repo_url.startswith("git@git.devzone.local:"):
+    if repo_url.lower().startswith("git@git.devzone.local:"):
         # Extract path after colon
-        path = repo_url.split("git@git.devzone.local:")[1]
+        path = repo_url.split(":", 1)[1]
         # Remove .git suffix if present
-        if path.endswith(".git"):
+        if path.lower().endswith(".git"):
             path = path[:-4]
         # Construct https URL
         repo_url = f"https://git.devzone.local/{path}"
@@ -164,6 +171,7 @@ def _parse_devzone_url(repo_url: str) -> Dict[str, str]:
         raise ValueError("Invalid Devzone URL format")
     
     path_parts = [p for p in url_obj.path.strip('/').split('/') if p]
+    path_parts_lower = [p.lower() for p in path_parts]
     
     if not path_parts:
         raise ValueError("Devzone URL must contain repository path")
@@ -175,7 +183,7 @@ def _parse_devzone_url(repo_url: str) -> Dict[str, str]:
     # Check for commit in path (format: /commit/hash)
     commit_index = -1
     try:
-        commit_index = path_parts.index('commit')
+        commit_index = path_parts_lower.index('commit')
     except ValueError:
         pass
     
@@ -216,14 +224,15 @@ def _parse_devzone_url(repo_url: str) -> Dict[str, str]:
     
     # Clean base repo URL - remove commit path and query parameters
     clean_path = url_obj.path
-    if '/commit/' in clean_path:
-        clean_path = clean_path.split('/commit/')[0]
+    commit_pos = clean_path.lower().find('/commit/')
+    if commit_pos != -1:
+        clean_path = clean_path[:commit_pos]
     
     # Remove .git suffix if present
-    if clean_path.endswith('.git'):
+    if clean_path.lower().endswith('.git'):
         clean_path = clean_path[:-4]
     
-    base_repo_url = f"{url_obj.scheme}://{url_obj.netloc}{clean_path}"
+    base_repo_url = _canonical_base_repo_url(f"{url_obj.scheme}://{url_obj.netloc}{clean_path}")
     
     return {
         "base_repo_url": base_repo_url,

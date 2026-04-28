@@ -654,6 +654,73 @@ def update_scan_counters(db: Session, scan_id: str):
     except Exception as error:
         logger.critical(f"Ошибка обновления счетчика секретов: {error}", exc_info=True)
 
+def apply_secret_status(secret: Secret, status: str, comment: str, current_user: str, changed_at: datetime):
+    """Apply a status decision to one secret record."""
+    secret.status = status
+    if status == "Refuted":
+        secret.is_exception = True
+        secret.exception_comment = comment
+        secret.refuted_at = changed_at
+        secret.refuted_by = current_user
+        secret.confirmed_by = None
+    elif status == "Confirmed":
+        secret.is_exception = False
+        secret.exception_comment = None
+        secret.refuted_at = None
+        secret.confirmed_by = current_user
+        secret.refuted_by = None
+    else:
+        secret.is_exception = False
+        secret.exception_comment = None
+        secret.refuted_at = None
+        secret.confirmed_by = None
+        secret.refuted_by = None
+
+def propagate_secret_status_to_newer_scans(
+    db: Session,
+    source_secret: Secret,
+    status: str,
+    comment: str,
+    current_user: str,
+    changed_at: datetime
+) -> set:
+    """Propagate a manual status decision to matching secrets in newer scans of the same project."""
+    source_scan = db.query(Scan).filter(Scan.id == source_secret.scan_id).first()
+    if not source_scan:
+        return set()
+
+    source_scan_date = source_scan.completed_at or source_scan.started_at
+    if not source_scan_date:
+        return set()
+
+    matching_secrets_query = db.query(Secret).join(
+        Scan, Secret.scan_id == Scan.id
+    ).filter(
+        Scan.project_name == source_scan.project_name,
+        Scan.status == "completed",
+        Scan.completed_at.is_not(None),
+        Scan.completed_at > source_scan_date
+    )
+
+    if source_secret.hash_from_ci:
+        matching_secrets_query = matching_secrets_query.filter(
+            Secret.hash_from_ci == source_secret.hash_from_ci
+        )
+    else:
+        matching_secrets_query = matching_secrets_query.filter(
+            Secret.path == source_secret.path,
+            Secret.line == source_secret.line,
+            Secret.secret == source_secret.secret,
+            Secret.type == source_secret.type
+        )
+
+    affected_scan_ids = set()
+    for matching_secret in matching_secrets_query.all():
+        apply_secret_status(matching_secret, status, comment, current_user, changed_at)
+        affected_scan_ids.add(matching_secret.scan_id)
+
+    return affected_scan_ids
+
 @router.post("/get_results/{project_name}/{scan_id}")
 async def receive_scan_results(project_name: str, scan_id: str, request: Request, 
                               background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
@@ -856,34 +923,27 @@ async def update_secret_status(
         if not secret:
             raise HTTPException(status_code=404, detail="Secret not found")
         
-        secret.status = status
-        if status == "Refuted":
-            secret.is_exception = True
-            secret.exception_comment = comment
-            secret.refuted_at = datetime.now()
-            secret.refuted_by = current_user
-            secret.confirmed_by = None
-        elif status == "Confirmed":
-            secret.is_exception = False
-            secret.exception_comment = None
-            secret.refuted_at = None
-            secret.confirmed_by = current_user
-            secret.refuted_by = None
-        else:
-            secret.is_exception = False
-            secret.exception_comment = None
-            secret.refuted_at = None
-            secret.confirmed_by = None
-            secret.refuted_by = None
+        changed_at = datetime.now()
+        apply_secret_status(secret, status, comment, current_user, changed_at)
+        affected_scan_ids = propagate_secret_status_to_newer_scans(
+            db,
+            secret,
+            status,
+            comment,
+            current_user,
+            changed_at
+        )
         
         db.commit()
         
         # Обновляем денормализованные счетчики
         update_scan_counters(db, secret.scan_id)
+        for affected_scan_id in affected_scan_ids:
+            update_scan_counters(db, affected_scan_id)
         
         user_logger.info(
             f"User '{current_user}' updated secret status to '{status}' "
-            f"for secret ID {secret_id}"
+            f"for secret ID {secret_id}; propagated to {len(affected_scan_ids)} newer scans"
         )
         return {"status": "success"}
     
@@ -911,30 +971,23 @@ async def bulk_secret_action(
         
         secrets = db.query(Secret).filter(Secret.id.in_(secret_ids)).all()
         affected_scan_ids = set()
+        changed_at = datetime.now()
         
         for secret in secrets:
             affected_scan_ids.add(secret.scan_id)
             
             if action == "status":
-                secret.status = value
-                if value == "Refuted":
-                    secret.is_exception = True
-                    secret.exception_comment = comment
-                    secret.refuted_at = datetime.now()
-                    secret.refuted_by = current_user
-                    secret.confirmed_by = None
-                elif value == "Confirmed":
-                    secret.is_exception = False
-                    secret.exception_comment = None
-                    secret.refuted_at = None
-                    secret.confirmed_by = current_user
-                    secret.refuted_by = None
-                else:
-                    secret.is_exception = False
-                    secret.exception_comment = None
-                    secret.refuted_at = None
-                    secret.confirmed_by = None
-                    secret.refuted_by = None
+                apply_secret_status(secret, value, comment, current_user, changed_at)
+                affected_scan_ids.update(
+                    propagate_secret_status_to_newer_scans(
+                        db,
+                        secret,
+                        value,
+                        comment,
+                        current_user,
+                        changed_at
+                    )
+                )
             elif action == "severity":
                 secret.severity = value
         

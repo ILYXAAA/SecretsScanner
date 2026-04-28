@@ -135,11 +135,19 @@ def check_and_setup_user_database():
         id = Column(Integer, primary_key=True, index=True)
         username = Column(String, unique=True, index=True, nullable=False)
         password_hash = Column(String, nullable=False)
+        role = Column(String, default="user", nullable=False)
         created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     # Create DB and check users
     engine = create_engine(USERS_DATABASE_URL, connect_args={"check_same_thread": False} if "sqlite" in USERS_DATABASE_URL else {})
     UserBase.metadata.create_all(bind=engine)
+    with engine.begin() as conn:
+        from sqlalchemy import inspect, text
+        columns = {column["name"] for column in inspect(engine).get_columns("users")}
+        if "role" not in columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN role VARCHAR DEFAULT 'user' NOT NULL"))
+        conn.execute(text("UPDATE users SET role = 'user' WHERE role IS NULL OR role = ''"))
+        conn.execute(text("UPDATE users SET role = 'admin' WHERE username = 'admin'"))
 
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     db = SessionLocal()
@@ -173,7 +181,7 @@ def check_and_setup_user_database():
 
                 try:
                     hashed_password = pwd_context.hash(password)
-                    user = User(username=username, password_hash=hashed_password)
+                    user = User(username=username, password_hash=hashed_password, role="admin")
                     db.add(user)
                     db.commit()
                     logging.info(f"Пользователь '{username}' успешно создан.")

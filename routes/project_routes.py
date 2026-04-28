@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Request, Form, Depends, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from urllib.parse import urlparse
 import urllib.parse
 import logging
@@ -17,43 +18,65 @@ user_logger = logging.getLogger("user_actions")
 
 router = APIRouter()
 
+def canonicalize_repo_url(repo_url: str) -> str:
+    """Canonical repository URL used for storage and duplicate checks."""
+    return (repo_url or "").strip().rstrip('/').lower()
+
+def find_project_by_repo_url(db: Session, repo_url: str, exclude_project_id: int = None):
+    """Find project by repository URL using case-insensitive comparison."""
+    canonical_url = canonicalize_repo_url(repo_url)
+    query = db.query(Project).filter(func.lower(Project.repo_url) == canonical_url)
+    if exclude_project_id is not None:
+        query = query.filter(Project.id != exclude_project_id)
+    return query.first()
+
+def normalize_repo_url_for_lookup(repo_url: str, hub_type: str) -> str:
+    """Normalize repository URL for lookup, allowing scan URLs with refs."""
+    try:
+        from api.url_parser import parse_repo_url_with_ref
+        return parse_repo_url_with_ref(repo_url)["base_repo_url"]
+    except ValueError:
+        return validate_repo_url(repo_url, hub_type)
+
 def validate_repo_url(repo_url: str, hub_type: str) -> str:
     """Validate and normalize repository URL based on hub type"""
     repo_url = (repo_url or "").strip()
+    repo_url_lower = repo_url.lower()
     
     # Проверяем что URL не содержит параметров версии или commit в пути
     if "?" in repo_url:
         raise ValueError("❌ Ссылка на репозиторий не должна содержать параметры (version, commit и т.д.). Используйте базовую ссылку на репозиторий.")
     
-    if "/commit/" in repo_url:
+    if "/commit/" in repo_url_lower:
         raise ValueError("❌ Ссылка на репозиторий не должна содержать путь к коммиту (/commit/). Используйте базовую ссылку на репозиторий.")
     
     # Check for devzone URLs first
-    if "devzone.local" in repo_url:
+    if "devzone.local" in repo_url_lower:
         # Normalize legacy/malformed DevZone URL format:
         # - https://git.devzone.local:devzone/group/project/repo -> https://git.devzone.local/devzone/group/project/repo
         # Some systems incorrectly use ":devzone" as a namespace separator; DevZone expects "/devzone".
-        if repo_url.startswith(("http://git.devzone.local:devzone/", "https://git.devzone.local:devzone/")):
-            scheme, rest = repo_url.split("://", 1)
+        if repo_url_lower.startswith(("http://git.devzone.local:devzone/", "https://git.devzone.local:devzone/")):
+            scheme, rest = repo_url_lower.split("://", 1)
             rest = rest.replace("git.devzone.local:devzone/", "git.devzone.local/devzone/", 1)
             repo_url = f"{scheme}://{rest}"
+            repo_url_lower = repo_url.lower()
 
         # Convert git@ format to https for devzone
-        if repo_url.startswith("git@git.devzone.local:"):
+        if repo_url_lower.startswith("git@git.devzone.local:"):
             # Extract path after the colon
-            path = repo_url.split("git@git.devzone.local:")[1]
+            path = repo_url.split(":", 1)[1]
             # Remove .git suffix if present
-            if path.endswith(".git"):
+            if path.lower().endswith(".git"):
                 path = path[:-4]
             # Construct https URL
             normalized_url = f"https://git.devzone.local/{path}"
-            return normalized_url
-        elif repo_url.startswith("https://git.devzone.local"):
+            return canonicalize_repo_url(normalized_url)
+        elif repo_url_lower.startswith("https://git.devzone.local"):
             # Already in correct format, just normalize
             normalized_url = repo_url.rstrip('/')
-            if normalized_url.endswith(".git"):
+            if normalized_url.lower().endswith(".git"):
                 normalized_url = normalized_url[:-4]
-            return normalized_url
+            return canonicalize_repo_url(normalized_url)
         else:
             raise ValueError("❌ Некорректный формат URL для devzone")
     
@@ -67,10 +90,12 @@ def validate_repo_url(repo_url: str, hub_type: str) -> str:
         
         path_parts = parsed.path.strip('/').split('/')
         
-        if '_git' not in path_parts:
+        path_parts_lower = [part.lower() for part in path_parts]
+        
+        if '_git' not in path_parts_lower:
             raise ValueError("❌ URL не содержит '_git'")
         
-        git_index = path_parts.index('_git')
+        git_index = path_parts_lower.index('_git')
         
         if git_index + 1 >= len(path_parts):
             raise ValueError("❌ URL некорректен: отсутствует имя репозитория после '_git'")
@@ -94,7 +119,7 @@ def validate_repo_url(repo_url: str, hub_type: str) -> str:
         if re.match(uuid_pattern, project, re.IGNORECASE):
             raise ValueError("❌ URL содержит UUID в качестве имени проекта. Используйте URL с читаемым именем проекта вместо UUID.")
         
-        return repo_url
+        return canonicalize_repo_url(repo_url)
     
     elif hub_type == "Git":
         parsed = urlparse(repo_url)
@@ -103,9 +128,9 @@ def validate_repo_url(repo_url: str, hub_type: str) -> str:
         if parsed.scheme not in ['http', 'https']:
             raise ValueError("❌ URL должен использовать HTTP или HTTPS")
         
-        return repo_url
+        return canonicalize_repo_url(repo_url)
     
-    return repo_url
+    return canonicalize_repo_url(repo_url)
 
 def load_language_patterns():
     """Load language patterns from JSON file"""
@@ -269,7 +294,7 @@ async def add_project(request: Request, project_name: str = Form(...), repo_url:
             return RedirectResponse(url=get_full_url("dashboard?error=project_exists"), status_code=302)
         
         # Check if project already exists by repo URL
-        existing_url = db.query(Project).filter(Project.repo_url == normalized_url).first()
+        existing_url = find_project_by_repo_url(db, normalized_url)
         if existing_url:
             user_logger.info(f"User '{current_user}' attempted to create project with duplicate repo URL: {normalized_url}")
             return RedirectResponse(url=get_full_url("dashboard?error=repo_url_exists"), status_code=302)
@@ -303,6 +328,10 @@ async def update_project(request: Request, project_id: int = Form(...), project_
         existing = db.query(Project).filter(Project.name == project_name, Project.id != project_id).first()
         if existing:
             return RedirectResponse(url=get_full_url(f"project/{project.name}?error=project_exists"), status_code=302)
+
+        existing_url = find_project_by_repo_url(db, normalized_url, exclude_project_id=project_id)
+        if existing_url:
+            return RedirectResponse(url=get_full_url(f"project/{project.name}?error=repo_url_exists"), status_code=302)
         
         # Store old project name for updating related scans
         old_project_name = project.name
@@ -411,7 +440,11 @@ async def merge_projects(request: Request,
 @router.get("/api/project/check")
 async def check_project_exists(repo_url: str, _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
     """Check if project exists by repo URL"""
-    project = db.query(Project).filter(Project.repo_url == repo_url).first()
+    try:
+        normalized_url = normalize_repo_url_for_lookup(repo_url, HUB_TYPE)
+    except ValueError:
+        normalized_url = canonicalize_repo_url(repo_url)
+    project = find_project_by_repo_url(db, normalized_url)
     if project:
         return {"exists": True, "project_name": project.name}
     else:

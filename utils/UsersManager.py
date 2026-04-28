@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 from getpass import getpass
 from sqlalchemy import create_engine
+from sqlalchemy import inspect, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import IntegrityError
 from passlib.context import CryptContext
@@ -52,6 +53,12 @@ class UserManager:
         
         # Ensure tables exist
         UserBase.metadata.create_all(bind=self.engine)
+        with self.engine.begin() as conn:
+            columns = {column["name"] for column in inspect(self.engine).get_columns("users")}
+            if "role" not in columns:
+                conn.execute(text("ALTER TABLE users ADD COLUMN role VARCHAR DEFAULT 'user' NOT NULL"))
+            conn.execute(text("UPDATE users SET role = 'user' WHERE role IS NULL OR role = ''"))
+            conn.execute(text("UPDATE users SET role = 'admin' WHERE username = 'admin'"))
 
     def add_user(self):
         """Add a new user"""
@@ -67,6 +74,13 @@ class UserManager:
         if len(password) < 4:
             print("❌ Password must be at least 4 characters long")
             return
+        
+        role = input("Role (user/admin) [user]: ").strip().lower() or "user"
+        if username == "admin":
+            role = "admin"
+        elif role not in {"user", "admin"}:
+            print("❌ Role must be 'user' or 'admin'")
+            return
             
         confirm_password = getpass("Confirm password: ")
         if password != confirm_password:
@@ -75,7 +89,7 @@ class UserManager:
         
         try:
             hashed_password = get_password_hash(password)
-            user = User(username=username, password_hash=hashed_password)
+            user = User(username=username, password_hash=hashed_password, role=role)
             self.db.add(user)
             self.db.commit()
             print(f"✅ User '{username}' created successfully")
@@ -98,7 +112,8 @@ class UserManager:
                 return
             
             for user in users:
-                print(f"ID: {user.id:3} | Username: {user.username:20} | Created: {user.created_at.strftime('%Y-%m-%d %H:%M')}")
+                role = getattr(user, "role", "user") or "user"
+                print(f"ID: {user.id:3} | Username: {user.username:20} | Role: {role:5} | Created: {user.created_at.strftime('%Y-%m-%d %H:%M')}")
             print("-" * 60)
             print(f"Total users: {len(users)}")
         except Exception as e:

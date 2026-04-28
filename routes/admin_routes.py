@@ -12,7 +12,7 @@ import asyncio
 from typing import Dict, Optional
 import uuid
 import re
-from services.auth import get_admin_user, get_user_db, get_password_hash
+from services.auth import ADMIN_ROLE, USER_ROLE, VALID_ROLES, get_admin_user, get_user_db, get_password_hash
 from services.backup_service import create_database_backup, get_backup_status, list_backups
 from models import User, Secret, Scan, Project, Settings
 from services.templates import templates
@@ -34,6 +34,10 @@ EXCLUDED_LANGUAGES = frozenset({
     "image", "video", "audio", "document", "fonts", "backup", "logs", "conf",
     "binary", "forbidden", "other"
 })
+
+def count_admin_users(user_db: Session) -> int:
+    """Count users with admin role."""
+    return user_db.query(User).filter(User.role == ADMIN_ROLE).count()
 
 def get_current_secret_key():
     """Get current SECRET_KEY from environment"""
@@ -380,6 +384,7 @@ async def list_users(page: int = 1, search: str = "", _: str = Depends(get_admin
             
             users_data.append({
                 "username": user.username,
+                "role": user.role or USER_ROLE,
                 "created_at": user.created_at.strftime("%d.%m.%Y %H:%M") if user.created_at else "Unknown",
                 "scan_count": scan_count,
                 "project_count": project_count
@@ -400,17 +405,21 @@ async def list_users(page: int = 1, search: str = "", _: str = Depends(get_admin
         return {"status": "error", "message": str(e)}
 
 @router.post("/admin/create-user")
-async def create_user(request: Request, username: str = Form(...), password: str = Form(...),
+async def create_user(request: Request, username: str = Form(...), password: str = Form(...), role: str = Form(USER_ROLE),
                      _: str = Depends(get_admin_user), user_db: Session = Depends(get_user_db)):
     """Create new user - admin only"""
     try:
+        username = username.replace(":", ".").replace("/", ".")
+        role = role if role in VALID_ROLES else USER_ROLE
+
         existing_user = user_db.query(User).filter(User.username == username).first()
         if existing_user:
             return RedirectResponse(url="/secret_scanner/admin?error=user_exists", status_code=302)
         
         password_hash = get_password_hash(password)
-        username = username.replace(":", ".").replace("/", ".")
-        new_user = User(username=username, password_hash=password_hash)
+        if username == "admin":
+            role = ADMIN_ROLE
+        new_user = User(username=username, password_hash=password_hash, role=role)
         user_db.add(new_user)
         user_db.commit()
         
@@ -438,6 +447,12 @@ async def delete_user(username: str, _: str = Depends(get_admin_user),
                 status_code=404,
                 content={"status": "error", "message": "User not found"}
             )
+
+        if user.role == ADMIN_ROLE and count_admin_users(user_db) <= 1:
+            return JSONResponse(
+                status_code=400,
+                content={"status": "error", "message": "Cannot delete the last admin user"}
+            )
         
         user_db.delete(user)
         user_db.commit()
@@ -447,6 +462,53 @@ async def delete_user(username: str, _: str = Depends(get_admin_user),
         
     except Exception as e:
         logger.error(f"Error deleting user: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": str(e)}
+        )
+
+@router.post("/admin/update-user-role/{username}")
+async def update_user_role(
+    username: str,
+    role: str = Form(...),
+    current_user: str = Depends(get_admin_user),
+    user_db: Session = Depends(get_user_db)
+):
+    """Update user role - admin only"""
+    try:
+        if role not in VALID_ROLES:
+            return JSONResponse(
+                status_code=400,
+                content={"status": "error", "message": "Invalid role"}
+            )
+
+        user = user_db.query(User).filter(User.username == username).first()
+        if not user:
+            return JSONResponse(
+                status_code=404,
+                content={"status": "error", "message": "User not found"}
+            )
+
+        if user.username == "admin" and role != ADMIN_ROLE:
+            return JSONResponse(
+                status_code=400,
+                content={"status": "error", "message": "Built-in admin user must keep admin role"}
+            )
+
+        if user.role == ADMIN_ROLE and role != ADMIN_ROLE and count_admin_users(user_db) <= 1:
+            return JSONResponse(
+                status_code=400,
+                content={"status": "error", "message": "Cannot remove admin role from the last admin user"}
+            )
+
+        user.role = role
+        user_db.commit()
+
+        logger.warning(f"User '{current_user}' changed role for '{username}' to '{role}'")
+        return {"status": "success", "message": "Role updated successfully"}
+
+    except Exception as e:
+        logger.error(f"Error updating user role: {e}")
         return JSONResponse(
             status_code=500,
             content={"status": "error", "message": str(e)}

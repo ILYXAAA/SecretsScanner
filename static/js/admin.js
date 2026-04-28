@@ -480,7 +480,7 @@ async function loadUsers(page = 1, search = '') {
             if (data.users.length === 0) {
                 tbody.innerHTML = `
                     <tr>
-                        <td colspan="5" class="empty-state">
+                        <td colspan="6" class="empty-state">
                             <div>${search ? 'Пользователи не найдены по запросу' : 'Пользователи не найдены'}</div>
                         </td>
                     </tr>
@@ -498,6 +498,15 @@ async function loadUsers(page = 1, search = '') {
                                     <div class="username">${user.username}</div>
                                 </div>
                             </div>
+                        </td>
+                        <td>
+                            ${user.username === 'admin' ?
+                                '<span class="role-badge admin">admin</span>' :
+                                `<select class="role-select" onchange="updateUserRole('${user.username}', this.value)">
+                                    <option value="user" ${user.role === 'user' ? 'selected' : ''}>user</option>
+                                    <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>admin</option>
+                                </select>`
+                            }
                         </td>
                         <td>
                             <div class="user-date">${user.created_at}</div>
@@ -539,7 +548,7 @@ async function loadUsers(page = 1, search = '') {
         } else {
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="4" class="empty-state">
+                    <td colspan="6" class="empty-state">
                         <div style="color: #dc3545;">Ошибка загрузки пользователей</div>
                     </td>
                 </tr>
@@ -550,7 +559,7 @@ async function loadUsers(page = 1, search = '') {
         console.error('Error loading users:', error);
         tbody.innerHTML = `
             <tr>
-                <td colspan="4" class="empty-state">
+                <td colspan="6" class="empty-state">
                     <div style="color: #dc3545;">Ошибка соединения</div>
                 </td>
             </tr>
@@ -565,6 +574,29 @@ function changePage(direction) {
     const newPage = currentPage + direction;
     if (newPage >= 1 && newPage <= totalPages) {
         loadUsers(newPage, currentUserSearch);
+    }
+}
+
+async function updateUserRole(username, role) {
+    try {
+        const response = await fetch(`/secret_scanner/admin/update-user-role/${encodeURIComponent(username)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ role })
+        });
+
+        const result = await response.json();
+        if (!response.ok || result.status !== 'success') {
+            alert(result.message || 'Ошибка при изменении роли пользователя');
+            loadUsers(currentPage, currentUserSearch);
+            return;
+        }
+
+        loadUsers(currentPage, currentUserSearch);
+    } catch (error) {
+        console.error('Error updating user role:', error);
+        alert('Ошибка соединения');
+        loadUsers(currentPage, currentUserSearch);
     }
 }
 

@@ -306,7 +306,7 @@ excluded_files:
             </p>
             
             <div class="config-tabs">
-                {% if current_user == "admin" %}
+                {% if is_admin_user(current_user) %}
                 <button class="config-tab active" data-tab="api-key">
                     🔐 API Key
                 </button>
@@ -325,7 +325,7 @@ excluded_files:
 
             <div class="tab-content-wrapper">
                 <!-- API Key Tab -->
-                 {% if current_user == "admin" %}
+                 {% if is_admin_user(current_user) %}
                 <div class="config-content active" id="api-key-content">
                     <div class="config-header">
                         <div class="config-description">
@@ -388,7 +388,7 @@ excluded_files:
                 </div>
 
                 <!-- PAT Token Tab -->
-                 {% if current_user == "admin" %}
+                 {% if is_admin_user(current_user) %}
                 <div class="config-content" id="pat-token-content">
                     <div class="config-header">
                         <div class="config-description">
@@ -418,7 +418,7 @@ excluded_files:
         </div>
         
        <!-- Database Backup Section -->
-        {% if current_user == "admin" %}
+        {% if is_admin_user(current_user) %}
         <div class="settings-section">
             <h2 class="section-title">💾 Database Backup Management</h2>
             {% if is_sqlite %}

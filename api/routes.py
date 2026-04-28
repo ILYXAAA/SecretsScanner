@@ -21,7 +21,7 @@ from api.schemas import (
     ScanStatusResponse, ScanResultsResponse, ErrorResponse, validate_scan_id
 )
 from config import MICROSERVICE_URL, APP_HOST, APP_PORT, HUB_TYPE, BASE_URL, get_auth_headers
-from routes.project_routes import validate_repo_url
+from routes.project_routes import find_project_by_repo_url, normalize_repo_url_for_lookup, validate_repo_url
 from services.microservice_client import check_microservice_health
 from utils.html_report_generator import generate_html_report
 
@@ -99,7 +99,7 @@ async def api_project_add(
             )
         
         # Check if project already exists by repo URL
-        existing_project = db.query(Project).filter(Project.repo_url == normalized_url).first()
+        existing_project = find_project_by_repo_url(db, normalized_url)
         if existing_project:
             logger.info(f"[API: {token.name}] Project already exists: {existing_project.name}")
             return ProjectAddResponse(
@@ -217,8 +217,8 @@ async def api_project_check(
         # Search by repository URL first
         if request.repository:
             try:
-                normalized_url = validate_repo_url(request.repository, HUB_TYPE)
-                project = db.query(Project).filter(Project.repo_url == normalized_url).first()
+                normalized_url = normalize_repo_url_for_lookup(request.repository, HUB_TYPE)
+                project = find_project_by_repo_url(db, normalized_url)
             except ValueError:
                 # Invalid URL format, continue to search by name
                 pass
@@ -375,7 +375,7 @@ async def api_scan(
                 ref = request.commit
         
         # Find project by repository URL
-        project = db.query(Project).filter(Project.repo_url == base_repo_url).first()
+        project = find_project_by_repo_url(db, base_repo_url)
         if not project:
             return JSONResponse(
                 status_code=404,
@@ -656,7 +656,7 @@ async def api_multi_scan(
                     )
             
             # Find project
-            project = db.query(Project).filter(Project.repo_url == base_repo_url).first()
+            project = find_project_by_repo_url(db, base_repo_url)
             if not project:
                 return JSONResponse(
                     status_code=404,

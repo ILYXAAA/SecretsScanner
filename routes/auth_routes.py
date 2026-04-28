@@ -11,7 +11,9 @@ from services.auth import (
     verify_credentials, 
     create_access_token, 
     verify_token, 
-    get_user_db
+    get_user_db,
+    is_admin,
+    ensure_user_schema
 )
 from services.templates import templates
 import logging
@@ -29,6 +31,7 @@ async def login_page(request: Request):
         if username:
             # Проверяем существование пользователя
             user_engine = create_engine(USERS_DATABASE_URL, connect_args={"check_same_thread": False} if "sqlite" in USERS_DATABASE_URL else {})
+            ensure_user_schema(user_engine)
             UserSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=user_engine)
             user_db = UserSessionLocal()
             
@@ -101,7 +104,7 @@ async def maintenance_login(request: Request, username: str = Form(...), passwor
         
         if verify_credentials(username, password, user_db):
             # Check if user is admin
-            if username != "admin":
+            if not is_admin(username):
                 from services.database import SessionLocal
                 from routes.admin_routes import get_maintenance_end_time
                 

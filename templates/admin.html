@@ -108,6 +108,13 @@
                             <label for="password">Пароль</label>
                             <input type="password" id="password" name="password" required minlength="6">
                         </div>
+                        <div class="form-group">
+                            <label for="role">Роль</label>
+                            <select id="role" name="role" class="role-select">
+                                <option value="user" selected>User</option>
+                                <option value="admin">Admin</option>
+                            </select>
+                        </div>
                     </div>
                     <div class="form-actions">
                         <button type="submit" class="btn btn-success">Создать пользователя</button>
@@ -130,6 +137,7 @@
                     <thead>
                         <tr>
                             <th>Пользователь</th>
+                            <th>Роль</th>
                             <th>Дата создания</th>
                             <th>Запущено сканов</th>
                             <th>Создано проектов</th>
