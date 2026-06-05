@@ -10,7 +10,9 @@ from pathlib import Path
 from typing import Optional
 import logging
 
-from config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, USERS_DATABASE_URL, get_full_url
+from urllib.parse import quote, urlparse
+
+from config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, USERS_DATABASE_URL, BASE_URL, get_full_url
 from models import UserBase, User, AuthenticationException
 
 logger = logging.getLogger("main")
@@ -155,8 +157,58 @@ async def get_admin_user(request: Request):
         raise HTTPException(status_code=403, detail="Access denied")
     return current_user
 
+def is_valid_post_login_redirect(next_url: Optional[str]) -> bool:
+    """Check whether next_url is a safe in-app redirect target."""
+    if not next_url or not next_url.strip():
+        return False
+
+    candidate = next_url.strip()
+
+    if candidate.startswith("//") or "://" in candidate or "\\" in candidate or "@" in candidate:
+        return False
+
+    parsed = urlparse(candidate)
+    if parsed.scheme or parsed.netloc:
+        return False
+
+    path = parsed.path or candidate.split("?", 1)[0]
+    if not path.startswith(BASE_URL):
+        return False
+
+    normalized_path = path.rstrip("/")
+    blocked_paths = {
+        get_full_url("").rstrip("/"),
+        get_full_url("login").rstrip("/"),
+        get_full_url("logout").rstrip("/"),
+    }
+    return normalized_path not in blocked_paths
+
+def get_safe_redirect_url(next_url: Optional[str], default: Optional[str] = None) -> str:
+    """
+    Validate a post-login redirect target to prevent open redirects.
+    Only relative paths under BASE_URL are allowed.
+    """
+    fallback = default if default is not None else get_full_url("dashboard")
+
+    if not is_valid_post_login_redirect(next_url):
+        return fallback
+
+    return next_url.strip()
+
+def build_login_url_with_next(request: Request) -> str:
+    """Redirect unauthenticated users to login while preserving their intended destination."""
+    login_url = get_full_url("")
+    next_path = request.url.path
+    if request.url.query:
+        next_path = f"{next_path}?{request.url.query}"
+
+    if not is_valid_post_login_redirect(next_path):
+        return login_url
+
+    return f"{login_url}?next={quote(next_path, safe='')}"
+
 # Exception handler
 async def auth_exception_handler(request: Request, exc: AuthenticationException):
-    response = RedirectResponse(url=get_full_url(""), status_code=302)
+    response = RedirectResponse(url=build_login_url_with_next(request), status_code=302)
     response.delete_cookie(key="auth_token")  # Удаляем невалидный токен
     return response

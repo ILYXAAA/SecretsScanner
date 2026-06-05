@@ -13,7 +13,8 @@ from services.auth import (
     verify_token, 
     get_user_db,
     is_admin,
-    ensure_user_schema
+    ensure_user_schema,
+    get_safe_redirect_url,
 )
 from services.templates import templates
 import logging
@@ -23,8 +24,12 @@ logger = logging.getLogger("main")
 
 router = APIRouter()
 
+def _login_template_context(request: Request, **extra):
+    return {"request": request, "next": request.query_params.get("next"), **extra}
+
 @router.get("/", response_class=HTMLResponse)
 async def login_page(request: Request):
+    next_url = request.query_params.get("next")
     token = request.cookies.get("auth_token")
     if token:
         username = verify_token(token)
@@ -38,7 +43,8 @@ async def login_page(request: Request):
             try:
                 user = user_db.query(User).filter(User.username == username).first()
                 if user:
-                    return RedirectResponse(url=get_full_url("dashboard"), status_code=302)
+                    redirect_url = get_safe_redirect_url(next_url)
+                    return RedirectResponse(url=redirect_url, status_code=302)
             finally:
                 user_db.close()
         
@@ -47,20 +53,27 @@ async def login_page(request: Request):
             user_logger.error(f"Invalid or expired token for user '{username}', clearing cookie")
         else:
             user_logger.error(f"Service got an invalid or expired token")
-        response = templates.TemplateResponse("login.html", {"request": request})
+        response = templates.TemplateResponse("login.html", _login_template_context(request))
         response.delete_cookie(key="auth_token")
         return response
     
-    return templates.TemplateResponse("login.html", {"request": request})
+    return templates.TemplateResponse("login.html", _login_template_context(request))
 
 @router.post("/login")
-async def login(request: Request, username: str = Form(...), password: str = Form(...), user_db: Session = Depends(get_user_db)):
+async def login(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    next: str = Form(default=""),
+    user_db: Session = Depends(get_user_db),
+):
     if verify_credentials(username, password, user_db):
         access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
         access_token = create_access_token(
             data={"sub": username}, expires_delta=access_token_expires
         )
-        response = RedirectResponse(url=get_full_url("dashboard"), status_code=302)
+        redirect_url = get_safe_redirect_url(next or None)
+        response = RedirectResponse(url=redirect_url, status_code=302)
         response.set_cookie(
             key="auth_token", 
             value=access_token, 
@@ -72,7 +85,10 @@ async def login(request: Request, username: str = Form(...), password: str = For
         user_logger.info(f"User '{username}' successfully logged in")
         return response
     user_logger.error(f"Failed login attempt for username: '{username}'")
-    return templates.TemplateResponse("login.html", {"request": request, "error": "Invalid credentials"})
+    return templates.TemplateResponse(
+        "login.html",
+        _login_template_context(request, error="Invalid credentials", next=next or None),
+    )
 
 @router.get("/logout")
 async def logout():
