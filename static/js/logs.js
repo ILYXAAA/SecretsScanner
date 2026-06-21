@@ -53,6 +53,8 @@ function changeLogSource() {
         logInfo.textContent = 'microservice.log';
     } else if (currentLogSource === 'user_actions') {
         logInfo.textContent = 'user_actions.log';
+    } else if (currentLogSource === 'appsec_tool') {
+        logInfo.textContent = 'app.log (AppSecTool)';
     }
     
     clearDisplay();
@@ -188,6 +190,7 @@ function downloadLogs() {
     const apiLogs = document.body.dataset.apiLogs;
     const apiMicroserviceLogs = document.body.dataset.apiMicroserviceLogs;
     const apiUserActionsLogs = document.body.dataset.apiUserActionsLogs;
+    const apiAppsecToolLogs = document.body.dataset.apiAppsecToolLogs;
     
     // Determine which endpoint to use
     let baseEndpoint;
@@ -197,6 +200,8 @@ function downloadLogs() {
         baseEndpoint = apiMicroserviceLogs.replace('/logging/microservice-logs', '/logging/download-microservice-logs');
     } else if (currentLogSource === 'user_actions') {
         baseEndpoint = apiUserActionsLogs.replace('/logging/user-actions-logs', '/logging/download-user-actions-logs');
+    } else if (currentLogSource === 'appsec_tool') {
+        baseEndpoint = apiAppsecToolLogs.replace('/logging/appsec-tool-logs', '/logging/download-appsec-tool-logs');
     }
     
     // Build query parameters for date filtering
@@ -251,6 +256,7 @@ async function refreshLogs() {
         const apiLogs = document.body.dataset.apiLogs;
         const apiMicroserviceLogs = document.body.dataset.apiMicroserviceLogs;
         const apiUserActionsLogs = document.body.dataset.apiUserActionsLogs;
+        const apiAppsecToolLogs = document.body.dataset.apiAppsecToolLogs;
         
         let endpoint;
         if (currentLogSource === 'main') {
@@ -259,6 +265,8 @@ async function refreshLogs() {
             endpoint = apiMicroserviceLogs;
         } else if (currentLogSource === 'user_actions') {
             endpoint = apiUserActionsLogs;
+        } else if (currentLogSource === 'appsec_tool') {
+            endpoint = apiAppsecToolLogs;
         }
         
         // Build query parameters

@@ -9,7 +9,8 @@
 </head>
 <body data-api-logs="{{ get_full_url('logging/logs') }}" 
       data-api-microservice-logs="{{ get_full_url('logging/microservice-logs') }}"
-      data-api-user-actions-logs="{{ get_full_url('logging/user-actions-logs') }}">
+      data-api-user-actions-logs="{{ get_full_url('logging/user-actions-logs') }}"
+      data-api-appsec-tool-logs="{{ get_full_url('logging/appsec-tool-logs') }}">
     <div class="container">
         <div class="header">
             <h1>📋 Системные логи</h1>
@@ -82,6 +83,7 @@
                     <option value="main">Main Service</option>
                     <option value="microservice">Microservice</option>
                     <option value="user_actions">User Actions</option>
+                    <option value="appsec_tool">AppSecTool</option>
                 </select>
             </div>
             

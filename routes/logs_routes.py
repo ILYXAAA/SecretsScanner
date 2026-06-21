@@ -14,6 +14,119 @@ user_logger = logging.getLogger("user_actions")
 
 router = APIRouter()
 
+APPSEC_TOOL_LOG_PATH = "/app/AppSec_Tool/logs/app.log"
+
+def read_log_file(log_file_path: str, lines: int, start_date: Optional[str], end_date: Optional[str]):
+    """Read, preprocess and optionally filter a log file."""
+    if not log_file_path:
+        return {
+            "status": "error",
+            "message": "Log path not configured",
+            "lines": [],
+            "size": 0,
+        }
+
+    if not os.path.exists(log_file_path):
+        return {
+            "status": "error",
+            "message": "Log file not found",
+            "lines": [],
+            "size": 0,
+        }
+
+    file_stats = os.stat(log_file_path)
+    file_size = file_stats.st_size
+
+    with open(log_file_path, "r", encoding="utf-8", errors="ignore") as f:
+        all_lines = f.readlines()
+
+    processed_lines = preprocess_log_lines(all_lines)
+
+    if start_date or end_date:
+        try:
+            start_date_obj = datetime.strptime(start_date, "%Y-%m-%d").date() if start_date else None
+            end_date_obj = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else None
+            processed_lines = filter_logs_by_date(processed_lines, start_date_obj, end_date_obj)
+        except ValueError as e:
+            return {
+                "status": "error",
+                "message": f"Invalid date format: {e}",
+                "lines": [],
+                "size": 0,
+            }
+
+    if lines > 0:
+        log_lines = processed_lines[-lines:]
+    else:
+        log_lines = processed_lines
+
+    return {
+        "status": "success",
+        "lines": log_lines,
+        "total_lines": len(processed_lines),
+        "size": file_size,
+        "last_modified": file_stats.st_mtime,
+    }
+
+def build_log_download_response(
+    log_file_path: str,
+    filename_prefix: str,
+    current_user: str,
+    start_date: Optional[str],
+    end_date: Optional[str],
+):
+    """Build a downloadable log file response with optional date filtering."""
+    if not log_file_path:
+        return {"status": "error", "message": "Log path not configured"}
+
+    if not os.path.exists(log_file_path):
+        return {"status": "error", "message": "Log file not found"}
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    if start_date or end_date:
+        with open(log_file_path, "r", encoding="utf-8", errors="ignore") as f:
+            all_lines = f.readlines()
+
+        processed_lines = preprocess_log_lines(all_lines)
+
+        try:
+            start_date_obj = datetime.strptime(start_date, "%Y-%m-%d").date() if start_date else None
+            end_date_obj = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else None
+            filtered_lines = filter_logs_by_date(processed_lines, start_date_obj, end_date_obj)
+        except ValueError as e:
+            return {"status": "error", "message": f"Invalid date format: {e}"}
+
+        temp_file = tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".log", encoding="utf-8")
+        temp_file.write("\n".join(filtered_lines))
+        temp_file.close()
+
+        date_suffix = ""
+        if start_date and end_date:
+            date_suffix = f"_{start_date}_to_{end_date}"
+        elif start_date:
+            date_suffix = f"_from_{start_date}"
+        elif end_date:
+            date_suffix = f"_until_{end_date}"
+
+        filename = f"{filename_prefix}{date_suffix}_{timestamp}.log"
+        user_logger.warning(f"Log file '{filename}' exported by user '{current_user}' (.log)")
+
+        return FileResponse(
+            path=temp_file.name,
+            filename=filename,
+            media_type="text/plain",
+            background=lambda: os.unlink(temp_file.name),
+        )
+
+    filename = f"{filename_prefix}_{timestamp}.log"
+    user_logger.warning(f"Log file '{filename}' exported by user '{current_user}' (.log)")
+    return FileResponse(
+        path=log_file_path,
+        filename=filename,
+        media_type="text/plain",
+    )
+
 @router.get("/logs", response_class=HTMLResponse)
 async def logs_page(request: Request, current_user: str = Depends(get_current_user)):
     """Logs page - shows system logs in real-time"""
@@ -523,4 +636,45 @@ async def download_user_actions_logs(
         return {
             "status": "error",
             "message": str(e)
+        }
+
+@router.get("/logging/appsec-tool-logs")
+async def get_appsec_tool_logs(
+    lines: int = 1000,
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    _: str = Depends(get_current_user),
+):
+    """Get AppSecTool service logs"""
+    try:
+        return read_log_file(APPSEC_TOOL_LOG_PATH, lines, start_date, end_date)
+    except Exception as e:
+        logger.error(f"Error reading AppSecTool logs: {e}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "lines": [],
+            "size": 0,
+        }
+
+@router.get("/logging/download-appsec-tool-logs")
+async def download_appsec_tool_logs(
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    current_user: str = Depends(get_current_user),
+):
+    """Download AppSecTool service logs as file"""
+    try:
+        return build_log_download_response(
+            APPSEC_TOOL_LOG_PATH,
+            "appsec_tool",
+            current_user,
+            start_date,
+            end_date,
+        )
+    except Exception as e:
+        logger.error(f"Error downloading AppSecTool logs: {e}")
+        return {
+            "status": "error",
+            "message": str(e),
         }

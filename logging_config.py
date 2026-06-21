@@ -89,6 +89,7 @@ def setup_logging(worker_id: str = None, log_file: str = "secrets_scanner.log"):
         r"/secret_scanner/logging/logs",
         r"/secret_scanner/logging/microservice-logs",
         r"/secret_scanner/logging/user-actions-logs",
+        r"/secret_scanner/logging/appsec-tool-logs",
         r"/secret_scanner/api/admin/service[-_]stats",  # service_stats или service-stats
         r"/secret_scanner/api/admin/tasks",
         r"/secret_scanner/api/admin/workers-status",
