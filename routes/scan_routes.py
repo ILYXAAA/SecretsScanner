@@ -865,6 +865,11 @@ async def scan_results(
                 "path": html.escape(secret.path or "", quote=True),
                 "line": secret.line or 0,
                 "secret": html.escape(secret.secret or "", quote=True),
+                "hash_from_ci": secret.hash_from_ci or build_hash_from_ci(
+                    secret.path or "",
+                    secret.secret or "",
+                    secret.line or 0
+                ),
                 "context": html.escape(secret.context or "", quote=True),
                 "severity": html.escape(secret.severity or "", quote=True),
                 "type": html.escape(secret.type or "", quote=True),
@@ -1091,6 +1096,11 @@ async def add_custom_secret(request: Request, scan_id: str = Form(...), secret_v
                 "path": html.escape(secret.path or "", quote=True),
                 "line": secret.line or 0,
                 "secret": html.escape(secret.secret or "", quote=True),
+                "hash_from_ci": secret.hash_from_ci or build_hash_from_ci(
+                    secret.path or "",
+                    secret.secret or "",
+                    secret.line or 0
+                ),
                 "context": html.escape(secret.context or "", quote=True),
                 "severity": secret.severity or "",
                 "type": html.escape(secret.type or "", quote=True),
@@ -1151,6 +1161,11 @@ async def delete_secret(secret_id: int, current_user: str = Depends(get_current_
                 "path": html.escape(secret.path or "", quote=True),
                 "line": secret.line or 0,
                 "secret": html.escape(secret.secret or "", quote=True),
+                "hash_from_ci": secret.hash_from_ci or build_hash_from_ci(
+                    secret.path or "",
+                    secret.secret or "",
+                    secret.line or 0
+                ),
                 "context": html.escape(secret.context or "", quote=True),
                 "severity": secret.severity or "",
                 "type": html.escape(secret.type or "", quote=True),

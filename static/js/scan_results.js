@@ -1069,6 +1069,7 @@ function loadSecretDetails(secretId) {
     const safePath = safeHtml(secretData.path || '');
     const safeType = safeHtml(secretData.type || '');
     const safeComment = safeHtml(secretData.exception_comment || '');
+    const safeHash = escapeHtml(secretData.hash_from_ci || '');
     
     // Добавить информацию о пользователях
     let userInfoHtml = '';
@@ -1204,6 +1205,16 @@ function loadSecretDetails(secretId) {
             <div class="detail-section">
                 <h4>📍 Номер строки</h4>
                 <div class="detail-field">${secretData.line || 0}</div>
+            </div>
+
+            <div class="detail-section">
+                <h4>🔐 CI Hash</h4>
+                <div class="detail-field hash-field" style="font-family: monospace; font-size: 0.75rem; word-break: break-all; user-select: all;">
+                    ${safeHash || '—'}
+                </div>
+                <div style="font-size: 0.8rem; color: #666; margin-top: 0.25rem;">
+                    Хеш для CI (falses.txt): path + secret + line
+                </div>
             </div>
             
             <div class="detail-section">
