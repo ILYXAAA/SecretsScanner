@@ -13,13 +13,12 @@ import logging
 import html
 import gzip
 import base64
-import hashlib
-
 from config import get_full_url, MICROSERVICE_URL, APP_HOST, APP_PORT, HUB_TYPE, get_auth_headers
 from models import Project, Scan, Secret
 from services.auth import get_current_user
 from services.database import get_db, sanitize_string
 from services.microservice_client import check_microservice_health
+from utils.ci_hash import build_hash_from_ci
 from utils.html_report_generator import generate_html_report
 from services.templates import templates
 import time
@@ -28,16 +27,6 @@ user_logger = logging.getLogger("user_actions")
 
 router = APIRouter()
 
-
-def build_hash_from_ci(file_path: str, secret_value: str, line_number: int) -> str:
-    """
-    SHA-256 hash for external CI matching:
-    file (path) + secret (value) + line_number.
-    """
-    # DevZone paths may include internal prefix "/devzone_repository/" which should not affect hashes
-    normalized_path = (file_path or "").replace("/devzone_repository/", "")
-    raw = f"{normalized_path}{secret_value}{line_number}"
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 def decompress_callback_data(payload: dict) -> dict:
     """Decompress callback data if it's compressed"""
