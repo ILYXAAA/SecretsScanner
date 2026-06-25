@@ -43,8 +43,20 @@ BACKUP_DIR = os.getenv("BACKUP_DIR", "./backups")
 BACKUP_RETENTION_DAYS = int(os.getenv("BACKUP_RETENTION_DAYS", "7"))
 BACKUP_INTERVAL_HOURS = int(os.getenv("BACKUP_INTERVAL_HOURS", "24"))
 
+# Auto-exported falses.txt refresh interval (hours)
+FALSES_REFRESH_INTERVAL_HOURS = int(os.getenv("FALSES_REFRESH_INTERVAL_HOURS", "1"))
+
+# Optional: auto-push falses.txt to Azure DevOps Git
+FALSES_GIT_REPO_URL = os.getenv("FALSES_GIT_REPO_URL", "").strip()
+FALSES_GIT_PAT = os.getenv("FALSES_GIT_PAT", "").strip()
+FALSES_GIT_BRANCH = os.getenv("FALSES_GIT_BRANCH", "script_with_Docker")
+FALSES_GIT_FILE_PATH = os.getenv("FALSES_GIT_FILE_PATH", "/src/storage/falses.txt")
+FALSES_GIT_COMMITTER_NAME = os.getenv("FALSES_GIT_COMMITTER_NAME", "SecretsScanner_bot")
+FALSES_GIT_COMMITTER_EMAIL = os.getenv("FALSES_GIT_COMMITTER_EMAIL", "secrets-scanner@local")
+
 # Create necessary directories
 Path(BACKUP_DIR).mkdir(exist_ok=True)
+Path("generated").mkdir(exist_ok=True)
 Path("templates").mkdir(exist_ok=True)
 Path("ico").mkdir(exist_ok=True)
 

@@ -13,6 +13,7 @@ from starlette.background import BackgroundTask
 from models import Project, Scan, Secret, User
 from services.auth import get_current_user, get_user_db
 from services.database import get_db
+from services.falses_export_service import build_falses_txt_content, fetch_refuted_hashes, sanitize_falses_version
 from services.templates import templates
 
 router = APIRouter()
@@ -287,27 +288,9 @@ async def download_refuted_hashes(
     Output format: hash1;hash2;...
     Returns TXT or ZIP if content is large.
     """
-    hashes = db.query(distinct(Secret.hash_from_ci)).join(
-        Scan, Secret.scan_id == Scan.id
-    ).filter(
-        Scan.status == "completed",
-        Secret.status == "Refuted",
-        Secret.hash_from_ci.isnot(None),
-        Secret.hash_from_ci != ""
-    ).all()
-
-    unique_hashes = sorted([h[0] for h in hashes if h and h[0]])
-
-    # Sanitize version header (single line, bracket-safe)
-    version = (version or "").strip()
-    version = version.replace("\r", " ").replace("\n", " ")
-    version = version.replace("[", "").replace("]", "")
-    if len(version) > 80:
-        version = version[:80]
-    if not version:
-        version = "unknown"
-
-    txt_content = f"[{version}]\n" + ";".join(unique_hashes)
+    hashes = fetch_refuted_hashes(db)
+    version = sanitize_falses_version(version)
+    txt_content = build_falses_txt_content(hashes, version)
 
     # Use zip for large payloads
     use_zip = len(txt_content.encode("utf-8")) > 2 * 1024 * 1024  # 2MB
