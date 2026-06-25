@@ -2,10 +2,8 @@ import asyncio
 import hashlib
 import logging
 from pathlib import Path
-from typing import Optional
 
 from sqlalchemy import distinct
-from sqlalchemy.orm import Session
 
 from config import FALSES_REFRESH_INTERVAL_HOURS
 from models import Scan, Secret
@@ -67,7 +65,7 @@ def sanitize_falses_version(version: str) -> str:
     return version or "unknown"
 
 
-def fetch_refuted_hashes(db: Session) -> list[str]:
+def fetch_refuted_hashes(db):
     rows = db.query(distinct(Secret.hash_from_ci)).join(
         Scan, Secret.scan_id == Scan.id
     ).filter(
@@ -80,7 +78,7 @@ def fetch_refuted_hashes(db: Session) -> list[str]:
     return sorted({row[0] for row in rows if row and row[0]})
 
 
-def build_falses_txt_content(hashes: list[str], version: str) -> str:
+def build_falses_txt_content(hashes, version):
     safe_version = sanitize_falses_version(version)
     return f"[{safe_version}]\n" + ";".join(hashes)
 
@@ -89,7 +87,7 @@ def compute_content_sha256(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
-def refresh_falses_file(version: Optional[str] = None, *, on_startup: bool = False) -> dict:
+def refresh_falses_file(version=None, on_startup=False):
     """Rebuild falses.txt and overwrite only when file content hash changes.
 
     On service startup (on_startup=True) the existing file is removed first so

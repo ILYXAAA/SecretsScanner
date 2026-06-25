@@ -6,7 +6,6 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 from urllib.parse import quote, urlparse
 
 import httpx
@@ -95,7 +94,7 @@ class AzureDevOpsFalsesPusher:
     def __init__(self, target: AdoGitTarget, client: httpx.Client):
         self.target = target
         self.client = client
-        self._repo_id: Optional[str] = None
+        self._repo_id = None
 
     def _repo_url(self, suffix: str) -> str:
         return f"{self.target.apis_base}/git/repositories/{suffix}?api-version={ADO_API_VERSION}"
@@ -240,7 +239,7 @@ def _git_basic_auth_header(pat: str) -> str:
     return f"Authorization: Basic {encoded}"
 
 
-def build_git_auth_url(repo_url: str, pat: str, username: Optional[str] = None) -> str:
+def build_git_auth_url(repo_url, pat, username=None):
     """Fallback: embed credentials in URL (some old git versions)."""
     url = build_git_repo_url(repo_url)
     parsed = urlparse(url)
@@ -252,8 +251,8 @@ def build_git_auth_url(repo_url: str, pat: str, username: Optional[str] = None) 
     return f"{parsed.scheme}://{user}:{password}@{host}{parsed.path}"
 
 
-def _git_config_prefix(*, with_auth: bool = True) -> list[str]:
-    configs: list[str] = []
+def _git_config_prefix(with_auth=True):
+    configs = []
     if not FALSES_GIT_SSL_VERIFY:
         configs.extend(["-c", "http.sslVerify=false"])
     if with_auth and FALSES_GIT_PAT:
@@ -261,9 +260,10 @@ def _git_config_prefix(*, with_auth: bool = True) -> list[str]:
     return configs
 
 
-def _git_cmd(*args: str, with_auth: bool = True) -> list[str]:
+def _git_cmd(*args, **kwargs):
+    with_auth = kwargs.pop("with_auth", True)
     git = _resolve_git_binary()
-    return [git, *_git_config_prefix(with_auth=with_auth), *args]
+    return [git] + _git_config_prefix(with_auth=with_auth) + list(args)
 
 
 def _resolve_git_binary() -> str:
@@ -289,7 +289,7 @@ def _resolve_git_binary() -> str:
     )
 
 
-def _run_git(args: list[str], cwd: Path, check: bool = True) -> subprocess.CompletedProcess:
+def _run_git(args, cwd, check=True):
     result = subprocess.run(
         args,
         cwd=str(cwd),
@@ -305,14 +305,7 @@ def _run_git(args: list[str], cwd: Path, check: bool = True) -> subprocess.Compl
     return result
 
 
-def _try_clone_variants(
-    clone_url: str,
-    repo_dir: Path,
-    branch_name: str,
-    work_dir: Path,
-    *,
-    with_auth_header: bool,
-) -> Optional[bool]:
+def _try_clone_variants(clone_url, repo_dir, branch_name, work_dir, with_auth_header=True):
     """Returns True if remote branch exists, False if new branch, None if all strategies failed."""
     with_branch = [
         ["clone", "--filter=blob:none", "--sparse", "--depth", "1", "-b", branch_name, clone_url, str(repo_dir)],
@@ -357,7 +350,7 @@ def _clone_ado_repo(repo_dir: Path, branch_name: str, work_dir: Path) -> bool:
         ("header", build_git_repo_url(FALSES_GIT_REPO_URL), True),
         ("url", build_git_auth_url(FALSES_GIT_REPO_URL, FALSES_GIT_PAT), False),
     ]
-    last_error: Optional[RuntimeError] = None
+    last_error = None
     for auth_mode, clone_url, with_auth_header in auth_attempts:
         try:
             result = _try_clone_variants(
@@ -386,9 +379,7 @@ def _try_sparse_checkout(repo_dir: Path, sparse_dir: str) -> None:
         )
 
 
-def push_falses_via_git_cli(
-    file_path: Path, content_hash: str, hash_count: int, *, force_push: bool = False
-) -> dict:
+def push_falses_via_git_cli(file_path, content_hash, hash_count, force_push=False):
     """Push via native git (no 25 MB REST API limit)."""
     branch_name = (FALSES_GIT_BRANCH or "script_with_Docker").strip()
     repo_file_path = _normalize_repo_file_path(FALSES_GIT_FILE_PATH).lstrip("/")
@@ -440,9 +431,7 @@ def push_falses_via_git_cli(
         }
 
 
-def push_falses_file_to_git(
-    file_path: Path, content_hash: str, hash_count: int, *, force_push: bool = False
-) -> dict:
+def push_falses_file_to_git(file_path, content_hash, hash_count, force_push=False):
     """Push generated falses.txt to the configured Azure DevOps branch."""
     if not is_falses_git_push_configured():
         return {"pushed": False, "skipped": True, "reason": "git push not configured"}

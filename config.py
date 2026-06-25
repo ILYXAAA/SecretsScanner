@@ -47,7 +47,7 @@ BACKUP_INTERVAL_HOURS = int(os.getenv("BACKUP_INTERVAL_HOURS", "24"))
 FALSES_REFRESH_INTERVAL_HOURS = int(os.getenv("FALSES_REFRESH_INTERVAL_HOURS", "1"))
 
 # Optional: auto-push falses.txt to Azure DevOps Git
-def _env_unquoted(key: str, default: str = "") -> str:
+def _env_unquoted(key, default=""):
     return os.getenv(key, default).strip().strip('"').strip("'")
 
 
