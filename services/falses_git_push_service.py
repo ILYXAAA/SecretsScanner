@@ -304,7 +304,7 @@ def _git_run(args, cwd, check=True, timeout=600, use_extraheader=False):
 
 
 def _git_clone_repo(repo_dir, branch_name, work_dir):
-    """Clone like test.py. Returns (remote_branch_exists, use_extraheader)."""
+    """Full clone of the repo. Returns (remote_branch_exists, use_extraheader)."""
     if repo_dir.exists():
         shutil.rmtree(repo_dir, ignore_errors=True)
 
@@ -312,63 +312,58 @@ def _git_clone_repo(repo_dir, branch_name, work_dir):
         ("url", _git_auth_url(), False),
         ("extraheader", build_git_repo_url(FALSES_GIT_REPO_URL), True),
     ]
-    clone_variants = [
-        ["clone", "--filter=blob:none", "--depth", "1", "-b", branch_name],
-        ["clone", "--depth", "1", "-b", branch_name],
-    ]
 
     for auth_name, clone_url, use_extraheader in clone_attempts:
-        for variant in clone_variants:
-            if repo_dir.exists():
-                shutil.rmtree(repo_dir, ignore_errors=True)
-            try:
-                _git_run(variant + [clone_url, str(repo_dir)], work_dir, use_extraheader=use_extraheader)
-                falses_git_logger.info("git clone ok (auth=%s): %s", auth_name, " ".join(variant))
-                return True, use_extraheader
-            except RuntimeError:
-                continue
+        if repo_dir.exists():
+            shutil.rmtree(repo_dir, ignore_errors=True)
+        try:
+            _git_run(
+                ["clone", "-b", branch_name, clone_url, str(repo_dir)],
+                work_dir,
+                use_extraheader=use_extraheader,
+            )
+            falses_git_logger.info("git clone ok (auth=%s): clone -b %s", auth_name, branch_name)
+            return True, use_extraheader
+        except RuntimeError:
+            pass
 
-        for variant in [["clone", "--filter=blob:none", "--depth", "1"], ["clone", "--depth", "1"]]:
-            if repo_dir.exists():
-                shutil.rmtree(repo_dir, ignore_errors=True)
-            try:
-                _git_run(variant + [clone_url, str(repo_dir)], work_dir, use_extraheader=use_extraheader)
-                _git_run(["checkout", "-b", branch_name], repo_dir, use_extraheader=use_extraheader)
-                falses_git_logger.info("git clone ok new branch (auth=%s)", auth_name)
-                return False, use_extraheader
-            except RuntimeError:
-                continue
+        if repo_dir.exists():
+            shutil.rmtree(repo_dir, ignore_errors=True)
+        try:
+            _git_run(["clone", clone_url, str(repo_dir)], work_dir, use_extraheader=use_extraheader)
+            _git_run(["checkout", "-b", branch_name], repo_dir, use_extraheader=use_extraheader)
+            falses_git_logger.info("git clone ok new branch (auth=%s)", auth_name)
+            return False, use_extraheader
+        except RuntimeError:
+            continue
 
     raise RuntimeError("git clone failed (check FALSES_GIT_PAT and FALSES_GIT_REPO_URL)")
 
 
 def push_falses_via_git_cli(file_path, content_hash, hash_count, force_push=False):
-    """Push via native git — same flow as test.py."""
+    """Push via native git CLI (full clone, commit, push)."""
     branch_name = (FALSES_GIT_BRANCH or "script_with_Docker").strip()
     repo_file_path = _normalize_repo_file_path(FALSES_GIT_FILE_PATH).lstrip("/")
-    sparse_dir = str(Path(repo_file_path).parent).replace("\\", "/")
     commit_message = "chore: update falses.txt (sha256=%s, count=%s)" % (content_hash[:16], hash_count)
 
     with tempfile.TemporaryDirectory(prefix="falses_git_push_") as tmp:
         repo_dir = Path(tmp) / "repo"
         work_dir = Path(tmp)
+        falses_git_logger.info("git clone starting (branch=%s)", branch_name)
         branch_remote, use_extraheader = _git_clone_repo(repo_dir, branch_name, work_dir)
-
-        if sparse_dir and sparse_dir != ".":
-            try:
-                _git_run(["sparse-checkout", "set", sparse_dir], repo_dir, use_extraheader=use_extraheader)
-            except RuntimeError:
-                falses_git_logger.info("sparse-checkout unavailable, using full shallow clone")
 
         dest = repo_dir / repo_file_path
         dest.parent.mkdir(parents=True, exist_ok=True)
+        falses_git_logger.info("copying falses.txt into clone at %s", dest)
         shutil.copy2(file_path, dest)
 
         _git_run(["config", "user.name", FALSES_GIT_COMMITTER_NAME], repo_dir)
         _git_run(["config", "user.email", FALSES_GIT_COMMITTER_EMAIL], repo_dir)
         _git_run(["config", "http.postBuffer", "524288000"], repo_dir)
+        falses_git_logger.info("git add %s", repo_file_path)
         _git_run(["add", repo_file_path], repo_dir)
 
+        falses_git_logger.info("checking staged diff")
         diff = _run_git(_git_cmd(use_extraheader) + ["diff", "--cached", "--quiet"], repo_dir, check=False)
         if diff.returncode == 0:
             if not force_push:
@@ -377,9 +372,11 @@ def push_falses_via_git_cli(file_path, content_hash, hash_count, force_push=Fals
             falses_git_logger.info("falses.txt unchanged on remote, creating startup sync commit")
             _git_run(["commit", "--allow-empty", "-m", commit_message], repo_dir, use_extraheader=use_extraheader)
         else:
+            falses_git_logger.info("git commit")
             _git_run(["commit", "-m", commit_message], repo_dir, use_extraheader=use_extraheader)
 
         push_args = ["push", "-u", "origin", branch_name] if not branch_remote else ["push", "origin", branch_name]
+        falses_git_logger.info("git push starting (%s)", " ".join(push_args))
         _git_run(push_args, repo_dir, timeout=1800, use_extraheader=use_extraheader)
 
         falses_git_logger.info(
