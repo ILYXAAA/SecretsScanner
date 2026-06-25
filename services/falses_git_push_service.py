@@ -12,6 +12,7 @@ from urllib.parse import quote, urlparse
 import httpx
 
 from config import (
+    FALSES_GIT_BINARY,
     FALSES_GIT_BRANCH,
     FALSES_GIT_COMMITTER_EMAIL,
     FALSES_GIT_COMMITTER_NAME,
@@ -234,10 +235,34 @@ def build_git_auth_url(repo_url: str, pat: str) -> str:
     return f"{parsed.scheme}://:{quote(pat, safe='')}@{host}{parsed.path}"
 
 
+def _resolve_git_binary() -> str:
+    """Find git executable; service processes often have a minimal PATH."""
+    configured = (FALSES_GIT_BINARY or "").strip()
+    if configured:
+        path = Path(configured)
+        if not path.is_file():
+            raise RuntimeError(f"FALSES_GIT_BINARY not found: {configured}")
+        return str(path)
+
+    found = shutil.which("git")
+    if found:
+        return found
+
+    for candidate in ("/usr/bin/git", "/usr/local/bin/git", "/bin/git"):
+        if Path(candidate).is_file():
+            return candidate
+
+    raise RuntimeError(
+        "git executable not found. Install git or set FALSES_GIT_BINARY in .env "
+        "(e.g. FALSES_GIT_BINARY=/usr/bin/git)"
+    )
+
+
 def _git_cmd(*args: str) -> list[str]:
+    git = _resolve_git_binary()
     if FALSES_GIT_SSL_VERIFY:
-        return ["git", *args]
-    return ["git", "-c", "http.sslVerify=false", *args]
+        return [git, *args]
+    return [git, "-c", "http.sslVerify=false", *args]
 
 
 def _run_git(args: list[str], cwd: Path, check: bool = True) -> subprocess.CompletedProcess:
@@ -342,8 +367,9 @@ def push_falses_file_to_git(
     content_size = len(content.encode("utf-8"))
     if content_size > MAX_REST_PUSH_BYTES:
         falses_git_logger.info(
-            "falses.txt is %s MB — using git CLI push (REST limit is 25 MB)",
+            "falses.txt is %s MB — using git CLI push (REST limit is 25 MB), git=%s",
             round(content_size / (1024 * 1024), 1),
+            _resolve_git_binary(),
         )
         return push_falses_via_git_cli(file_path, content_hash, hash_count, force_push=force_push)
 

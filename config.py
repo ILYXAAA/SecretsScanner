@@ -54,6 +54,8 @@ FALSES_GIT_FILE_PATH = os.getenv("FALSES_GIT_FILE_PATH", "/src/storage/falses.tx
 FALSES_GIT_COMMITTER_NAME = os.getenv("FALSES_GIT_COMMITTER_NAME", "SecretsScanner_bot")
 FALSES_GIT_COMMITTER_EMAIL = os.getenv("FALSES_GIT_COMMITTER_EMAIL", "secrets-scanner@local")
 FALSES_GIT_SSL_VERIFY = os.getenv("FALSES_GIT_SSL_VERIFY", "false").lower() in ("1", "true", "yes", "on")
+# Full path to git binary (systemd/minimal PATH often omits /usr/bin)
+FALSES_GIT_BINARY = os.getenv("FALSES_GIT_BINARY", "").strip()
 
 # Create necessary directories
 Path(BACKUP_DIR).mkdir(exist_ok=True)
