@@ -315,17 +315,49 @@ def _run_git(args, cwd, check=True, timeout=600):
     return result
 
 
-def _configure_git_for_push(repo_dir):
-    """Old git + large files: credentialed remote URL and bigger HTTP buffer."""
-    auth_remote = build_git_auth_url(FALSES_GIT_REPO_URL, FALSES_GIT_PAT)
-    _run_git(
-        _git_cmd("remote", "set-url", "origin", auth_remote, with_auth=False),
-        cwd=repo_dir,
-    )
+def _configure_git_for_push(repo_dir, auth_mode="header"):
+    """Prepare repo for large-file push using the same auth mode as clone."""
     _run_git(
         _git_cmd("config", "http.postBuffer", "524288000", with_auth=False),
         cwd=repo_dir,
     )
+    if auth_mode == "header":
+        remote_url = build_git_repo_url(FALSES_GIT_REPO_URL)
+    else:
+        remote_url = build_git_auth_url(FALSES_GIT_REPO_URL, FALSES_GIT_PAT)
+    _run_git(
+        _git_cmd("remote", "set-url", "origin", remote_url, with_auth=False),
+        cwd=repo_dir,
+    )
+
+
+def _run_git_push(repo_dir, branch_name, branch_exists_remotely, auth_mode, timeout=1800):
+    """Push branch; retry with alternate auth if the clone auth mode fails."""
+    modes = [auth_mode]
+    modes.append("url" if auth_mode == "header" else "header")
+
+    last_error = None
+    for mode in modes:
+        _configure_git_for_push(repo_dir, mode)
+        push_args = ["push", "origin", branch_name]
+        if not branch_exists_remotely:
+            push_args = ["push", "-u", "origin", branch_name]
+        try:
+            _run_git(
+                _git_cmd(*push_args, with_auth=(mode == "header")),
+                cwd=repo_dir,
+                timeout=timeout,
+            )
+            falses_git_logger.info("git push auth mode: %s", mode)
+            return
+        except RuntimeError as exc:
+            last_error = exc
+            err_text = str(exc).lower()
+            if "authentication failed" not in err_text and "auth" not in err_text:
+                raise
+            falses_git_logger.warning("git push failed with auth mode %s, trying next", mode)
+
+    raise last_error or RuntimeError("git push failed")
 
 
 def _try_clone_variants(clone_url, repo_dir, branch_name, work_dir, with_auth_header=True):
@@ -364,8 +396,8 @@ def _try_clone_variants(clone_url, repo_dir, branch_name, work_dir, with_auth_he
     return None
 
 
-def _clone_ado_repo(repo_dir: Path, branch_name: str, work_dir: Path) -> bool:
-    """Clone Azure DevOps repo; returns True when remote branch exists."""
+def _clone_ado_repo(repo_dir, branch_name, work_dir):
+    """Clone Azure DevOps repo; returns (remote_branch_exists, auth_mode)."""
     if repo_dir.exists():
         shutil.rmtree(repo_dir, ignore_errors=True)
 
@@ -381,7 +413,7 @@ def _clone_ado_repo(repo_dir: Path, branch_name: str, work_dir: Path) -> bool:
             )
             if result is not None:
                 falses_git_logger.info("git clone auth mode: %s", auth_mode)
-                return result
+                return result, auth_mode
         except RuntimeError as exc:
             last_error = exc
 
@@ -412,7 +444,7 @@ def push_falses_via_git_cli(file_path, content_hash, hash_count, force_push=Fals
     with tempfile.TemporaryDirectory(prefix="falses_git_push_") as tmp:
         repo_dir = Path(tmp) / "repo"
         work_dir = Path(tmp)
-        branch_exists_remotely = _clone_ado_repo(repo_dir, branch_name, work_dir)
+        branch_exists_remotely, clone_auth_mode = _clone_ado_repo(repo_dir, branch_name, work_dir)
         _try_sparse_checkout(repo_dir, sparse_dir)
 
         dest = repo_dir / repo_file_path
@@ -437,12 +469,7 @@ def push_falses_via_git_cli(file_path, content_hash, hash_count, force_push=Fals
         else:
             _run_git(_git_cmd("commit", "-m", commit_message, with_auth=False), cwd=repo_dir)
 
-        _configure_git_for_push(repo_dir)
-        push_timeout = 1800
-        if branch_exists_remotely:
-            _run_git(_git_cmd("push", "origin", branch_name, with_auth=False), cwd=repo_dir, timeout=push_timeout)
-        else:
-            _run_git(_git_cmd("push", "-u", "origin", branch_name, with_auth=False), cwd=repo_dir, timeout=push_timeout)
+        _run_git_push(repo_dir, branch_name, branch_exists_remotely, clone_auth_mode)
 
         falses_git_logger.info(
             "Pushed falses.txt via git to %s@%s",
