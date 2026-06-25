@@ -19,7 +19,6 @@ from config import (
     FALSES_GIT_PAT,
     FALSES_GIT_REPO_URL,
     FALSES_GIT_SSL_VERIFY,
-    FALSES_GIT_USERNAME,
 )
 
 falses_git_logger = logging.getLogger("falses_export")
@@ -224,69 +223,56 @@ class AzureDevOpsFalsesPusher:
         raise RuntimeError(f"Failed to push falses.txt after {MAX_PUSH_ATTEMPTS} attempts: {last_error}")
 
 
-def build_git_repo_url(repo_url: str) -> str:
-    """Normalize Azure DevOps web URL (no credentials embedded)."""
+def build_git_repo_url(repo_url):
     url = repo_url.strip().rstrip("/")
     if url.lower().endswith(".git"):
         url = url[:-4]
     return url
 
 
-def _git_basic_auth_header(pat: str) -> str:
-    """Same Basic auth as Azure DevOps REST API (:PAT base64)."""
-    token = (pat or "").strip().strip('"').strip("'")
-    encoded = base64.b64encode(f":{token}".encode("utf-8")).decode("ascii")
-    return f"Authorization: Basic {encoded}"
+def _normalize_pat(pat):
+    return (pat or "").strip().strip('"').strip("'")
 
 
-def build_git_auth_url(repo_url, pat, username=None):
-    """Fallback: embed credentials in URL (some old git versions)."""
-    url = build_git_repo_url(repo_url)
+def _git_auth_url():
+    """Same as test.py: https://:PAT@host/path (empty username)."""
+    url = build_git_repo_url(FALSES_GIT_REPO_URL)
     parsed = urlparse(url)
-    host = parsed.hostname or ""
-    if parsed.port:
-        host = f"{host}:{parsed.port}"
-    user = quote((username if username is not None else FALSES_GIT_USERNAME) or "git", safe="")
-    password = quote((pat or "").strip().strip('"').strip("'"), safe="")
-    return f"{parsed.scheme}://{user}:{password}@{host}{parsed.path}"
+    host = "%s:%s" % (parsed.hostname, parsed.port) if parsed.port else parsed.hostname
+    pat = _normalize_pat(FALSES_GIT_PAT)
+    return "%s://:%s@%s%s" % (parsed.scheme, quote(pat, safe=""), host, parsed.path)
 
 
-def _git_config_prefix(with_auth=True):
-    configs = []
-    if not FALSES_GIT_SSL_VERIFY:
-        configs.extend(["-c", "http.sslVerify=false"])
-    if with_auth and FALSES_GIT_PAT:
-        configs.extend(["-c", f"http.extraHeader={_git_basic_auth_header(FALSES_GIT_PAT)}"])
-    return configs
-
-
-def _git_cmd(*args, **kwargs):
-    with_auth = kwargs.pop("with_auth", True)
-    git = _resolve_git_binary()
-    return [git] + _git_config_prefix(with_auth=with_auth) + list(args)
+def _git_basic_b64():
+    pat = _normalize_pat(FALSES_GIT_PAT)
+    return base64.b64encode((":%s" % pat).encode("utf-8")).decode("ascii")
 
 
 def _resolve_git_binary():
-    """Find git executable; service processes often have a minimal PATH."""
     configured = (FALSES_GIT_BINARY or "").strip()
     if configured:
         path = Path(configured)
         if not path.is_file():
-            raise RuntimeError(f"FALSES_GIT_BINARY not found: {configured}")
+            raise RuntimeError("FALSES_GIT_BINARY not found: %s" % configured)
         return str(path)
-
     found = shutil.which("git")
     if found:
         return found
-
     for candidate in ("/usr/bin/git", "/usr/local/bin/git", "/bin/git"):
         if Path(candidate).is_file():
             return candidate
-
     raise RuntimeError(
-        "git executable not found. Install git or set FALSES_GIT_BINARY in .env "
-        "(e.g. FALSES_GIT_BINARY=/usr/bin/git)"
+        "git executable not found. Install git or set FALSES_GIT_BINARY=/usr/bin/git"
     )
+
+
+def _git_cmd(use_extraheader=False):
+    cmd = [_resolve_git_binary()]
+    if not FALSES_GIT_SSL_VERIFY:
+        cmd.extend(["-c", "http.sslVerify=false"])
+    if use_extraheader:
+        cmd.extend(["-c", "http.extraheader=AUTHORIZATION: basic %s" % _git_basic_b64()])
+    return cmd
 
 
 def _run_git(args, cwd, check=True, timeout=600):
@@ -299,9 +285,7 @@ def _run_git(args, cwd, check=True, timeout=600):
             timeout=timeout,
         )
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(
-            "git command timed out after %ss: %s" % (timeout, " ".join(args))
-        ) from exc
+        raise RuntimeError("git command timed out after %ss: %s" % (timeout, " ".join(args))) from exc
 
     if check and result.returncode != 0:
         if result.returncode < 0:
@@ -315,161 +299,88 @@ def _run_git(args, cwd, check=True, timeout=600):
     return result
 
 
-def _configure_git_for_push(repo_dir, auth_mode="header"):
-    """Prepare repo for large-file push using the same auth mode as clone."""
-    _run_git(
-        _git_cmd("config", "http.postBuffer", "524288000", with_auth=False),
-        cwd=repo_dir,
-    )
-    if auth_mode == "header":
-        remote_url = build_git_repo_url(FALSES_GIT_REPO_URL)
-    else:
-        remote_url = build_git_auth_url(FALSES_GIT_REPO_URL, FALSES_GIT_PAT)
-    _run_git(
-        _git_cmd("remote", "set-url", "origin", remote_url, with_auth=False),
-        cwd=repo_dir,
-    )
+def _git_run(args, cwd, check=True, timeout=600, use_extraheader=False):
+    _run_git(_git_cmd(use_extraheader) + list(args), cwd, check=check, timeout=timeout)
 
 
-def _run_git_push(repo_dir, branch_name, branch_exists_remotely, auth_mode, timeout=1800):
-    """Push branch; retry with alternate auth if the clone auth mode fails."""
-    modes = [auth_mode]
-    modes.append("url" if auth_mode == "header" else "header")
-
-    last_error = None
-    for mode in modes:
-        _configure_git_for_push(repo_dir, mode)
-        push_args = ["push", "origin", branch_name]
-        if not branch_exists_remotely:
-            push_args = ["push", "-u", "origin", branch_name]
-        try:
-            _run_git(
-                _git_cmd(*push_args, with_auth=(mode == "header")),
-                cwd=repo_dir,
-                timeout=timeout,
-            )
-            falses_git_logger.info("git push auth mode: %s", mode)
-            return
-        except RuntimeError as exc:
-            last_error = exc
-            err_text = str(exc).lower()
-            if "authentication failed" not in err_text and "auth" not in err_text:
-                raise
-            falses_git_logger.warning("git push failed with auth mode %s, trying next", mode)
-
-    raise last_error or RuntimeError("git push failed")
-
-
-def _try_clone_variants(clone_url, repo_dir, branch_name, work_dir, with_auth_header=True):
-    """Returns True if remote branch exists, False if new branch, None if all strategies failed."""
-    with_branch = [
-        ["clone", "--filter=blob:none", "--sparse", "--depth", "1", "-b", branch_name, clone_url, str(repo_dir)],
-        ["clone", "--filter=blob:none", "--depth", "1", "-b", branch_name, clone_url, str(repo_dir)],
-        ["clone", "--depth", "1", "-b", branch_name, clone_url, str(repo_dir)],
-    ]
-    for clone_args in with_branch:
-        if repo_dir.exists():
-            shutil.rmtree(repo_dir, ignore_errors=True)
-        try:
-            _run_git(_git_cmd(*clone_args, with_auth=with_auth_header), cwd=work_dir)
-            falses_git_logger.info("git clone ok: %s", " ".join(clone_args[:6]))
-            return True
-        except RuntimeError:
-            continue
-
-    without_branch = [
-        ["clone", "--filter=blob:none", "--sparse", "--depth", "1", clone_url, str(repo_dir)],
-        ["clone", "--filter=blob:none", "--depth", "1", clone_url, str(repo_dir)],
-        ["clone", "--depth", "1", clone_url, str(repo_dir)],
-    ]
-    for clone_args in without_branch:
-        if repo_dir.exists():
-            shutil.rmtree(repo_dir, ignore_errors=True)
-        try:
-            _run_git(_git_cmd(*clone_args, with_auth=with_auth_header), cwd=work_dir)
-            _run_git(_git_cmd("checkout", "-b", branch_name, with_auth=False), cwd=repo_dir)
-            falses_git_logger.info("git clone ok (new branch): %s", " ".join(clone_args[:5]))
-            return False
-        except RuntimeError:
-            continue
-
-    return None
-
-
-def _clone_ado_repo(repo_dir, branch_name, work_dir):
-    """Clone Azure DevOps repo; returns (remote_branch_exists, auth_mode)."""
+def _git_clone_repo(repo_dir, branch_name, work_dir):
+    """Clone like test.py. Returns (remote_branch_exists, use_extraheader)."""
     if repo_dir.exists():
         shutil.rmtree(repo_dir, ignore_errors=True)
 
-    auth_attempts = [
-        ("header", build_git_repo_url(FALSES_GIT_REPO_URL), True),
-        ("url", build_git_auth_url(FALSES_GIT_REPO_URL, FALSES_GIT_PAT), False),
+    clone_attempts = [
+        ("url", _git_auth_url(), False),
+        ("extraheader", build_git_repo_url(FALSES_GIT_REPO_URL), True),
     ]
-    last_error = None
-    for auth_mode, clone_url, with_auth_header in auth_attempts:
-        try:
-            result = _try_clone_variants(
-                clone_url, repo_dir, branch_name, work_dir, with_auth_header=with_auth_header
-            )
-            if result is not None:
-                falses_git_logger.info("git clone auth mode: %s", auth_mode)
-                return result, auth_mode
-        except RuntimeError as exc:
-            last_error = exc
+    clone_variants = [
+        ["clone", "--filter=blob:none", "--depth", "1", "-b", branch_name],
+        ["clone", "--depth", "1", "-b", branch_name],
+    ]
 
-    raise last_error or RuntimeError("git clone failed (check FALSES_GIT_PAT and FALSES_GIT_REPO_URL)")
+    for auth_name, clone_url, use_extraheader in clone_attempts:
+        for variant in clone_variants:
+            if repo_dir.exists():
+                shutil.rmtree(repo_dir, ignore_errors=True)
+            try:
+                _git_run(variant + [clone_url, str(repo_dir)], work_dir, use_extraheader=use_extraheader)
+                falses_git_logger.info("git clone ok (auth=%s): %s", auth_name, " ".join(variant))
+                return True, use_extraheader
+            except RuntimeError:
+                continue
 
+        for variant in [["clone", "--filter=blob:none", "--depth", "1"], ["clone", "--depth", "1"]]:
+            if repo_dir.exists():
+                shutil.rmtree(repo_dir, ignore_errors=True)
+            try:
+                _git_run(variant + [clone_url, str(repo_dir)], work_dir, use_extraheader=use_extraheader)
+                _git_run(["checkout", "-b", branch_name], repo_dir, use_extraheader=use_extraheader)
+                falses_git_logger.info("git clone ok new branch (auth=%s)", auth_name)
+                return False, use_extraheader
+            except RuntimeError:
+                continue
 
-def _try_sparse_checkout(repo_dir: Path, sparse_dir: str) -> None:
-    if not sparse_dir or sparse_dir == ".":
-        return
-    result = _run_git(
-        _git_cmd("sparse-checkout", "set", sparse_dir, with_auth=False),
-        cwd=repo_dir,
-        check=False,
-    )
-    if result.returncode != 0:
-        falses_git_logger.info(
-            "sparse-checkout unavailable, continuing with full shallow clone"
-        )
+    raise RuntimeError("git clone failed (check FALSES_GIT_PAT and FALSES_GIT_REPO_URL)")
 
 
 def push_falses_via_git_cli(file_path, content_hash, hash_count, force_push=False):
-    """Push via native git (no 25 MB REST API limit)."""
+    """Push via native git — same flow as test.py."""
     branch_name = (FALSES_GIT_BRANCH or "script_with_Docker").strip()
     repo_file_path = _normalize_repo_file_path(FALSES_GIT_FILE_PATH).lstrip("/")
     sparse_dir = str(Path(repo_file_path).parent).replace("\\", "/")
-    commit_message = f"chore: update falses.txt (sha256={content_hash[:16]}, count={hash_count})"
+    commit_message = "chore: update falses.txt (sha256=%s, count=%s)" % (content_hash[:16], hash_count)
 
     with tempfile.TemporaryDirectory(prefix="falses_git_push_") as tmp:
         repo_dir = Path(tmp) / "repo"
         work_dir = Path(tmp)
-        branch_exists_remotely, clone_auth_mode = _clone_ado_repo(repo_dir, branch_name, work_dir)
-        _try_sparse_checkout(repo_dir, sparse_dir)
+        branch_remote, use_extraheader = _git_clone_repo(repo_dir, branch_name, work_dir)
+
+        if sparse_dir and sparse_dir != ".":
+            try:
+                _git_run(["sparse-checkout", "set", sparse_dir], repo_dir, use_extraheader=use_extraheader)
+            except RuntimeError:
+                falses_git_logger.info("sparse-checkout unavailable, using full shallow clone")
 
         dest = repo_dir / repo_file_path
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(file_path, dest)
 
-        _run_git(_git_cmd("config", "user.name", FALSES_GIT_COMMITTER_NAME, with_auth=False), cwd=repo_dir)
-        _run_git(_git_cmd("config", "user.email", FALSES_GIT_COMMITTER_EMAIL, with_auth=False), cwd=repo_dir)
-        _run_git(_git_cmd("add", repo_file_path, with_auth=False), cwd=repo_dir)
+        _git_run(["config", "user.name", FALSES_GIT_COMMITTER_NAME], repo_dir)
+        _git_run(["config", "user.email", FALSES_GIT_COMMITTER_EMAIL], repo_dir)
+        _git_run(["config", "http.postBuffer", "524288000"], repo_dir)
+        _git_run(["add", repo_file_path], repo_dir)
 
-        diff = _run_git(_git_cmd("diff", "--cached", "--quiet", with_auth=False), cwd=repo_dir, check=False)
+        diff = _run_git(_git_cmd(use_extraheader) + ["diff", "--cached", "--quiet"], repo_dir, check=False)
         if diff.returncode == 0:
             if not force_push:
-                falses_git_logger.info(
-                    "falses.txt git push skipped: remote already has identical content"
-                )
+                falses_git_logger.info("falses.txt git push skipped: remote already has identical content")
                 return {"pushed": False, "skipped": True, "reason": "no changes", "method": "git"}
-            falses_git_logger.info(
-                "falses.txt unchanged on remote, creating startup sync commit"
-            )
-            _run_git(_git_cmd("commit", "--allow-empty", "-m", commit_message, with_auth=False), cwd=repo_dir)
+            falses_git_logger.info("falses.txt unchanged on remote, creating startup sync commit")
+            _git_run(["commit", "--allow-empty", "-m", commit_message], repo_dir, use_extraheader=use_extraheader)
         else:
-            _run_git(_git_cmd("commit", "-m", commit_message, with_auth=False), cwd=repo_dir)
+            _git_run(["commit", "-m", commit_message], repo_dir, use_extraheader=use_extraheader)
 
-        _run_git_push(repo_dir, branch_name, branch_exists_remotely, clone_auth_mode)
+        push_args = ["push", "-u", "origin", branch_name] if not branch_remote else ["push", "origin", branch_name]
+        _git_run(push_args, repo_dir, timeout=1800, use_extraheader=use_extraheader)
 
         falses_git_logger.info(
             "Pushed falses.txt via git to %s@%s",

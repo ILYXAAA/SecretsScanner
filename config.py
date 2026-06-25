@@ -53,7 +53,6 @@ def _env_unquoted(key, default=""):
 
 FALSES_GIT_REPO_URL = _env_unquoted("FALSES_GIT_REPO_URL")
 FALSES_GIT_PAT = _env_unquoted("FALSES_GIT_PAT")
-FALSES_GIT_USERNAME = _env_unquoted("FALSES_GIT_USERNAME", "git")
 FALSES_GIT_BRANCH = _env_unquoted("FALSES_GIT_BRANCH", "script_with_Docker")
 FALSES_GIT_FILE_PATH = _env_unquoted("FALSES_GIT_FILE_PATH", "/src/storage/falses.txt")
 FALSES_GIT_COMMITTER_NAME = _env_unquoted("FALSES_GIT_COMMITTER_NAME", "SecretsScanner_bot")
