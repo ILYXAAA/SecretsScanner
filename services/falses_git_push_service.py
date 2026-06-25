@@ -281,6 +281,60 @@ def _run_git(args: list[str], cwd: Path, check: bool = True) -> subprocess.Compl
     return result
 
 
+def _clone_ado_repo(auth_url: str, repo_dir: Path, branch_name: str, work_dir: Path) -> bool:
+    """Clone Azure DevOps repo; returns True when remote branch exists."""
+    if repo_dir.exists():
+        shutil.rmtree(repo_dir, ignore_errors=True)
+
+    with_branch = [
+        ["clone", "--filter=blob:none", "--sparse", "--depth", "1", "-b", branch_name, auth_url, str(repo_dir)],
+        ["clone", "--filter=blob:none", "--depth", "1", "-b", branch_name, auth_url, str(repo_dir)],
+        ["clone", "--depth", "1", "-b", branch_name, auth_url, str(repo_dir)],
+    ]
+    last_error: Optional[RuntimeError] = None
+    for clone_args in with_branch:
+        if repo_dir.exists():
+            shutil.rmtree(repo_dir, ignore_errors=True)
+        try:
+            _run_git(_git_cmd(*clone_args), cwd=work_dir)
+            falses_git_logger.info("git clone ok: %s", " ".join(clone_args[:6]))
+            return True
+        except RuntimeError as exc:
+            last_error = exc
+
+    without_branch = [
+        ["clone", "--filter=blob:none", "--sparse", "--depth", "1", auth_url, str(repo_dir)],
+        ["clone", "--filter=blob:none", "--depth", "1", auth_url, str(repo_dir)],
+        ["clone", "--depth", "1", auth_url, str(repo_dir)],
+    ]
+    for clone_args in without_branch:
+        if repo_dir.exists():
+            shutil.rmtree(repo_dir, ignore_errors=True)
+        try:
+            _run_git(_git_cmd(*clone_args), cwd=work_dir)
+            _run_git(_git_cmd("checkout", "-b", branch_name), cwd=repo_dir)
+            falses_git_logger.info("git clone ok (new branch): %s", " ".join(clone_args[:5]))
+            return False
+        except RuntimeError as exc:
+            last_error = exc
+
+    raise last_error or RuntimeError("git clone failed")
+
+
+def _try_sparse_checkout(repo_dir: Path, sparse_dir: str) -> None:
+    if not sparse_dir or sparse_dir == ".":
+        return
+    result = _run_git(
+        _git_cmd("sparse-checkout", "set", sparse_dir),
+        cwd=repo_dir,
+        check=False,
+    )
+    if result.returncode != 0:
+        falses_git_logger.info(
+            "sparse-checkout unavailable, continuing with full shallow clone"
+        )
+
+
 def push_falses_via_git_cli(
     file_path: Path, content_hash: str, hash_count: int, *, force_push: bool = False
 ) -> dict:
@@ -293,29 +347,9 @@ def push_falses_via_git_cli(
 
     with tempfile.TemporaryDirectory(prefix="falses_git_push_") as tmp:
         repo_dir = Path(tmp) / "repo"
-        branch_exists_remotely = False
-
-        try:
-            _run_git(
-                _git_cmd(
-                    "clone", "--filter=blob:none", "--sparse", "--depth", "1",
-                    "-b", branch_name, auth_url, str(repo_dir),
-                ),
-                cwd=Path(tmp),
-            )
-            branch_exists_remotely = True
-        except RuntimeError:
-            _run_git(
-                _git_cmd(
-                    "clone", "--filter=blob:none", "--sparse", "--depth", "1",
-                    auth_url, str(repo_dir),
-                ),
-                cwd=Path(tmp),
-            )
-            _run_git(_git_cmd("checkout", "-b", branch_name), cwd=repo_dir)
-
-        if sparse_dir and sparse_dir != ".":
-            _run_git(_git_cmd("sparse-checkout", "set", sparse_dir), cwd=repo_dir)
+        work_dir = Path(tmp)
+        branch_exists_remotely = _clone_ado_repo(auth_url, repo_dir, branch_name, work_dir)
+        _try_sparse_checkout(repo_dir, sparse_dir)
 
         dest = repo_dir / repo_file_path
         dest.parent.mkdir(parents=True, exist_ok=True)
