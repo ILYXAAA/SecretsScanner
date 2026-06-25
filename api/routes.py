@@ -4,8 +4,8 @@ import json
 import logging
 import urllib.parse
 import asyncio
-from datetime import datetime
-from typing import List
+from datetime import datetime, timedelta
+from typing import List, Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, HTMLResponse
 from sqlalchemy.orm import Session
@@ -28,6 +28,163 @@ from utils.html_report_generator import generate_html_report
 logger = logging.getLogger("main")
 user_logger = logging.getLogger("user_actions")
 router = APIRouter(prefix=f"/api/v1")
+
+SCAN_REUSE_MAX_AGE = timedelta(hours=1)
+ACTIVE_SCAN_STATUSES = ("pending", "running")
+
+
+def commits_match(commit_a: Optional[str], commit_b: Optional[str]) -> bool:
+    """Compare git commit hashes (full or short prefix, case-insensitive)."""
+    if not commit_a or not commit_b:
+        return False
+    a = commit_a.strip().lower()
+    b = commit_b.strip().lower()
+    if a == b:
+        return True
+    shorter, longer = (a, b) if len(a) <= len(b) else (b, a)
+    return len(shorter) >= 7 and longer.startswith(shorter)
+
+
+def resolve_scan_target(
+    repository: str,
+    *,
+    ref_type: Optional[str] = None,
+    ref: Optional[str] = None,
+    commit: Optional[str] = None,
+) -> Tuple[str, str, str]:
+    """Parse API scan input into (base_repo_url, ref_type, ref)."""
+    from api.url_parser import parse_repo_url_with_ref
+
+    try:
+        parsed = parse_repo_url_with_ref(repository)
+        base_repo_url = parsed["base_repo_url"]
+        resolved_ref_type = parsed["ref_type"]
+        resolved_ref = parsed["ref"]
+    except ValueError as e:
+        base_repo_url = validate_repo_url(repository, HUB_TYPE)
+        if ref_type and ref:
+            resolved_ref_type = ref_type
+            resolved_ref = ref
+        elif commit:
+            resolved_ref_type = "Commit"
+            resolved_ref = commit
+        else:
+            raise ValueError(
+                f"Could not parse ref from URL: {e}. Provide ref_type and ref, or use URL with ref."
+            ) from e
+
+    if resolved_ref_type == "Branch" and resolved_ref == "main":
+        if ref_type and ref:
+            resolved_ref_type = ref_type
+            resolved_ref = ref
+        elif commit:
+            resolved_ref_type = "Commit"
+            resolved_ref = commit
+
+    return base_repo_url, resolved_ref_type, resolved_ref
+
+
+def _find_active_scan(db: Session, project_name: str, ref_type: str, ref: str) -> Optional[Scan]:
+    active_by_ref = (
+        db.query(Scan)
+        .filter(
+            Scan.project_name == project_name,
+            Scan.status.in_(ACTIVE_SCAN_STATUSES),
+            Scan.ref_type == ref_type,
+            Scan.ref == ref,
+        )
+        .order_by(Scan.started_at.asc())
+        .first()
+    )
+    if active_by_ref:
+        return active_by_ref
+
+    if ref_type != "Commit":
+        return None
+
+    active_with_commit = (
+        db.query(Scan)
+        .filter(
+            Scan.project_name == project_name,
+            Scan.status.in_(ACTIVE_SCAN_STATUSES),
+            Scan.repo_commit.isnot(None),
+        )
+        .order_by(Scan.started_at.asc())
+        .all()
+    )
+    for scan in active_with_commit:
+        if commits_match(scan.repo_commit, ref):
+            return scan
+    return None
+
+
+def _find_recent_completed_scan(
+    db: Session, project_name: str, ref_type: str, ref: str
+) -> Optional[Scan]:
+    cutoff = datetime.now() - SCAN_REUSE_MAX_AGE
+
+    recent_by_ref = (
+        db.query(Scan)
+        .filter(
+            Scan.project_name == project_name,
+            Scan.status == "completed",
+            Scan.completed_at.isnot(None),
+            Scan.completed_at >= cutoff,
+            Scan.ref_type == ref_type,
+            Scan.ref == ref,
+        )
+        .order_by(Scan.completed_at.desc())
+        .first()
+    )
+    if recent_by_ref:
+        return recent_by_ref
+
+    if ref_type != "Commit":
+        return None
+
+    recent_with_commit = (
+        db.query(Scan)
+        .filter(
+            Scan.project_name == project_name,
+            Scan.status == "completed",
+            Scan.completed_at.isnot(None),
+            Scan.completed_at >= cutoff,
+            Scan.repo_commit.isnot(None),
+        )
+        .order_by(Scan.completed_at.desc())
+        .all()
+    )
+    for scan in recent_with_commit:
+        if commits_match(scan.repo_commit, ref):
+            return scan
+    return None
+
+
+def find_reusable_scan(db: Session, project_name: str, ref_type: str, ref: str) -> Optional[Scan]:
+    """Return an in-flight or recently completed scan for the same project + ref/commit."""
+    return _find_active_scan(db, project_name, ref_type, ref) or _find_recent_completed_scan(
+        db, project_name, ref_type, ref
+    )
+
+
+def find_canonical_active_scan(db: Session, project_name: str, ref_type: str, ref: str) -> Optional[Scan]:
+    """Oldest pending/running scan for the same target (used to resolve API request races)."""
+    return _find_active_scan(db, project_name, ref_type, ref)
+
+
+def supersede_duplicate_scan(db: Session, scan: Scan) -> None:
+    scan.status = "failed"
+    scan.error_message = "Superseded by concurrent duplicate scan request"
+
+
+def scan_response_for_scan(scan: Scan) -> ScanResponse:
+    """Build the standard successful scan response (same shape for new and reused scans)."""
+    return ScanResponse(
+        success=True,
+        message="Scan has been queued",
+        scan_id=scan.id,
+        commit=scan.repo_commit,
+    )
 
 @router.post(
     "/project/add",
@@ -335,44 +492,18 @@ async def api_scan(
     start_time = time.time()
     
     try:
-        from api.url_parser import parse_repo_url_with_ref
-        
-        # Parse repository URL to extract ref information
         try:
-            parsed = parse_repo_url_with_ref(request.repository)
-            base_repo_url = parsed['base_repo_url']
-            ref_type = parsed['ref_type']
-            ref = parsed['ref']
+            base_repo_url, ref_type, ref = resolve_scan_target(
+                request.repository,
+                ref_type=request.ref_type,
+                ref=request.ref,
+                commit=request.commit,
+            )
         except ValueError as e:
-            # If parsing fails, try to use ref_type+ref or commit from request
-            try:
-                base_repo_url = validate_repo_url(request.repository, HUB_TYPE)
-                if request.ref_type and request.ref:
-                    ref_type = request.ref_type
-                    ref = request.ref
-                elif request.commit:
-                    # Backward compatibility
-                    ref_type = "Commit"
-                    ref = request.commit
-                else:
-                    return JSONResponse(
-                        status_code=400,
-                        content={"success": False, "message": f"Could not parse ref from URL: {str(e)}. Provide ref_type and ref, or use URL with ref."}
-                    )
-            except ValueError as ve:
-                return JSONResponse(
-                    status_code=400,
-                    content={"success": False, "message": str(ve)}
-                )
-        
-        # If parser returned default (Branch/main) but client sent ref_type+ref or commit in body, prefer body
-        if ref_type == "Branch" and ref == "main":
-            if request.ref_type and request.ref:
-                ref_type = request.ref_type
-                ref = request.ref
-            elif request.commit:
-                ref_type = "Commit"
-                ref = request.commit
+            return JSONResponse(
+                status_code=400,
+                content={"success": False, "message": str(e)}
+            )
         
         # Find project by repository URL
         project = find_project_by_repo_url(db, base_repo_url)
@@ -388,6 +519,15 @@ async def api_scan(
                 status_code=503,
                 content={"success": False, "message": "Microservice unavailable"}
             )
+
+        existing_scan = find_reusable_scan(db, project.name, ref_type, ref)
+        if existing_scan:
+            response_time = int((time.time() - start_time) * 1000)
+            logger.info(
+                f"[API: {token.name}] Reusing scan '{existing_scan.id}' "
+                f"(status={existing_scan.status}) for '{project.name}' ({ref_type}: {ref}) ({response_time}ms)"
+            )
+            return scan_response_for_scan(existing_scan)
         
         # Create scan record
         scan_id = str(uuid.uuid4())
@@ -401,6 +541,17 @@ async def api_scan(
         )
         db.add(scan)
         db.commit()
+
+        canonical_scan = find_canonical_active_scan(db, project.name, ref_type, ref)
+        if canonical_scan and canonical_scan.id != scan.id:
+            supersede_duplicate_scan(db, scan)
+            db.commit()
+            response_time = int((time.time() - start_time) * 1000)
+            logger.info(
+                f"[API: {token.name}] Concurrent duplicate resolved to scan '{canonical_scan.id}' "
+                f"for '{project.name}' ({ref_type}: {ref}) ({response_time}ms)"
+            )
+            return scan_response_for_scan(canonical_scan)
         
         # Start scan via microservice
         callback_url = f"http://{APP_HOST}:{APP_PORT}/get_results/{project.name}/{scan_id}"
@@ -435,12 +586,7 @@ async def api_scan(
                         logger.info(f"[API: {token.name}] Scan started: '{scan_id}' ({response_time}ms)")
                         user_logger.info(f"API token '{token.name}' started scan for project '{project.name}' ({ref_type}: {ref})")
                         
-                        return ScanResponse(
-                            success=True,
-                            message="Scan has been queued",
-                            scan_id=scan_id,
-                            commit=resolved_commit
-                        )
+                        return scan_response_for_scan(scan)
                     else:
                         scan.status = "failed"
                         scan.error_message = result.get("message", "Unknown error")
@@ -619,63 +765,41 @@ async def api_multi_scan(
                 content={"success": False, "message": "Microservice unavailable"}
             )
         
-        # Validate all repositories and prepare scan requests
-        scan_requests = []
-        scan_records = []
-        individual_scan_ids = []
-        
-        from api.url_parser import parse_repo_url_with_ref
-        
+        # Validate all repositories and prepare scan entries
+        entries = []
+
         for item in request:
-            # Parse repository URL to extract ref information
             try:
-                parsed = parse_repo_url_with_ref(item.repository)
-                base_repo_url = parsed['base_repo_url']
-                ref_type = parsed['ref_type']
-                ref = parsed['ref']
+                base_repo_url, ref_type, ref = resolve_scan_target(
+                    item.repository,
+                    ref_type=item.ref_type,
+                    ref=item.ref,
+                    commit=item.commit,
+                )
             except ValueError as e:
-                # If parsing fails, try to use ref_type+ref or commit from request
-                try:
-                    base_repo_url = validate_repo_url(item.repository, HUB_TYPE)
-                    if item.ref_type and item.ref:
-                        ref_type = item.ref_type
-                        ref = item.ref
-                    elif item.commit:
-                        # Backward compatibility
-                        ref_type = "Commit"
-                        ref = item.commit
-                    else:
-                        return JSONResponse(
-                            status_code=400,
-                            content={"success": False, "message": f"Invalid repository URL for item: {str(e)}. Provide ref_type and ref, or use URL with ref."}
-                        )
-                except ValueError as ve:
-                    return JSONResponse(
-                        status_code=400,
-                        content={"success": False, "message": f"Invalid repository URL: {str(ve)}"}
-                    )
-            
-            # Find project
+                return JSONResponse(
+                    status_code=400,
+                    content={"success": False, "message": str(e)}
+                )
+
             project = find_project_by_repo_url(db, base_repo_url)
             if not project:
                 return JSONResponse(
                     status_code=404,
                     content={"success": False, "message": f"Project not found for repository: {base_repo_url}"}
                 )
-            
-            # Create scan record
+
+            existing_scan = find_reusable_scan(db, project.name, ref_type, ref)
+            if existing_scan:
+                logger.info(
+                    f"[API: {token.name}] Reusing scan '{existing_scan.id}' "
+                    f"(status={existing_scan.status}) for '{project.name}' ({ref_type}: {ref})"
+                )
+                entries.append({"scan": existing_scan, "is_new": False})
+                continue
+
             scan_id = str(uuid.uuid4())
-            individual_scan_ids.append(scan_id)
             callback_url = f"http://{APP_HOST}:{APP_PORT}/get_results/{project.name}/{scan_id}"
-            
-            scan_requests.append({
-                "ProjectName": project.name,
-                "RepoUrl": project.repo_url,
-                "RefType": ref_type,
-                "Ref": ref,
-                "CallbackUrl": callback_url
-            })
-            
             scan = Scan(
                 id=scan_id,
                 project_name=project.name,
@@ -684,9 +808,20 @@ async def api_multi_scan(
                 status="pending",
                 started_by=f"API:{token.name}"
             )
-            scan_records.append(scan)
-        
-        # Create multi-scan record
+            entries.append({
+                "scan": scan,
+                "is_new": True,
+                "ms_request": {
+                    "ProjectName": project.name,
+                    "RepoUrl": project.repo_url,
+                    "RefType": ref_type,
+                    "Ref": ref,
+                    "CallbackUrl": callback_url,
+                },
+            })
+
+        individual_scan_ids = [entry["scan"].id for entry in entries]
+
         multi_scan_id = str(uuid.uuid4())
         multi_scan = MultiScan(
             id=multi_scan_id,
@@ -694,91 +829,109 @@ async def api_multi_scan(
             scan_ids=json.dumps(individual_scan_ids),
             name=f"API Multi-scan {datetime.now().strftime('%Y-%m-%d %H:%M')}"
         )
-        
-        # Save all records
-        for scan in scan_records:
-            db.add(scan)
+
+        for entry in entries:
+            if entry["is_new"]:
+                db.add(entry["scan"])
         db.add(multi_scan)
         db.commit()
-        
+
+        for entry in entries:
+            if not entry["is_new"]:
+                continue
+            scan = entry["scan"]
+            canonical_scan = find_canonical_active_scan(db, scan.project_name, scan.ref_type, scan.ref)
+            if canonical_scan and canonical_scan.id != scan.id:
+                supersede_duplicate_scan(db, scan)
+                entry["scan"] = canonical_scan
+                entry["is_new"] = False
+        db.commit()
+
+        new_entries = [entry for entry in entries if entry["is_new"]]
+        scan_requests = [entry["ms_request"] for entry in new_entries]
+
         # Send to microservice
         try:
-            async with httpx.AsyncClient(timeout=300.0) as client:
-                microservice_payload = {"repositories": scan_requests}
-                
-                response = await client.post(
-                    f"{MICROSERVICE_URL}/multi_scan",
-                    json=microservice_payload,
-                    headers=get_auth_headers()
-                )
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    if result.get("status") == "accepted":
-                        scan_data_list = result.get("data", [])
-                        commits_list = []
-                        for i, scan_record in enumerate(scan_records):
-                            scan_record.status = "running"
-                            if i < len(scan_data_list):
-                                c = scan_data_list[i].get("commit")
-                                if c:
-                                    scan_record.repo_commit = c
-                                    commits_list.append(c)
-                                else:
-                                    commits_list.append(scan_record.repo_commit or "")
-                            else:
-                                commits_list.append("")
-                        db.commit()
-                        
-                        response_time = int((time.time() - start_time) * 1000)
-                        logger.info(f"[API: {token.name}] Multi-scan started: {multi_scan_id} with {len(scan_records)} scans ({response_time}ms)")
-                        user_logger.info(f"API token '{token.name}' started multi-scan with {len(scan_records)} repositories")
-                        
-                        return MultiScanResponse(
-                            success=True,
-                            message="Multi-scan has been queued",
-                            scan_id=json.dumps(individual_scan_ids),
-                            commits=json.dumps(commits_list)
-                        )
+            if scan_requests:
+                async with httpx.AsyncClient(timeout=300.0) as client:
+                    microservice_payload = {"repositories": scan_requests}
+
+                    response = await client.post(
+                        f"{MICROSERVICE_URL}/multi_scan",
+                        json=microservice_payload,
+                        headers=get_auth_headers()
+                    )
+
+                    if response.status_code == 200:
+                        result = response.json()
+                        if result.get("status") == "accepted":
+                            scan_data_list = result.get("data", [])
+                            for i, entry in enumerate(new_entries):
+                                scan_record = entry["scan"]
+                                scan_record.status = "running"
+                                if i < len(scan_data_list):
+                                    resolved_commit = scan_data_list[i].get("commit")
+                                    if resolved_commit:
+                                        scan_record.repo_commit = resolved_commit
+                                    scan_record.ref = scan_data_list[i].get("Ref", scan_record.ref)
+                            db.commit()
+                        else:
+                            for entry in new_entries:
+                                entry["scan"].status = "failed"
+                                entry["scan"].error_message = result.get("message", "Multi-scan failed")
+                            db.commit()
+                            logger.warning(
+                                f"[API: {token.name}] Microservice returned 200 but status != accepted for multi_scan: "
+                                f"multi_scan_id={multi_scan_id}, repos_count={len(scan_requests)}, response={result}"
+                            )
+                            return JSONResponse(
+                                status_code=400,
+                                content={"success": False, "message": result.get("message", "Multi-scan failed")}
+                            )
                     else:
-                        # Mark all scans as failed
-                        for scan in scan_records:
-                            scan.status = "failed"
-                            scan.error_message = result.get("message", "Multi-scan failed")
+                        try:
+                            err_body = response.json()
+                        except Exception:
+                            err_body = response.text or "(empty)"
+                        logger.error(
+                            f"[API: {token.name}] Microservice error on POST /multi_scan: "
+                            f"status={response.status_code}, multi_scan_id={multi_scan_id}, repos_count={len(scan_requests)}, "
+                            f"response_body={err_body}"
+                        )
+                        for entry in new_entries:
+                            entry["scan"].status = "failed"
+                            entry["scan"].error_message = "Microservice error"
                         db.commit()
-                        logger.warning(
-                            f"[API: {token.name}] Microservice returned 200 but status != accepted for multi_scan: "
-                            f"multi_scan_id={multi_scan_id}, repos_count={len(scan_requests)}, response={result}"
-                        )
+                        msg = err_body.get("message", response.text) if isinstance(err_body, dict) else (response.text or "Microservice error")
                         return JSONResponse(
-                            status_code=400,
-                            content={"success": False, "message": result.get("message", "Multi-scan failed")}
+                            status_code=response.status_code,
+                            content={"success": False, "message": msg}
                         )
-                else:
-                    # Mark all scans as failed
-                    try:
-                        err_body = response.json()
-                    except Exception:
-                        err_body = response.text or "(empty)"
-                    logger.error(
-                        f"[API: {token.name}] Microservice error on POST /multi_scan: "
-                        f"status={response.status_code}, multi_scan_id={multi_scan_id}, repos_count={len(scan_requests)}, "
-                        f"response_body={err_body}"
-                    )
-                    for scan in scan_records:
-                        scan.status = "failed"
-                        scan.error_message = "Microservice error"
-                    db.commit()
-                    msg = err_body.get("message", response.text) if isinstance(err_body, dict) else (response.text or "Microservice error")
-                    return JSONResponse(
-                        status_code=response.status_code,
-                        content={"success": False, "message": msg}
-                    )
-                    
+            else:
+                logger.info(
+                    f"[API: {token.name}] Multi-scan '{multi_scan_id}' reused existing scans only; "
+                    f"microservice call skipped"
+                )
+
+            commits_list = [entry["scan"].repo_commit or "" for entry in entries]
+            response_time = int((time.time() - start_time) * 1000)
+            logger.info(
+                f"[API: {token.name}] Multi-scan started: {multi_scan_id} with {len(entries)} scans "
+                f"({len(new_entries)} new, {len(entries) - len(new_entries)} reused) ({response_time}ms)"
+            )
+            user_logger.info(f"API token '{token.name}' started multi-scan with {len(entries)} repositories")
+
+            return MultiScanResponse(
+                success=True,
+                message="Multi-scan has been queued",
+                scan_id=json.dumps(individual_scan_ids),
+                commits=json.dumps(commits_list)
+            )
+
         except httpx.TimeoutException:
-            for scan in scan_records:
-                scan.status = "failed"
-                scan.error_message = "Microservice timeout"
+            for entry in new_entries:
+                entry["scan"].status = "failed"
+                entry["scan"].error_message = "Microservice timeout"
             db.commit()
             logger.error(
                 f"[API: {token.name}] Microservice timeout on POST /multi_scan: multi_scan_id={multi_scan_id}, repos_count={len(scan_requests)}"
@@ -788,15 +941,16 @@ async def api_multi_scan(
                 content={"success": False, "message": "Microservice timeout"}
             )
         except Exception as e:
-            for scan in scan_records:
-                scan.status = "failed"
-                scan.error_message = str(e)
+            for entry in new_entries:
+                entry["scan"].status = "failed"
+                entry["scan"].error_message = str(e)
             db.commit()
             logger.error(
-                f"[API: {token.name}] Exception calling microservice POST /multi_scan: multi_scan_id={multi_scan_id}, error={e}",
+                f"[API: {token.name}] Exception calling microservice POST /multi_scan: "
+                f"multi_scan_id={multi_scan_id}, repos_count={len(scan_requests)}, error={e}",
                 exc_info=True
             )
-            
+
             return JSONResponse(
                 status_code=500,
                 content={"success": False, "message": "Connection error"}
