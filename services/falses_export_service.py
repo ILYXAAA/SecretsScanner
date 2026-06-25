@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import logging
+from datetime import datetime
 from pathlib import Path
 
 from sqlalchemy import distinct
@@ -13,7 +14,6 @@ falses_logger = logging.getLogger("falses_export")
 
 FALSES_EXPORT_DIR = "./generated"
 FALSES_FILE_NAME = "falses.txt"
-FALSES_AUTO_VERSION = "auto"
 FALSES_FILE_PATH = Path(FALSES_EXPORT_DIR) / FALSES_FILE_NAME
 
 
@@ -78,6 +78,11 @@ def fetch_refuted_hashes(db):
     return sorted({row[0] for row in rows if row and row[0]})
 
 
+def build_falses_export_version() -> str:
+    """Same format as manual export (placeholder v16.04.2026_13.06)."""
+    return datetime.now().strftime("v%d.%m.%Y_%H.%M")
+
+
 def build_falses_txt_content(hashes, version):
     safe_version = sanitize_falses_version(version)
     return f"[{safe_version}]\n" + ";".join(hashes)
@@ -103,7 +108,7 @@ def refresh_falses_file(version=None, on_startup=False):
 
 
 def _refresh_falses_file_impl(version=None, on_startup=False):
-    export_version = version or FALSES_AUTO_VERSION
+    export_version = version or build_falses_export_version()
     db = SessionLocal()
     try:
         hashes = fetch_refuted_hashes(db)
