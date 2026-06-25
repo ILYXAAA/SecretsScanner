@@ -319,6 +319,46 @@ async def get_scan_status(
         )
         raise HTTPException(status_code=500, detail="Internal server error")
 
+_HASH_LOOKUP_CHUNK_SIZE = 500
+
+
+def load_latest_secret_decisions_by_hash(
+    db_session: Session,
+    project_name: str,
+    exclude_scan_id: str,
+    hash_values: set,
+) -> dict:
+    """Latest Refuted/Confirmed secret per hash_from_ci across all completed project scans."""
+    if not hash_values:
+        return {}
+
+    decisions = {}
+    hash_list = list(hash_values)
+
+    for i in range(0, len(hash_list), _HASH_LOOKUP_CHUNK_SIZE):
+        chunk = hash_list[i:i + _HASH_LOOKUP_CHUNK_SIZE]
+        rows = (
+            db_session.query(Secret)
+            .join(Scan, Secret.scan_id == Scan.id)
+            .filter(
+                Scan.project_name == project_name,
+                Scan.id != exclude_scan_id,
+                Scan.status == "completed",
+                Scan.completed_at.isnot(None),
+                Secret.hash_from_ci.in_(chunk),
+                Secret.status.in_(("Refuted", "Confirmed")),
+            )
+            .order_by(Scan.completed_at.desc())
+            .all()
+        )
+
+        for secret in rows:
+            if secret.hash_from_ci and secret.hash_from_ci not in decisions:
+                decisions[secret.hash_from_ci] = secret
+
+    return decisions
+
+
 async def process_scan_results_background(scan_id: str, data: dict, db_session: Session):
     """Background task для обработки результатов сканирования"""
     start_time = datetime.now()
@@ -400,47 +440,20 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
             results = data.get("Results", [])
             logger.info(f"🔍 Получено {len(results)} новых секретов для обработки")
             
-            # Get previous scans for this project
-            previous_scans_start = datetime.now()
-            previous_scans = db_session.query(Scan).filter(
+            # Ручные секреты переносим только из последнего завершённого скана
+            most_recent_scan = db_session.query(Scan).filter(
                 Scan.project_name == project_name,
                 Scan.id != scan_id,
                 Scan.completed_at.is_not(None)
-            ).order_by(Scan.completed_at.desc()).limit(5).all()  # Только 5 последних сканов
-            
-            previous_scans_time = (datetime.now() - previous_scans_start).total_seconds()
-            logger.info(f"📋 Найдено {len(previous_scans)} предыдущих сканов за {previous_scans_time:.2f} секунд")
-            
-            # Get manual secrets только из последнего скана
+            ).order_by(Scan.completed_at.desc()).first()
+
             manual_secrets = []
-            if previous_scans:
-                most_recent_scan = previous_scans[0]
+            if most_recent_scan:
                 manual_secrets = db_session.query(Secret).filter(
                     Secret.scan_id == most_recent_scan.id,
                     Secret.secret.like("% (добавлен вручную, см. context)")
                 ).all()
                 logger.info(f"📝 Найдено {len(manual_secrets)} ручных секретов из предыдущего скана")
-            
-            # Создаем мапу предыдущих секретов для быстрого поиска
-            mapping_start = datetime.now()
-            previous_secrets_map = {}
-            if previous_scans:
-                logger.info(f"🗺️ Создаем карту предыдущих статусов для {len(results)} секретов")
-                for prev_scan in previous_scans[:2]:  # Только 2 последних скана
-                    prev_secrets = db_session.query(Secret).filter(
-                        Secret.scan_id == prev_scan.id,
-                        Secret.status != "No status"
-                    ).all()
-
-                    for prev_secret in prev_secrets:
-                        key = (prev_secret.path, prev_secret.line, prev_secret.secret, prev_secret.type)
-                        if key not in previous_secrets_map:
-                            previous_secrets_map[key] = prev_secret
-
-                mapping_time = (datetime.now() - mapping_start).total_seconds()
-                logger.info(f"✅ Карта предыдущих статусов создана за {mapping_time:.2f} секунд ({len(previous_secrets_map)} записей)")
-            else:
-                logger.info(f"ℹ️ Пропускаем создание карты статусов (нет предыдущих сканов)")
             
             # Обрабатываем секреты батчами
             batch_size = 1000
@@ -457,20 +470,34 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
 
                 logger.info(f"🔄 Обрабатываем батч {i//batch_size + 1}/{(len(results) + batch_size - 1)//batch_size} ({len(batch)} секретов)")
 
+                batch_hash_values = set()
+                for result in batch:
+                    batch_hash_values.add(
+                        build_hash_from_ci(
+                            sanitize_string(result.get("path", "")),
+                            sanitize_string(result.get("secret", "")),
+                            result.get("line", 0),
+                        )
+                    )
+
+                mapping_start = datetime.now()
+                previous_decisions_by_hash = load_latest_secret_decisions_by_hash(
+                    db_session, project_name, scan_id, batch_hash_values
+                )
+                mapping_time = (datetime.now() - mapping_start).total_seconds()
+                logger.info(
+                    f"🗺️ Загружено {len(previous_decisions_by_hash)} решений по hash_from_ci "
+                    f"за {mapping_time:.2f} секунд"
+                )
+
                 # Обработка секретов в батче
                 for j, result in enumerate(batch):
                     try:
-                        # Быстрый поиск предыдущего статуса
-                        most_recent_secret = None
-                        if previous_secrets_map:
-                            # Применяем sanitize_string к ключу для корректного сопоставления
-                            key = (
-                                sanitize_string(result.get("path", "")),
-                                result.get("line", 0),
-                                sanitize_string(result.get("secret", "")),
-                                sanitize_string(result.get("Type", result.get("type", "Unknown")))
-                            )
-                            most_recent_secret = previous_secrets_map.get(key)
+                        path = sanitize_string(result.get("path", ""))
+                        line = result.get("line", 0)
+                        secret_value = sanitize_string(result.get("secret", ""))
+                        secret_hash = build_hash_from_ci(path, secret_value, line)
+                        most_recent_secret = previous_decisions_by_hash.get(secret_hash)
 
                         # Apply the most recent decision
                         if most_recent_secret:
@@ -503,14 +530,10 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
 
                         secret = Secret(
                             scan_id=scan_id,
-                            path=sanitize_string(result.get("path", "")),
-                            line=result.get("line", 0),
-                            secret=sanitize_string(result.get("secret", "")),
-                            hash_from_ci=build_hash_from_ci(
-                                sanitize_string(result.get("path", "")),
-                                sanitize_string(result.get("secret", "")),
-                                result.get("line", 0)
-                            ),
+                            path=path,
+                            line=line,
+                            secret=secret_value,
+                            hash_from_ci=secret_hash,
                             context=sanitize_string(result.get("context", "")),
                             severity=severity,
                             confidence=result.get("confidence", 1.0),
@@ -542,13 +565,13 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
             logger.info(f"📦 Все батчи обработаны за {batch_processing_time:.2f} секунд (итого: {total_processed} секретов)")
 
             # Логируем статистику применения статусов
-            if previous_secrets_map:
+            if total_processed > 0:
                 total_statuses_applied = statuses_applied["Refuted"] + statuses_applied["Confirmed"]
                 logger.info(f"📊 Статистика применения статусов:")
                 logger.info(f"   ✅ Refuted (исключения): {statuses_applied['Refuted']}")
                 logger.info(f"   ✅ Confirmed (подтвержденные): {statuses_applied['Confirmed']}")
                 logger.info(f"   🆕 No status (новые): {statuses_applied['No status']}")
-                logger.info(f"   📈 Всего применено из истории: {total_statuses_applied}/{total_processed} ({(total_statuses_applied/total_processed*100) if total_processed > 0 else 0:.1f}%)")
+                logger.info(f"   📈 Всего применено из истории: {total_statuses_applied}/{total_processed} ({(total_statuses_applied/total_processed*100):.1f}%)")
 
             # Add manual secrets
             manual_secrets_start = datetime.now()
@@ -811,43 +834,45 @@ async def scan_results(
         ]
 
         secrets_data = []
-        previous_secrets_map = {}
-        previous_scans = []
+        previous_decisions_by_hash = {}
 
-        # Оптимизация: смотрим историю только для небольших наборов
         if all_secrets_query and len(all_secrets_query) < 500:
-            previous_scans = db.query(Scan.id, Scan.completed_at).filter(
-                Scan.project_name == scan.project_name,
-                Scan.id != scan_id,
-                Scan.completed_at < scan.completed_at
-            ).order_by(Scan.completed_at.desc()).all()
+            hash_values = {
+                secret.hash_from_ci or build_hash_from_ci(
+                    secret.path or "",
+                    secret.secret or "",
+                    secret.line or 0,
+                )
+                for secret in all_secrets_query
+            }
+            previous_decisions_by_hash = load_latest_secret_decisions_by_hash(
+                db, scan.project_name, scan_id, hash_values
+            )
 
-            previous_scan_ids = [s.id for s in previous_scans]
-            if previous_scan_ids:
-                previous_secrets = db.query(Secret).filter(
-                    Secret.scan_id.in_(previous_scan_ids),
-                    Secret.status != "No status"
-                ).all()
-
-                for prev_secret in previous_secrets:
-                    key = (prev_secret.path, prev_secret.line, prev_secret.secret, prev_secret.type)
-                    if key not in previous_secrets_map:
-                        previous_secrets_map[key] = prev_secret
+        previous_scans = db.query(Scan.id, Scan.completed_at).filter(
+            Scan.project_name == scan.project_name,
+            Scan.id != scan_id,
+            Scan.completed_at < scan.completed_at
+        ).order_by(Scan.completed_at.desc()).all()
+        previous_scan_dates = {scan_info.id: scan_info.completed_at for scan_info in previous_scans}
 
         # Обработка секретов
         for secret in all_secrets_query:
             previous_status = None
             previous_scan_date = None
 
-            if previous_secrets_map:
-                key = (secret.path, secret.line, secret.secret, secret.type)
-                if key in previous_secrets_map:
-                    prev_secret = previous_secrets_map[key]
+            if previous_decisions_by_hash:
+                secret_hash = secret.hash_from_ci or build_hash_from_ci(
+                    secret.path or "",
+                    secret.secret or "",
+                    secret.line or 0,
+                )
+                prev_secret = previous_decisions_by_hash.get(secret_hash)
+                if prev_secret:
                     previous_status = prev_secret.status
-                    for scan_info in previous_scans:
-                        if prev_secret.scan_id == scan_info.id:
-                            previous_scan_date = scan_info.completed_at.strftime('%Y-%m-%d %H:%M')
-                            break
+                    previous_scan_date = previous_scan_dates.get(prev_secret.scan_id)
+                    if previous_scan_date:
+                        previous_scan_date = previous_scan_date.strftime('%Y-%m-%d %H:%M')
 
             secret_obj = {
                 "id": secret.id,
