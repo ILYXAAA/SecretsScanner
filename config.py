@@ -53,6 +53,7 @@ FALSES_GIT_BRANCH = os.getenv("FALSES_GIT_BRANCH", "script_with_Docker")
 FALSES_GIT_FILE_PATH = os.getenv("FALSES_GIT_FILE_PATH", "/src/storage/falses.txt")
 FALSES_GIT_COMMITTER_NAME = os.getenv("FALSES_GIT_COMMITTER_NAME", "SecretsScanner_bot")
 FALSES_GIT_COMMITTER_EMAIL = os.getenv("FALSES_GIT_COMMITTER_EMAIL", "secrets-scanner@local")
+FALSES_GIT_SSL_VERIFY = os.getenv("FALSES_GIT_SSL_VERIFY", "false").lower() in ("1", "true", "yes", "on")
 
 # Create necessary directories
 Path(BACKUP_DIR).mkdir(exist_ok=True)
