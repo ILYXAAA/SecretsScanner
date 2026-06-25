@@ -20,6 +20,7 @@ from config import (
     FALSES_GIT_PAT,
     FALSES_GIT_REPO_URL,
     FALSES_GIT_SSL_VERIFY,
+    FALSES_GIT_USERNAME,
 )
 
 falses_git_logger = logging.getLogger("falses_export")
@@ -224,15 +225,45 @@ class AzureDevOpsFalsesPusher:
         raise RuntimeError(f"Failed to push falses.txt after {MAX_PUSH_ATTEMPTS} attempts: {last_error}")
 
 
-def build_git_auth_url(repo_url: str, pat: str) -> str:
+def build_git_repo_url(repo_url: str) -> str:
+    """Normalize Azure DevOps web URL (no credentials embedded)."""
     url = repo_url.strip().rstrip("/")
     if url.lower().endswith(".git"):
         url = url[:-4]
+    return url
+
+
+def _git_basic_auth_header(pat: str) -> str:
+    """Same Basic auth as Azure DevOps REST API (:PAT base64)."""
+    token = (pat or "").strip().strip('"').strip("'")
+    encoded = base64.b64encode(f":{token}".encode("utf-8")).decode("ascii")
+    return f"Authorization: Basic {encoded}"
+
+
+def build_git_auth_url(repo_url: str, pat: str, username: Optional[str] = None) -> str:
+    """Fallback: embed credentials in URL (some old git versions)."""
+    url = build_git_repo_url(repo_url)
     parsed = urlparse(url)
     host = parsed.hostname or ""
     if parsed.port:
         host = f"{host}:{parsed.port}"
-    return f"{parsed.scheme}://:{quote(pat, safe='')}@{host}{parsed.path}"
+    user = quote((username if username is not None else FALSES_GIT_USERNAME) or "git", safe="")
+    password = quote((pat or "").strip().strip('"').strip("'"), safe="")
+    return f"{parsed.scheme}://{user}:{password}@{host}{parsed.path}"
+
+
+def _git_config_prefix(*, with_auth: bool = True) -> list[str]:
+    configs: list[str] = []
+    if not FALSES_GIT_SSL_VERIFY:
+        configs.extend(["-c", "http.sslVerify=false"])
+    if with_auth and FALSES_GIT_PAT:
+        configs.extend(["-c", f"http.extraHeader={_git_basic_auth_header(FALSES_GIT_PAT)}"])
+    return configs
+
+
+def _git_cmd(*args: str, with_auth: bool = True) -> list[str]:
+    git = _resolve_git_binary()
+    return [git, *_git_config_prefix(with_auth=with_auth), *args]
 
 
 def _resolve_git_binary() -> str:
@@ -258,13 +289,6 @@ def _resolve_git_binary() -> str:
     )
 
 
-def _git_cmd(*args: str) -> list[str]:
-    git = _resolve_git_binary()
-    if FALSES_GIT_SSL_VERIFY:
-        return [git, *args]
-    return [git, "-c", "http.sslVerify=false", *args]
-
-
 def _run_git(args: list[str], cwd: Path, check: bool = True) -> subprocess.CompletedProcess:
     result = subprocess.run(
         args,
@@ -281,51 +305,78 @@ def _run_git(args: list[str], cwd: Path, check: bool = True) -> subprocess.Compl
     return result
 
 
-def _clone_ado_repo(auth_url: str, repo_dir: Path, branch_name: str, work_dir: Path) -> bool:
-    """Clone Azure DevOps repo; returns True when remote branch exists."""
-    if repo_dir.exists():
-        shutil.rmtree(repo_dir, ignore_errors=True)
-
+def _try_clone_variants(
+    clone_url: str,
+    repo_dir: Path,
+    branch_name: str,
+    work_dir: Path,
+    *,
+    with_auth_header: bool,
+) -> Optional[bool]:
+    """Returns True if remote branch exists, False if new branch, None if all strategies failed."""
     with_branch = [
-        ["clone", "--filter=blob:none", "--sparse", "--depth", "1", "-b", branch_name, auth_url, str(repo_dir)],
-        ["clone", "--filter=blob:none", "--depth", "1", "-b", branch_name, auth_url, str(repo_dir)],
-        ["clone", "--depth", "1", "-b", branch_name, auth_url, str(repo_dir)],
+        ["clone", "--filter=blob:none", "--sparse", "--depth", "1", "-b", branch_name, clone_url, str(repo_dir)],
+        ["clone", "--filter=blob:none", "--depth", "1", "-b", branch_name, clone_url, str(repo_dir)],
+        ["clone", "--depth", "1", "-b", branch_name, clone_url, str(repo_dir)],
     ]
-    last_error: Optional[RuntimeError] = None
     for clone_args in with_branch:
         if repo_dir.exists():
             shutil.rmtree(repo_dir, ignore_errors=True)
         try:
-            _run_git(_git_cmd(*clone_args), cwd=work_dir)
+            _run_git(_git_cmd(*clone_args, with_auth=with_auth_header), cwd=work_dir)
             falses_git_logger.info("git clone ok: %s", " ".join(clone_args[:6]))
             return True
-        except RuntimeError as exc:
-            last_error = exc
+        except RuntimeError:
+            continue
 
     without_branch = [
-        ["clone", "--filter=blob:none", "--sparse", "--depth", "1", auth_url, str(repo_dir)],
-        ["clone", "--filter=blob:none", "--depth", "1", auth_url, str(repo_dir)],
-        ["clone", "--depth", "1", auth_url, str(repo_dir)],
+        ["clone", "--filter=blob:none", "--sparse", "--depth", "1", clone_url, str(repo_dir)],
+        ["clone", "--filter=blob:none", "--depth", "1", clone_url, str(repo_dir)],
+        ["clone", "--depth", "1", clone_url, str(repo_dir)],
     ]
     for clone_args in without_branch:
         if repo_dir.exists():
             shutil.rmtree(repo_dir, ignore_errors=True)
         try:
-            _run_git(_git_cmd(*clone_args), cwd=work_dir)
-            _run_git(_git_cmd("checkout", "-b", branch_name), cwd=repo_dir)
+            _run_git(_git_cmd(*clone_args, with_auth=with_auth_header), cwd=work_dir)
+            _run_git(_git_cmd("checkout", "-b", branch_name, with_auth=False), cwd=repo_dir)
             falses_git_logger.info("git clone ok (new branch): %s", " ".join(clone_args[:5]))
             return False
+        except RuntimeError:
+            continue
+
+    return None
+
+
+def _clone_ado_repo(repo_dir: Path, branch_name: str, work_dir: Path) -> bool:
+    """Clone Azure DevOps repo; returns True when remote branch exists."""
+    if repo_dir.exists():
+        shutil.rmtree(repo_dir, ignore_errors=True)
+
+    auth_attempts = [
+        ("header", build_git_repo_url(FALSES_GIT_REPO_URL), True),
+        ("url", build_git_auth_url(FALSES_GIT_REPO_URL, FALSES_GIT_PAT), False),
+    ]
+    last_error: Optional[RuntimeError] = None
+    for auth_mode, clone_url, with_auth_header in auth_attempts:
+        try:
+            result = _try_clone_variants(
+                clone_url, repo_dir, branch_name, work_dir, with_auth_header=with_auth_header
+            )
+            if result is not None:
+                falses_git_logger.info("git clone auth mode: %s", auth_mode)
+                return result
         except RuntimeError as exc:
             last_error = exc
 
-    raise last_error or RuntimeError("git clone failed")
+    raise last_error or RuntimeError("git clone failed (check FALSES_GIT_PAT and FALSES_GIT_REPO_URL)")
 
 
 def _try_sparse_checkout(repo_dir: Path, sparse_dir: str) -> None:
     if not sparse_dir or sparse_dir == ".":
         return
     result = _run_git(
-        _git_cmd("sparse-checkout", "set", sparse_dir),
+        _git_cmd("sparse-checkout", "set", sparse_dir, with_auth=False),
         cwd=repo_dir,
         check=False,
     )
@@ -342,24 +393,23 @@ def push_falses_via_git_cli(
     branch_name = (FALSES_GIT_BRANCH or "script_with_Docker").strip()
     repo_file_path = _normalize_repo_file_path(FALSES_GIT_FILE_PATH).lstrip("/")
     sparse_dir = str(Path(repo_file_path).parent).replace("\\", "/")
-    auth_url = build_git_auth_url(FALSES_GIT_REPO_URL, FALSES_GIT_PAT)
     commit_message = f"chore: update falses.txt (sha256={content_hash[:16]}, count={hash_count})"
 
     with tempfile.TemporaryDirectory(prefix="falses_git_push_") as tmp:
         repo_dir = Path(tmp) / "repo"
         work_dir = Path(tmp)
-        branch_exists_remotely = _clone_ado_repo(auth_url, repo_dir, branch_name, work_dir)
+        branch_exists_remotely = _clone_ado_repo(repo_dir, branch_name, work_dir)
         _try_sparse_checkout(repo_dir, sparse_dir)
 
         dest = repo_dir / repo_file_path
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(file_path, dest)
 
-        _run_git(_git_cmd("config", "user.name", FALSES_GIT_COMMITTER_NAME), cwd=repo_dir)
-        _run_git(_git_cmd("config", "user.email", FALSES_GIT_COMMITTER_EMAIL), cwd=repo_dir)
-        _run_git(_git_cmd("add", repo_file_path), cwd=repo_dir)
+        _run_git(_git_cmd("config", "user.name", FALSES_GIT_COMMITTER_NAME, with_auth=False), cwd=repo_dir)
+        _run_git(_git_cmd("config", "user.email", FALSES_GIT_COMMITTER_EMAIL, with_auth=False), cwd=repo_dir)
+        _run_git(_git_cmd("add", repo_file_path, with_auth=False), cwd=repo_dir)
 
-        diff = _run_git(_git_cmd("diff", "--cached", "--quiet"), cwd=repo_dir, check=False)
+        diff = _run_git(_git_cmd("diff", "--cached", "--quiet", with_auth=False), cwd=repo_dir, check=False)
         if diff.returncode == 0:
             if not force_push:
                 falses_git_logger.info(
@@ -369,9 +419,9 @@ def push_falses_via_git_cli(
             falses_git_logger.info(
                 "falses.txt unchanged on remote, creating startup sync commit"
             )
-            _run_git(_git_cmd("commit", "--allow-empty", "-m", commit_message), cwd=repo_dir)
+            _run_git(_git_cmd("commit", "--allow-empty", "-m", commit_message, with_auth=False), cwd=repo_dir)
         else:
-            _run_git(_git_cmd("commit", "-m", commit_message), cwd=repo_dir)
+            _run_git(_git_cmd("commit", "-m", commit_message, with_auth=False), cwd=repo_dir)
         if branch_exists_remotely:
             _run_git(_git_cmd("push", "origin", branch_name), cwd=repo_dir)
         else:

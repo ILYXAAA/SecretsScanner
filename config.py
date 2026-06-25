@@ -47,15 +47,20 @@ BACKUP_INTERVAL_HOURS = int(os.getenv("BACKUP_INTERVAL_HOURS", "24"))
 FALSES_REFRESH_INTERVAL_HOURS = int(os.getenv("FALSES_REFRESH_INTERVAL_HOURS", "1"))
 
 # Optional: auto-push falses.txt to Azure DevOps Git
-FALSES_GIT_REPO_URL = os.getenv("FALSES_GIT_REPO_URL", "").strip()
-FALSES_GIT_PAT = os.getenv("FALSES_GIT_PAT", "").strip()
-FALSES_GIT_BRANCH = os.getenv("FALSES_GIT_BRANCH", "script_with_Docker")
-FALSES_GIT_FILE_PATH = os.getenv("FALSES_GIT_FILE_PATH", "/src/storage/falses.txt")
-FALSES_GIT_COMMITTER_NAME = os.getenv("FALSES_GIT_COMMITTER_NAME", "SecretsScanner_bot")
-FALSES_GIT_COMMITTER_EMAIL = os.getenv("FALSES_GIT_COMMITTER_EMAIL", "secrets-scanner@local")
-FALSES_GIT_SSL_VERIFY = os.getenv("FALSES_GIT_SSL_VERIFY", "false").lower() in ("1", "true", "yes", "on")
+def _env_unquoted(key: str, default: str = "") -> str:
+    return os.getenv(key, default).strip().strip('"').strip("'")
+
+
+FALSES_GIT_REPO_URL = _env_unquoted("FALSES_GIT_REPO_URL")
+FALSES_GIT_PAT = _env_unquoted("FALSES_GIT_PAT")
+FALSES_GIT_USERNAME = _env_unquoted("FALSES_GIT_USERNAME", "git")
+FALSES_GIT_BRANCH = _env_unquoted("FALSES_GIT_BRANCH", "script_with_Docker")
+FALSES_GIT_FILE_PATH = _env_unquoted("FALSES_GIT_FILE_PATH", "/src/storage/falses.txt")
+FALSES_GIT_COMMITTER_NAME = _env_unquoted("FALSES_GIT_COMMITTER_NAME", "SecretsScanner_bot")
+FALSES_GIT_COMMITTER_EMAIL = _env_unquoted("FALSES_GIT_COMMITTER_EMAIL", "secrets-scanner@local")
+FALSES_GIT_SSL_VERIFY = _env_unquoted("FALSES_GIT_SSL_VERIFY", "false").lower() in ("1", "true", "yes", "on")
 # Full path to git binary (systemd/minimal PATH often omits /usr/bin)
-FALSES_GIT_BINARY = os.getenv("FALSES_GIT_BINARY", "").strip()
+FALSES_GIT_BINARY = _env_unquoted("FALSES_GIT_BINARY")
 
 # Create necessary directories
 Path(BACKUP_DIR).mkdir(exist_ok=True)
