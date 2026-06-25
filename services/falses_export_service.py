@@ -85,15 +85,29 @@ def build_falses_export_version() -> str:
 
 def build_falses_txt_content(hashes, version):
     safe_version = sanitize_falses_version(version)
-    return f"[{safe_version}]\n" + ";".join(hashes)
+    return f"[{safe_version}]\n" + falses_payload_from_hashes(hashes)
 
 
-def compute_content_sha256(content: str) -> str:
-    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+def falses_payload_from_hashes(hashes) -> str:
+    return ";".join(hashes)
+
+
+def extract_falses_payload(content: str) -> str:
+    """Hash payload: everything after the [version] header line."""
+    if not content or "\n" not in content:
+        return ""
+    return content.split("\n", 1)[1]
+
+
+def compute_payload_sha256(payload: str) -> str:
+    return hashlib.sha256((payload or "").encode("utf-8")).hexdigest()
 
 
 def refresh_falses_file(version=None, on_startup=False):
-    """Rebuild falses.txt and overwrite only when file content hash changes.
+    """Rebuild falses.txt and overwrite only when hash payload changes.
+
+    The [version] header line is ignored when comparing content; only the
+    semicolon-separated hashes after the first line matter.
 
     On service startup (on_startup=True) the existing file is removed first so
     content is always regenerated and pushed.
@@ -108,12 +122,11 @@ def refresh_falses_file(version=None, on_startup=False):
 
 
 def _refresh_falses_file_impl(version=None, on_startup=False):
-    export_version = version or build_falses_export_version()
     db = SessionLocal()
     try:
         hashes = fetch_refuted_hashes(db)
-        content = build_falses_txt_content(hashes, export_version)
-        content_hash = compute_content_sha256(content)
+        payload = falses_payload_from_hashes(hashes)
+        payload_hash = compute_payload_sha256(payload)
 
         FALSES_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
@@ -123,29 +136,33 @@ def _refresh_falses_file_impl(version=None, on_startup=False):
 
         if not on_startup and FALSES_FILE_PATH.exists():
             existing_content = FALSES_FILE_PATH.read_text(encoding="utf-8")
-            if compute_content_sha256(existing_content) == content_hash:
+            existing_payload = extract_falses_payload(existing_content)
+            if compute_payload_sha256(existing_payload) == payload_hash:
                 falses_logger.info(
-                    "falses.txt unchanged (sha256=%s), skipping write (%s hashes)",
-                    content_hash[:16],
+                    "falses.txt unchanged (payload sha256=%s), skipping write (%s hashes)",
+                    payload_hash[:16],
                     len(hashes),
                 )
                 return {
                     "written": False,
-                    "hash": content_hash,
+                    "hash": payload_hash,
                     "path": str(FALSES_FILE_PATH),
                     "hash_count": len(hashes),
                 }
 
+        export_version = version or build_falses_export_version()
+        content = build_falses_txt_content(hashes, export_version)
+
         FALSES_FILE_PATH.write_text(content, encoding="utf-8")
         falses_logger.info(
-            "falses.txt updated at %s (%s hashes, sha256=%s)",
+            "falses.txt updated at %s (%s hashes, payload sha256=%s)",
             FALSES_FILE_PATH,
             len(hashes),
-            content_hash[:16],
+            payload_hash[:16],
         )
         result = {
             "written": True,
-            "hash": content_hash,
+            "hash": payload_hash,
             "path": str(FALSES_FILE_PATH),
             "hash_count": len(hashes),
             "on_startup": on_startup,
