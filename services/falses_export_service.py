@@ -27,14 +27,31 @@ def _push_falses_if_configured(refresh_result: dict) -> None:
         from services.falses_git_push_service import is_falses_git_push_configured, push_falses_file_to_git
 
         if not is_falses_git_push_configured():
+            falses_logger.info(
+                "falses.txt git push skipped: FALSES_GIT_REPO_URL or FALSES_GIT_PAT is not set"
+            )
             return
 
+        falses_logger.info("falses.txt git push starting...")
         push_result = push_falses_file_to_git(
             FALSES_FILE_PATH,
             refresh_result["hash"],
             refresh_result.get("hash_count", 0),
         )
         refresh_result["git_push"] = push_result
+        if push_result.get("pushed"):
+            falses_logger.info(
+                "falses.txt git push done (method=%s, branch=%s)",
+                push_result.get("method", "?"),
+                push_result.get("branch", "?"),
+            )
+        elif push_result.get("skipped"):
+            falses_logger.info(
+                "falses.txt git push skipped: %s",
+                push_result.get("reason", "unknown"),
+            )
+        else:
+            falses_logger.warning("falses.txt git push finished without success: %s", push_result)
     except Exception as e:
         falses_logger.error("Failed to push falses.txt to Azure DevOps: %s", e, exc_info=True)
         refresh_result["git_push"] = {"pushed": False, "error": str(e)}

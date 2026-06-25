@@ -300,6 +300,9 @@ def push_falses_via_git_cli(file_path: Path, content_hash: str, hash_count: int)
 
         diff = _run_git(_git_cmd("diff", "--cached", "--quiet"), cwd=repo_dir, check=False)
         if diff.returncode == 0:
+            falses_git_logger.info(
+                "falses.txt git push skipped: remote already has identical content"
+            )
             return {"pushed": False, "skipped": True, "reason": "no changes", "method": "git"}
 
         _run_git(_git_cmd("commit", "-m", commit_message), cwd=repo_dir)
@@ -339,7 +342,7 @@ def push_falses_file_to_git(file_path: Path, content_hash: str, hash_count: int)
     repo_file_path = _normalize_repo_file_path(FALSES_GIT_FILE_PATH)
     branch_name = (FALSES_GIT_BRANCH or "script_with_Docker").strip()
 
-    with httpx.Client(timeout=60.0) as client:
+    with httpx.Client(timeout=60.0, verify=FALSES_GIT_SSL_VERIFY) as client:
         pusher = AzureDevOpsFalsesPusher(target, client)
         result = pusher.push_file(branch_name, repo_file_path, content, content_hash, hash_count)
         result["method"] = "rest"
