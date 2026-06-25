@@ -266,7 +266,7 @@ def _git_cmd(*args, **kwargs):
     return [git] + _git_config_prefix(with_auth=with_auth) + list(args)
 
 
-def _resolve_git_binary() -> str:
+def _resolve_git_binary():
     """Find git executable; service processes often have a minimal PATH."""
     configured = (FALSES_GIT_BINARY or "").strip()
     if configured:
@@ -289,20 +289,43 @@ def _resolve_git_binary() -> str:
     )
 
 
-def _run_git(args, cwd, check=True):
-    result = subprocess.run(
-        args,
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        timeout=600,
-    )
-    if check and result.returncode != 0:
+def _run_git(args, cwd, check=True, timeout=600):
+    try:
+        result = subprocess.run(
+            args,
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
         raise RuntimeError(
-            f"git command failed ({result.returncode}): {' '.join(args)}\n"
-            f"{result.stderr or result.stdout}"
+            "git command timed out after %ss: %s" % (timeout, " ".join(args))
+        ) from exc
+
+    if check and result.returncode != 0:
+        if result.returncode < 0:
+            signal_hint = " (process killed by signal %s)" % (-result.returncode,)
+        else:
+            signal_hint = ""
+        raise RuntimeError(
+            "git command failed (%s)%s: %s\n%s"
+            % (result.returncode, signal_hint, " ".join(args), result.stderr or result.stdout)
         )
     return result
+
+
+def _configure_git_for_push(repo_dir):
+    """Old git + large files: credentialed remote URL and bigger HTTP buffer."""
+    auth_remote = build_git_auth_url(FALSES_GIT_REPO_URL, FALSES_GIT_PAT)
+    _run_git(
+        _git_cmd("remote", "set-url", "origin", auth_remote, with_auth=False),
+        cwd=repo_dir,
+    )
+    _run_git(
+        _git_cmd("config", "http.postBuffer", "524288000", with_auth=False),
+        cwd=repo_dir,
+    )
 
 
 def _try_clone_variants(clone_url, repo_dir, branch_name, work_dir, with_auth_header=True):
@@ -413,10 +436,13 @@ def push_falses_via_git_cli(file_path, content_hash, hash_count, force_push=Fals
             _run_git(_git_cmd("commit", "--allow-empty", "-m", commit_message, with_auth=False), cwd=repo_dir)
         else:
             _run_git(_git_cmd("commit", "-m", commit_message, with_auth=False), cwd=repo_dir)
+
+        _configure_git_for_push(repo_dir)
+        push_timeout = 1800
         if branch_exists_remotely:
-            _run_git(_git_cmd("push", "origin", branch_name), cwd=repo_dir)
+            _run_git(_git_cmd("push", "origin", branch_name, with_auth=False), cwd=repo_dir, timeout=push_timeout)
         else:
-            _run_git(_git_cmd("push", "-u", "origin", branch_name), cwd=repo_dir)
+            _run_git(_git_cmd("push", "-u", "origin", branch_name, with_auth=False), cwd=repo_dir, timeout=push_timeout)
 
         falses_git_logger.info(
             "Pushed falses.txt via git to %s@%s",

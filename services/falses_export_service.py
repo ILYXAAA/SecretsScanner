@@ -92,7 +92,17 @@ def refresh_falses_file(version=None, on_startup=False):
 
     On service startup (on_startup=True) the existing file is removed first so
     content is always regenerated and pushed.
+
+    Never raises — errors are logged and returned in the result dict.
     """
+    try:
+        return _refresh_falses_file_impl(version, on_startup)
+    except Exception as e:
+        falses_logger.error("falses.txt refresh failed: %s", e, exc_info=True)
+        return {"written": False, "error": str(e)}
+
+
+def _refresh_falses_file_impl(version=None, on_startup=False):
     export_version = version or FALSES_AUTO_VERSION
     db = SessionLocal()
     try:
@@ -143,15 +153,22 @@ def refresh_falses_file(version=None, on_startup=False):
 
 async def falses_refresh_scheduler():
     """Background task: refresh falses.txt on a fixed interval."""
+    falses_logger.info("falses.txt background scheduler started")
+    loop = asyncio.get_event_loop()
+
+    # Let the app finish startup and begin writing logs before a heavy git push.
+    await asyncio.sleep(10)
+
     try:
-        refresh_falses_file(on_startup=True)
+        falses_logger.info("falses.txt startup refresh starting...")
+        await loop.run_in_executor(None, lambda: refresh_falses_file(on_startup=True))
     except Exception as e:
         falses_logger.error("Initial falses.txt refresh failed: %s", e, exc_info=True)
 
     while True:
         try:
             await asyncio.sleep(FALSES_REFRESH_INTERVAL_HOURS * 3600)
-            refresh_falses_file()
+            await loop.run_in_executor(None, refresh_falses_file)
         except Exception as e:
             falses_logger.error("falses refresh scheduler error: %s", e, exc_info=True)
             await asyncio.sleep(3600)
