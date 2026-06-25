@@ -256,7 +256,9 @@ def _run_git(args: list[str], cwd: Path, check: bool = True) -> subprocess.Compl
     return result
 
 
-def push_falses_via_git_cli(file_path: Path, content_hash: str, hash_count: int) -> dict:
+def push_falses_via_git_cli(
+    file_path: Path, content_hash: str, hash_count: int, *, force_push: bool = False
+) -> dict:
     """Push via native git (no 25 MB REST API limit)."""
     branch_name = (FALSES_GIT_BRANCH or "script_with_Docker").strip()
     repo_file_path = _normalize_repo_file_path(FALSES_GIT_FILE_PATH).lstrip("/")
@@ -300,12 +302,17 @@ def push_falses_via_git_cli(file_path: Path, content_hash: str, hash_count: int)
 
         diff = _run_git(_git_cmd("diff", "--cached", "--quiet"), cwd=repo_dir, check=False)
         if diff.returncode == 0:
+            if not force_push:
+                falses_git_logger.info(
+                    "falses.txt git push skipped: remote already has identical content"
+                )
+                return {"pushed": False, "skipped": True, "reason": "no changes", "method": "git"}
             falses_git_logger.info(
-                "falses.txt git push skipped: remote already has identical content"
+                "falses.txt unchanged on remote, creating startup sync commit"
             )
-            return {"pushed": False, "skipped": True, "reason": "no changes", "method": "git"}
-
-        _run_git(_git_cmd("commit", "-m", commit_message), cwd=repo_dir)
+            _run_git(_git_cmd("commit", "--allow-empty", "-m", commit_message), cwd=repo_dir)
+        else:
+            _run_git(_git_cmd("commit", "-m", commit_message), cwd=repo_dir)
         if branch_exists_remotely:
             _run_git(_git_cmd("push", "origin", branch_name), cwd=repo_dir)
         else:
@@ -324,7 +331,9 @@ def push_falses_via_git_cli(file_path: Path, content_hash: str, hash_count: int)
         }
 
 
-def push_falses_file_to_git(file_path: Path, content_hash: str, hash_count: int) -> dict:
+def push_falses_file_to_git(
+    file_path: Path, content_hash: str, hash_count: int, *, force_push: bool = False
+) -> dict:
     """Push generated falses.txt to the configured Azure DevOps branch."""
     if not is_falses_git_push_configured():
         return {"pushed": False, "skipped": True, "reason": "git push not configured"}
@@ -336,7 +345,7 @@ def push_falses_file_to_git(file_path: Path, content_hash: str, hash_count: int)
             "falses.txt is %s MB — using git CLI push (REST limit is 25 MB)",
             round(content_size / (1024 * 1024), 1),
         )
-        return push_falses_via_git_cli(file_path, content_hash, hash_count)
+        return push_falses_via_git_cli(file_path, content_hash, hash_count, force_push=force_push)
 
     target = parse_ado_git_repo_url(FALSES_GIT_REPO_URL)
     repo_file_path = _normalize_repo_file_path(FALSES_GIT_FILE_PATH)
