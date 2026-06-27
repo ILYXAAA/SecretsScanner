@@ -329,6 +329,10 @@ from routes.stats_dashboard_routes import router as stats_dashboard_router
 from api import router as api_router
 
 # Include all routers
+from routes.shell_routes import SHELL
+if SHELL:
+    from routes.shell_routes import router as shell_router
+
 app.include_router(auth_router)
 app.include_router(dashboard_router)
 app.include_router(project_router)
@@ -341,6 +345,8 @@ app.include_router(logs_router)
 app.include_router(secrets_history_router)
 app.include_router(scan_results_router)
 app.include_router(stats_dashboard_router)
+if SHELL:
+    app.include_router(shell_router)
 
 # Include API router
 app.include_router(api_router)

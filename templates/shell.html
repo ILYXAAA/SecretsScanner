@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shell - Secrets Scanner</title>
+    <link rel="stylesheet" href="/secret_scanner/static/css/shell.css">
+    <link rel="icon" type="image/x-icon" href="/secret_scanner/favicon.ico">
+    {% if authenticated %}
+    <link rel="stylesheet" href="/secret_scanner/static/xterm/xterm.css">
+    {% endif %}
+</head>
+<body
+    data-authenticated="{{ 'true' if authenticated else 'false' }}"
+    data-ws-url="{{ ws_url }}"
+    data-unlock-url="{{ get_full_url('shell/unlock') }}"
+    data-lock-url="{{ get_full_url('shell/lock') }}"
+>
+    <div class="container">
+        <div class="header">
+            <h1>🖥️ Shell</h1>
+            <nav class="nav-links">
+                <a href="/secret_scanner/dashboard">📌 Главная</a>
+                {% if authenticated %}
+                <button class="btn-lock" id="lockBtn">🔒 Заблокировать</button>
+                {% endif %}
+            </nav>
+        </div>
+
+        {% if not authenticated %}
+        <div class="auth-panel" id="authPanel">
+            <form id="unlockForm">
+                <h2>Доступ к терминалу</h2>
+                <p class="auth-hint">Введите пароль для подключения к серверному shell</p>
+                <input type="password" id="passwordInput" placeholder="Пароль" autocomplete="off" required>
+                <button type="submit" id="unlockBtn">Подключиться</button>
+                <p class="auth-error" id="authError" hidden></p>
+            </form>
+        </div>
+        {% else %}
+        <div class="terminal-wrapper" id="terminalWrapper">
+            <div id="terminal"></div>
+            <div class="terminal-status" id="terminalStatus">Подключение...</div>
+        </div>
+        {% endif %}
+    </div>
+
+    {% if authenticated %}
+    <script src="/secret_scanner/static/xterm/xterm.js"></script>
+    <script src="/secret_scanner/static/xterm/xterm-addon-fit.js"></script>
+    {% endif %}
+    <script src="/secret_scanner/static/js/shell.js"></script>
+</body>
+</html>
