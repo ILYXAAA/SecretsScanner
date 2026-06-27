@@ -1,3 +1,4 @@
+/* shell.js v3 — HTTP polling, no WebSocket */
 (function () {
     const body = document.body;
     const authenticated = body.dataset.authenticated === 'true';
@@ -60,6 +61,12 @@
         const statusEl = document.getElementById('terminalStatus');
         const lockBtn = document.getElementById('lockBtn');
 
+        if (!startUrl || !pollUrl || !inputUrl) {
+            statusEl.textContent = 'Ошибка конфигурации: обновите страницу (Ctrl+F5)';
+            statusEl.className = 'terminal-status disconnected';
+            return;
+        }
+
         const term = new Terminal({
             cursorBlink: true,
             fontSize: 14,
@@ -81,6 +88,7 @@
         let polling = false;
         let pollTimer = null;
         let connected = false;
+        let restartAttempts = 0;
 
         function setStatus(text, cls) {
             statusEl.textContent = text;
@@ -97,7 +105,7 @@
         }
 
         async function sendResize() {
-            if (!connected) return;
+            if (!connected || !resizeUrl) return;
             try {
                 await fetch(resizeUrl, {
                     method: 'POST',
@@ -134,12 +142,21 @@
                 }
 
                 const data = await resp.json();
+
+                if (data.missing && connected && restartAttempts < 3) {
+                    restartAttempts++;
+                    await connect();
+                    return;
+                }
+
                 if (data.output) {
                     term.write(base64ToBytes(data.output));
                 }
                 offset = data.offset;
 
-                if (!data.alive && connected) {
+                if (data.alive) {
+                    restartAttempts = 0;
+                } else if (connected && !data.missing) {
                     setStatus('Shell завершён', 'disconnected');
                     connected = false;
                 }
@@ -168,7 +185,8 @@
             try {
                 const resp = await fetch(startUrl, { method: 'POST' });
                 if (!resp.ok) {
-                    setStatus('Ошибка запуска shell', 'disconnected');
+                    const err = await resp.json().catch(() => ({}));
+                    setStatus('Ошибка запуска: ' + (err.error || resp.status), 'disconnected');
                     return;
                 }
 
@@ -178,8 +196,10 @@
                 fitAddon.fit();
                 await sendResize();
                 term.focus();
-                startPolling();
-            } catch {
+                if (!polling) {
+                    startPolling();
+                }
+            } catch (e) {
                 setStatus('Ошибка соединения', 'disconnected');
             }
         }
@@ -205,7 +225,9 @@
 
         window.addEventListener('beforeunload', () => {
             stopPolling();
-            navigator.sendBeacon(stopUrl, '');
+            if (stopUrl) {
+                navigator.sendBeacon(stopUrl, '');
+            }
         });
 
         connect();

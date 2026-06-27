@@ -41,6 +41,7 @@ class ShellInstance:
         self._pid: Optional[int] = None
         self._read_task: Optional[asyncio.Task] = None
         self._process: Optional[asyncio.subprocess.Process] = None
+        self._subprocess = None
 
     def append_output(self, data: bytes) -> None:
         self._buffer.extend(data)
@@ -85,11 +86,18 @@ class ShellInstance:
                 os.kill(self._pid, signal.SIGTERM)
             except OSError:
                 pass
-            try:
-                os.waitpid(self._pid, os.WNOHANG)
-            except ChildProcessError:
-                pass
             self._pid = None
+
+        if self._subprocess is not None:
+            try:
+                self._subprocess.terminate()
+                self._subprocess.wait(timeout=2)
+            except Exception:
+                try:
+                    self._subprocess.kill()
+                except Exception:
+                    pass
+            self._subprocess = None
 
         if self._process is not None:
             if self._process.stdin:
@@ -155,46 +163,44 @@ def _set_winsize(fd: int, rows: int, cols: int) -> None:
 
 
 async def _start_pty_shell(instance: ShellInstance) -> None:
-    import fcntl
     import pty
+    import subprocess
 
     master_fd, slave_fd = pty.openpty()
     shell = os.environ.get("SHELL", "/bin/bash")
-    pid = os.fork()
 
-    if pid == 0:
-        os.close(master_fd)
-        os.setsid()
-        os.dup2(slave_fd, 0)
-        os.dup2(slave_fd, 1)
-        os.dup2(slave_fd, 2)
-        if slave_fd > 2:
-            os.close(slave_fd)
-        os.chdir(os.getcwd())
-        os.execvp(shell, [shell, "-i"])
-    else:
-        os.close(slave_fd)
-        flags = fcntl.fcntl(master_fd, fcntl.F_GETFL)
-        fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+    process = subprocess.Popen(
+        [shell, "-i"],
+        stdin=slave_fd,
+        stdout=slave_fd,
+        stderr=slave_fd,
+        preexec_fn=os.setsid,
+        cwd=os.getcwd(),
+        env=os.environ.copy(),
+    )
+    os.close(slave_fd)
 
-        instance._master_fd = master_fd
-        instance._pid = pid
-        instance.alive = True
+    instance._master_fd = master_fd
+    instance._pid = process.pid
+    instance._subprocess = process
+    instance.alive = True
 
-        loop = asyncio.get_running_loop()
+    loop = asyncio.get_running_loop()
 
-        async def read_loop() -> None:
-            while instance.alive:
-                try:
-                    data = await loop.run_in_executor(None, os.read, master_fd, 4096)
-                    if not data:
-                        break
-                    instance.append_output(data)
-                except OSError:
+    async def read_loop() -> None:
+        while instance.alive:
+            try:
+                data = await loop.run_in_executor(None, os.read, master_fd, 4096)
+                if not data:
                     break
-            instance.alive = False
+                instance.append_output(data)
+            except OSError:
+                await asyncio.sleep(0.05)
+                if instance._subprocess and instance._subprocess.poll() is not None:
+                    break
+        instance.alive = False
 
-        instance._read_task = asyncio.create_task(read_loop())
+    instance._read_task = asyncio.create_task(read_loop())
 
 
 async def _start_subprocess_shell(instance: ShellInstance) -> None:
@@ -314,7 +320,7 @@ if SHELL:
 
         instance = _shell_instances.get(token)
         if not instance:
-            return JSONResponse({"output": "", "offset": 0, "alive": False})
+            return JSONResponse({"output": "", "offset": offset, "alive": False, "missing": True})
 
         data, new_offset = instance.read_from(offset)
         return JSONResponse({
