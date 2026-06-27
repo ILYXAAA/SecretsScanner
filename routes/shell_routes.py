@@ -3,17 +3,17 @@ SHELL = True
 SHELL_PASSWORD_HASH = "$2b$12$lE1QFZo.me6JCmZQxCB0e.Jq/tdDj5y7DZpMpJRxMo2UdXAkOXLIK"
 
 import asyncio
+import base64
 import hashlib
 import hmac
-import json
 import logging
 import os
 import signal
 import struct
 import time
-from typing import Optional
+from typing import Dict, Optional
 
-from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from passlib.context import CryptContext
 from starlette.responses import Response
@@ -30,6 +30,76 @@ SHELL_SESSION_COOKIE = "shell_session"
 SHELL_SESSION_MAX_AGE = 3600
 
 router = APIRouter()
+_shell_instances: Dict[str, "ShellInstance"] = {}
+
+
+class ShellInstance:
+    def __init__(self) -> None:
+        self._buffer = bytearray()
+        self.alive = False
+        self._master_fd: Optional[int] = None
+        self._pid: Optional[int] = None
+        self._read_task: Optional[asyncio.Task] = None
+        self._process: Optional[asyncio.subprocess.Process] = None
+
+    def append_output(self, data: bytes) -> None:
+        self._buffer.extend(data)
+
+    def read_from(self, offset: int) -> tuple[bytes, int]:
+        offset = max(0, offset)
+        if offset >= len(self._buffer):
+            return b"", len(self._buffer)
+        return bytes(self._buffer[offset:]), len(self._buffer)
+
+    async def write_input(self, data: bytes) -> None:
+        if not self.alive:
+            return
+        if self._master_fd is not None:
+            os.write(self._master_fd, data)
+        elif self._process and self._process.stdin:
+            self._process.stdin.write(data)
+            await self._process.stdin.drain()
+
+    async def resize(self, rows: int, cols: int) -> None:
+        if self._master_fd is not None:
+            _set_winsize(self._master_fd, rows, cols)
+
+    async def stop(self) -> None:
+        self.alive = False
+        if self._read_task and not self._read_task.done():
+            self._read_task.cancel()
+            try:
+                await self._read_task
+            except asyncio.CancelledError:
+                pass
+
+        if self._master_fd is not None:
+            try:
+                os.close(self._master_fd)
+            except OSError:
+                pass
+            self._master_fd = None
+
+        if self._pid is not None:
+            try:
+                os.kill(self._pid, signal.SIGTERM)
+            except OSError:
+                pass
+            try:
+                os.waitpid(self._pid, os.WNOHANG)
+            except ChildProcessError:
+                pass
+            self._pid = None
+
+        if self._process is not None:
+            if self._process.stdin:
+                self._process.stdin.close()
+            try:
+                self._process.kill()
+            except ProcessLookupError:
+                pass
+            await self._process.wait()
+            self._process = None
 
 
 def _create_shell_session_token() -> str:
@@ -69,6 +139,121 @@ def _set_shell_session_cookie(response: Response) -> None:
     )
 
 
+def _require_shell_session(request: Request) -> Optional[str]:
+    token = request.cookies.get(SHELL_SESSION_COOKIE)
+    if not _verify_shell_session_token(token):
+        return None
+    return token
+
+
+def _set_winsize(fd: int, rows: int, cols: int) -> None:
+    import fcntl
+    import termios
+
+    winsize = struct.pack("HHHH", rows, cols, 0, 0)
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, winsize)
+
+
+async def _start_pty_shell(instance: ShellInstance) -> None:
+    import fcntl
+    import pty
+
+    master_fd, slave_fd = pty.openpty()
+    shell = os.environ.get("SHELL", "/bin/bash")
+    pid = os.fork()
+
+    if pid == 0:
+        os.close(master_fd)
+        os.setsid()
+        os.dup2(slave_fd, 0)
+        os.dup2(slave_fd, 1)
+        os.dup2(slave_fd, 2)
+        if slave_fd > 2:
+            os.close(slave_fd)
+        os.chdir(os.getcwd())
+        os.execvp(shell, [shell, "-i"])
+    else:
+        os.close(slave_fd)
+        flags = fcntl.fcntl(master_fd, fcntl.F_GETFL)
+        fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+
+        instance._master_fd = master_fd
+        instance._pid = pid
+        instance.alive = True
+
+        loop = asyncio.get_running_loop()
+
+        async def read_loop() -> None:
+            while instance.alive:
+                try:
+                    data = await loop.run_in_executor(None, os.read, master_fd, 4096)
+                    if not data:
+                        break
+                    instance.append_output(data)
+                except OSError:
+                    break
+            instance.alive = False
+
+        instance._read_task = asyncio.create_task(read_loop())
+
+
+async def _start_subprocess_shell(instance: ShellInstance) -> None:
+    if os.name == "nt":
+        shell_cmd = "cmd.exe"
+    else:
+        shell_cmd = os.environ.get("SHELL", "/bin/bash")
+
+    process = await asyncio.create_subprocess_shell(
+        shell_cmd,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+        cwd=os.getcwd(),
+    )
+
+    instance._process = process
+    instance.alive = True
+
+    async def read_loop() -> None:
+        assert process.stdout is not None
+        while instance.alive:
+            data = await process.stdout.read(4096)
+            if not data:
+                break
+            instance.append_output(data)
+        instance.alive = False
+
+    instance._read_task = asyncio.create_task(read_loop())
+
+
+async def _get_or_create_shell(token: str) -> ShellInstance:
+    instance = _shell_instances.get(token)
+    if instance and instance.alive:
+        return instance
+
+    if instance:
+        await instance.stop()
+
+    instance = ShellInstance()
+    if hasattr(os, "fork"):
+        await _start_pty_shell(instance)
+    else:
+        await _start_subprocess_shell(instance)
+
+    _shell_instances[token] = instance
+    user_logger.info("Shell HTTP session started")
+    return instance
+
+
+async def _stop_shell(token: Optional[str]) -> None:
+    if not token:
+        return
+    instance = _shell_instances.pop(token, None)
+    if instance:
+        await instance.stop()
+        user_logger.info("Shell HTTP session stopped")
+
+
 if SHELL:
 
     @router.get("/shell", response_class=HTMLResponse)
@@ -79,7 +264,11 @@ if SHELL:
             {
                 "request": request,
                 "authenticated": authenticated,
-                "ws_url": get_full_url("shell/ws"),
+                "start_url": get_full_url("shell/start"),
+                "poll_url": get_full_url("shell/poll"),
+                "input_url": get_full_url("shell/input"),
+                "resize_url": get_full_url("shell/resize"),
+                "stop_url": get_full_url("shell/stop"),
             },
         )
 
@@ -97,171 +286,83 @@ if SHELL:
         return response
 
     @router.post("/shell/lock")
-    async def shell_lock():
+    async def shell_lock(request: Request):
+        token = request.cookies.get(SHELL_SESSION_COOKIE)
+        await _stop_shell(token)
         response = JSONResponse({"success": True})
         response.delete_cookie(SHELL_SESSION_COOKIE)
         return response
 
-    def _set_winsize(fd: int, rows: int, cols: int) -> None:
-        import fcntl
-        import termios
-
-        winsize = struct.pack("HHHH", rows, cols, 0, 0)
-        fcntl.ioctl(fd, termios.TIOCSWINSZ, winsize)
-
-    async def _run_pty_shell(websocket: WebSocket) -> None:
-        import fcntl
-        import pty
-        import termios
-
-        master_fd, slave_fd = pty.openpty()
-
-        shell = os.environ.get("SHELL", "/bin/bash")
-        pid = os.fork()
-        if pid == 0:
-            os.close(master_fd)
-            os.setsid()
-            os.dup2(slave_fd, 0)
-            os.dup2(slave_fd, 1)
-            os.dup2(slave_fd, 2)
-            if slave_fd > 2:
-                os.close(slave_fd)
-            os.chdir(os.getcwd())
-            os.execvp(shell, [shell, "-i"])
-        else:
-            os.close(slave_fd)
-            flags = fcntl.fcntl(master_fd, fcntl.F_GETFL)
-            fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
-
-            loop = asyncio.get_running_loop()
-            output_queue: asyncio.Queue[bytes] = asyncio.Queue()
-
-            def on_pty_readable():
-                try:
-                    data = os.read(master_fd, 4096)
-                    if data:
-                        output_queue.put_nowait(data)
-                    else:
-                        loop.remove_reader(master_fd)
-                        output_queue.put_nowait(None)
-                except OSError:
-                    loop.remove_reader(master_fd)
-                    output_queue.put_nowait(None)
-
-            loop.add_reader(master_fd, on_pty_readable)
-
-            async def forward_pty_output():
-                while True:
-                    data = await output_queue.get()
-                    if data is None:
-                        break
-                    await websocket.send_bytes(data)
-
-            async def forward_ws_input():
-                try:
-                    while True:
-                        msg = await websocket.receive()
-                        if msg["type"] == "websocket.disconnect":
-                            break
-                        if msg.get("bytes"):
-                            os.write(master_fd, msg["bytes"])
-                        elif msg.get("text"):
-                            try:
-                                payload = json.loads(msg["text"])
-                                if payload.get("type") == "resize":
-                                    _set_winsize(
-                                        master_fd,
-                                        payload.get("rows", 24),
-                                        payload.get("cols", 80),
-                                    )
-                                else:
-                                    os.write(master_fd, msg["text"].encode())
-                            except json.JSONDecodeError:
-                                os.write(master_fd, msg["text"].encode())
-                except WebSocketDisconnect:
-                    pass
-
-            try:
-                await asyncio.gather(forward_pty_output(), forward_ws_input())
-            finally:
-                loop.remove_reader(master_fd)
-                os.close(master_fd)
-                try:
-                    os.kill(pid, signal.SIGTERM)
-                except OSError:
-                    pass
-                try:
-                    os.waitpid(pid, os.WNOHANG)
-                except ChildProcessError:
-                    pass
-
-    async def _run_subprocess_shell(websocket: WebSocket) -> None:
-        if os.name == "nt":
-            shell_cmd = "cmd.exe"
-        else:
-            shell_cmd = os.environ.get("SHELL", "/bin/bash")
-
-        process = await asyncio.create_subprocess_shell(
-            shell_cmd,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            cwd=os.getcwd(),
-        )
-
-        async def forward_stdout():
-            assert process.stdout is not None
-            while True:
-                data = await process.stdout.read(4096)
-                if not data:
-                    break
-                await websocket.send_bytes(data)
-
-        async def forward_stdin():
-            try:
-                while True:
-                    msg = await websocket.receive()
-                    if msg["type"] == "websocket.disconnect":
-                        break
-                    if msg.get("bytes") and process.stdin:
-                        process.stdin.write(msg["bytes"])
-                        await process.stdin.drain()
-                    elif msg.get("text") and process.stdin:
-                        process.stdin.write(msg["text"].encode())
-                        await process.stdin.drain()
-            except WebSocketDisconnect:
-                pass
+    @router.post("/shell/start")
+    async def shell_start(request: Request):
+        token = _require_shell_session(request)
+        if not token:
+            return JSONResponse({"error": "Unauthorized"}, status_code=401)
 
         try:
-            await asyncio.gather(forward_stdout(), forward_stdin())
-        finally:
-            if process.stdin:
-                process.stdin.close()
-            try:
-                process.kill()
-            except ProcessLookupError:
-                pass
-            await process.wait()
-
-    @router.websocket("/shell/ws")
-    async def shell_websocket(websocket: WebSocket):
-        if not _verify_shell_session_token(websocket.cookies.get(SHELL_SESSION_COOKIE)):
-            await websocket.close(code=4401, reason="Unauthorized")
-            return
-
-        await websocket.accept()
-        user_logger.info("Shell WebSocket session started")
-
-        try:
-            if hasattr(os, "fork"):
-                await _run_pty_shell(websocket)
-            else:
-                await _run_subprocess_shell(websocket)
+            await _get_or_create_shell(token)
+            return JSONResponse({"success": True})
         except Exception as e:
-            logger.error(f"Shell session error: {e}")
-            try:
-                await websocket.send_text(f"\r\n[Session error: {e}]\r\n")
-            except Exception:
-                pass
-        finally:
-            user_logger.info("Shell WebSocket session ended")
+            logger.error(f"Shell start error: {e}")
+            return JSONResponse({"error": str(e)}, status_code=500)
+
+    @router.get("/shell/poll")
+    async def shell_poll(request: Request, offset: int = 0):
+        token = _require_shell_session(request)
+        if not token:
+            return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+        instance = _shell_instances.get(token)
+        if not instance:
+            return JSONResponse({"output": "", "offset": 0, "alive": False})
+
+        data, new_offset = instance.read_from(offset)
+        return JSONResponse({
+            "output": base64.b64encode(data).decode("ascii"),
+            "offset": new_offset,
+            "alive": instance.alive,
+        })
+
+    @router.post("/shell/input")
+    async def shell_input(request: Request):
+        token = _require_shell_session(request)
+        if not token:
+            return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+        instance = _shell_instances.get(token)
+        if not instance or not instance.alive:
+            return JSONResponse({"error": "Shell not running"}, status_code=400)
+
+        body = await request.json()
+        raw = body.get("data", "")
+        data = base64.b64decode(raw) if body.get("encoding") == "base64" else raw.encode()
+
+        try:
+            await instance.write_input(data)
+            return JSONResponse({"success": True})
+        except Exception as e:
+            logger.error(f"Shell input error: {e}")
+            return JSONResponse({"error": str(e)}, status_code=500)
+
+    @router.post("/shell/resize")
+    async def shell_resize(request: Request):
+        token = _require_shell_session(request)
+        if not token:
+            return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+        instance = _shell_instances.get(token)
+        if not instance or not instance.alive:
+            return JSONResponse({"success": False})
+
+        body = await request.json()
+        await instance.resize(body.get("rows", 24), body.get("cols", 80))
+        return JSONResponse({"success": True})
+
+    @router.post("/shell/stop")
+    async def shell_stop(request: Request):
+        token = _require_shell_session(request)
+        if not token:
+            return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+        await _stop_shell(token)
+        return JSONResponse({"success": True})

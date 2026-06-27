@@ -51,7 +51,11 @@
     }
 
     function initTerminal() {
-        const wsUrl = body.dataset.wsUrl;
+        const startUrl = body.dataset.startUrl;
+        const pollUrl = body.dataset.pollUrl;
+        const inputUrl = body.dataset.inputUrl;
+        const resizeUrl = body.dataset.resizeUrl;
+        const stopUrl = body.dataset.stopUrl;
         const lockUrl = body.dataset.lockUrl;
         const statusEl = document.getElementById('terminalStatus');
         const lockBtn = document.getElementById('lockBtn');
@@ -73,63 +77,115 @@
         term.open(document.getElementById('terminal'));
         fitAddon.fit();
 
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsFullUrl = protocol + '//' + window.location.host + wsUrl;
-
-        let ws = null;
-        let reconnectTimer = null;
+        let offset = 0;
+        let polling = false;
+        let pollTimer = null;
+        let connected = false;
 
         function setStatus(text, cls) {
             statusEl.textContent = text;
             statusEl.className = 'terminal-status' + (cls ? ' ' + cls : '');
         }
 
-        function sendResize() {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({
-                    type: 'resize',
-                    rows: term.rows,
-                    cols: term.cols,
-                }));
+        function base64ToBytes(b64) {
+            const binary = atob(b64);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) {
+                bytes[i] = binary.charCodeAt(i);
+            }
+            return bytes;
+        }
+
+        async function sendResize() {
+            if (!connected) return;
+            try {
+                await fetch(resizeUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ rows: term.rows, cols: term.cols }),
+                });
+            } catch {
+                // ignore resize errors
             }
         }
 
-        function connect() {
-            setStatus('Подключение...', '');
-            ws = new WebSocket(wsFullUrl);
-            ws.binaryType = 'arraybuffer';
+        async function sendInput(data) {
+            if (!connected) return;
+            try {
+                await fetch(inputUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ data: data, encoding: 'text' }),
+                });
+            } catch {
+                setStatus('Ошибка отправки', 'disconnected');
+            }
+        }
 
-            ws.onopen = () => {
+        async function poll() {
+            if (!polling) return;
+
+            try {
+                const resp = await fetch(pollUrl + '?offset=' + offset);
+                if (resp.status === 401) {
+                    setStatus('Не авторизован', 'disconnected');
+                    stopPolling();
+                    return;
+                }
+
+                const data = await resp.json();
+                if (data.output) {
+                    term.write(base64ToBytes(data.output));
+                }
+                offset = data.offset;
+
+                if (!data.alive && connected) {
+                    setStatus('Shell завершён', 'disconnected');
+                    connected = false;
+                }
+            } catch {
+                setStatus('Ошибка опроса', 'disconnected');
+            }
+
+            pollTimer = setTimeout(poll, 200);
+        }
+
+        function startPolling() {
+            polling = true;
+            poll();
+        }
+
+        function stopPolling() {
+            polling = false;
+            if (pollTimer) {
+                clearTimeout(pollTimer);
+                pollTimer = null;
+            }
+        }
+
+        async function connect() {
+            setStatus('Подключение...', '');
+            try {
+                const resp = await fetch(startUrl, { method: 'POST' });
+                if (!resp.ok) {
+                    setStatus('Ошибка запуска shell', 'disconnected');
+                    return;
+                }
+
+                connected = true;
+                offset = 0;
                 setStatus('Подключено', 'connected');
                 fitAddon.fit();
-                sendResize();
+                await sendResize();
                 term.focus();
-            };
-
-            ws.onmessage = (event) => {
-                if (event.data instanceof ArrayBuffer) {
-                    term.write(new Uint8Array(event.data));
-                } else {
-                    term.write(event.data);
-                }
-            };
-
-            ws.onclose = (event) => {
-                setStatus('Отключено' + (event.code === 4401 ? ' (не авторизован)' : ''), 'disconnected');
-                if (event.code !== 4401) {
-                    reconnectTimer = setTimeout(connect, 3000);
-                }
-            };
-
-            ws.onerror = () => {
+                startPolling();
+            } catch {
                 setStatus('Ошибка соединения', 'disconnected');
-            };
+            }
         }
 
         term.onData((data) => {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(data);
-            }
+            sendInput(data);
         });
 
         window.addEventListener('resize', () => {
@@ -139,19 +195,19 @@
 
         if (lockBtn) {
             lockBtn.addEventListener('click', async () => {
-                if (ws) {
-                    ws.close();
-                }
+                stopPolling();
+                connected = false;
+                await fetch(stopUrl, { method: 'POST' });
                 await fetch(lockUrl, { method: 'POST' });
                 window.location.reload();
             });
         }
 
-        connect();
-
         window.addEventListener('beforeunload', () => {
-            if (reconnectTimer) clearTimeout(reconnectTimer);
-            if (ws) ws.close();
+            stopPolling();
+            navigator.sendBeacon(stopUrl, '');
         });
+
+        connect();
     }
 })();

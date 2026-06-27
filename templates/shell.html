@@ -12,7 +12,11 @@
 </head>
 <body
     data-authenticated="{{ 'true' if authenticated else 'false' }}"
-    data-ws-url="{{ ws_url }}"
+    data-start-url="{{ start_url }}"
+    data-poll-url="{{ poll_url }}"
+    data-input-url="{{ input_url }}"
+    data-resize-url="{{ resize_url }}"
+    data-stop-url="{{ stop_url }}"
     data-unlock-url="{{ get_full_url('shell/unlock') }}"
     data-lock-url="{{ get_full_url('shell/lock') }}"
 >
