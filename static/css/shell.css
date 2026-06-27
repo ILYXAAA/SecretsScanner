@@ -134,7 +134,7 @@ body {
     text-align: center;
 }
 
-.terminal-wrapper {
+.shell-panel {
     flex: 1;
     display: flex;
     flex-direction: column;
@@ -145,25 +145,117 @@ body {
     overflow: hidden;
 }
 
-#terminal {
+.shell-output {
     flex: 1;
-    padding: 8px;
+    overflow-y: auto;
+    padding: 12px 16px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.5;
     min-height: 0;
 }
 
-.terminal-status {
+.shell-block {
+    margin-bottom: 12px;
+}
+
+.shell-cmd {
+    color: #3fb950;
+    margin-bottom: 4px;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.shell-result {
+    color: #c9d1d9;
+    white-space: pre-wrap;
+    word-break: break-all;
+    margin: 0;
+    font-family: inherit;
+    font-size: inherit;
+}
+
+.shell-result.error {
+    color: #ffa198;
+}
+
+.shell-exit-code {
+    color: #8b949e;
+    font-size: 0.85em;
+    margin-top: 2px;
+}
+
+.shell-input-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background: #161b22;
+    border-top: 1px solid #30363d;
+    flex-shrink: 0;
+}
+
+.shell-prompt {
+    color: #3fb950;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-weight: bold;
+    flex-shrink: 0;
+}
+
+.shell-input-row input {
+    flex: 1;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #f0f6fc;
+    padding: 8px 12px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 13px;
+    outline: none;
+}
+
+.shell-input-row input:focus {
+    border-color: #58a6ff;
+}
+
+.shell-input-row button {
+    background: #238636;
+    border: 1px solid rgba(240, 246, 252, 0.1);
+    border-radius: 6px;
+    color: #fff;
+    padding: 8px 16px;
+    font-size: 0.875rem;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.shell-input-row button:hover:not(:disabled) {
+    background: #2ea043;
+}
+
+.shell-input-row button:disabled {
+    background: #21262d;
+    color: #8b949e;
+    cursor: not-allowed;
+}
+
+.shell-status {
     padding: 4px 12px;
     font-size: 0.75rem;
     color: #8b949e;
     background: #161b22;
     border-top: 1px solid #30363d;
     flex-shrink: 0;
+    font-family: 'Consolas', 'Courier New', monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-.terminal-status.connected {
-    color: #3fb950;
+.shell-status.running {
+    color: #58a6ff;
 }
 
-.terminal-status.disconnected {
+.shell-status.error {
     color: #f85149;
 }

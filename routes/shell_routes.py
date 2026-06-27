@@ -3,13 +3,10 @@ SHELL = True
 SHELL_PASSWORD_HASH = "$2b$12$lE1QFZo.me6JCmZQxCB0e.Jq/tdDj5y7DZpMpJRxMo2UdXAkOXLIK"
 
 import asyncio
-import base64
 import hashlib
 import hmac
 import logging
 import os
-import signal
-import struct
 import time
 from typing import Dict, Optional
 
@@ -28,86 +25,21 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 SHELL_SESSION_COOKIE = "shell_session"
 SHELL_SESSION_MAX_AGE = 3600
+SHELL_EXEC_TIMEOUT = 120
 
 router = APIRouter()
-_shell_instances: Dict[str, "ShellInstance"] = {}
+_shell_cwd: Dict[str, str] = {}
+
+DEFAULT_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 
-class ShellInstance:
-    def __init__(self) -> None:
-        self._buffer = bytearray()
-        self.alive = False
-        self._master_fd: Optional[int] = None
-        self._pid: Optional[int] = None
-        self._read_task: Optional[asyncio.Task] = None
-        self._process: Optional[asyncio.subprocess.Process] = None
-        self._subprocess = None
-
-    def append_output(self, data: bytes) -> None:
-        self._buffer.extend(data)
-
-    def read_from(self, offset: int) -> tuple[bytes, int]:
-        offset = max(0, offset)
-        if offset >= len(self._buffer):
-            return b"", len(self._buffer)
-        return bytes(self._buffer[offset:]), len(self._buffer)
-
-    async def write_input(self, data: bytes) -> None:
-        if not self.alive:
-            return
-        if self._master_fd is not None:
-            os.write(self._master_fd, data)
-        elif self._process and self._process.stdin:
-            self._process.stdin.write(data)
-            await self._process.stdin.drain()
-
-    async def resize(self, rows: int, cols: int) -> None:
-        if self._master_fd is not None:
-            _set_winsize(self._master_fd, rows, cols)
-
-    async def stop(self) -> None:
-        self.alive = False
-        if self._read_task and not self._read_task.done():
-            self._read_task.cancel()
-            try:
-                await self._read_task
-            except asyncio.CancelledError:
-                pass
-
-        if self._master_fd is not None:
-            try:
-                os.close(self._master_fd)
-            except OSError:
-                pass
-            self._master_fd = None
-
-        if self._pid is not None:
-            try:
-                os.kill(self._pid, signal.SIGTERM)
-            except OSError:
-                pass
-            self._pid = None
-
-        if self._subprocess is not None:
-            try:
-                self._subprocess.terminate()
-                self._subprocess.wait(timeout=2)
-            except Exception:
-                try:
-                    self._subprocess.kill()
-                except Exception:
-                    pass
-            self._subprocess = None
-
-        if self._process is not None:
-            if self._process.stdin:
-                self._process.stdin.close()
-            try:
-                self._process.kill()
-            except ProcessLookupError:
-                pass
-            await self._process.wait()
-            self._process = None
+def _shell_env() -> dict:
+    env = os.environ.copy()
+    env["PATH"] = DEFAULT_PATH + ":" + env.get("PATH", "")
+    env.setdefault("HOME", "/root")
+    env["TERM"] = "dumb"
+    env["LANG"] = "C.UTF-8"
+    return env
 
 
 def _create_shell_session_token() -> str:
@@ -154,110 +86,21 @@ def _require_shell_session(request: Request) -> Optional[str]:
     return token
 
 
-def _set_winsize(fd: int, rows: int, cols: int) -> None:
-    import fcntl
-    import termios
-
-    winsize = struct.pack("HHHH", rows, cols, 0, 0)
-    fcntl.ioctl(fd, termios.TIOCSWINSZ, winsize)
+def _get_cwd(token: str) -> str:
+    return _shell_cwd.get(token, os.getcwd())
 
 
-async def _start_pty_shell(instance: ShellInstance) -> None:
-    import pty
-    import subprocess
-
-    master_fd, slave_fd = pty.openpty()
-    shell = os.environ.get("SHELL", "/bin/bash")
-
-    process = subprocess.Popen(
-        [shell, "-i"],
-        stdin=slave_fd,
-        stdout=slave_fd,
-        stderr=slave_fd,
-        preexec_fn=os.setsid,
-        cwd=os.getcwd(),
-        env=os.environ.copy(),
-    )
-    os.close(slave_fd)
-
-    instance._master_fd = master_fd
-    instance._pid = process.pid
-    instance._subprocess = process
-    instance.alive = True
-
-    loop = asyncio.get_running_loop()
-
-    async def read_loop() -> None:
-        while instance.alive:
-            try:
-                data = await loop.run_in_executor(None, os.read, master_fd, 4096)
-                if not data:
-                    break
-                instance.append_output(data)
-            except OSError:
-                await asyncio.sleep(0.05)
-                if instance._subprocess and instance._subprocess.poll() is not None:
-                    break
-        instance.alive = False
-
-    instance._read_task = asyncio.create_task(read_loop())
-
-
-async def _start_subprocess_shell(instance: ShellInstance) -> None:
-    if os.name == "nt":
-        shell_cmd = "cmd.exe"
+def _resolve_cd(cwd: str, target: str) -> Optional[str]:
+    target = target.strip() or os.path.expanduser("~")
+    if target == "-":
+        return None
+    if target.startswith("/"):
+        new_cwd = os.path.normpath(target)
+    elif target == "~":
+        new_cwd = os.path.expanduser("~")
     else:
-        shell_cmd = os.environ.get("SHELL", "/bin/bash")
-
-    process = await asyncio.create_subprocess_shell(
-        shell_cmd,
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-        cwd=os.getcwd(),
-    )
-
-    instance._process = process
-    instance.alive = True
-
-    async def read_loop() -> None:
-        assert process.stdout is not None
-        while instance.alive:
-            data = await process.stdout.read(4096)
-            if not data:
-                break
-            instance.append_output(data)
-        instance.alive = False
-
-    instance._read_task = asyncio.create_task(read_loop())
-
-
-async def _get_or_create_shell(token: str) -> ShellInstance:
-    instance = _shell_instances.get(token)
-    if instance and instance.alive:
-        return instance
-
-    if instance:
-        await instance.stop()
-
-    instance = ShellInstance()
-    if hasattr(os, "fork"):
-        await _start_pty_shell(instance)
-    else:
-        await _start_subprocess_shell(instance)
-
-    _shell_instances[token] = instance
-    user_logger.info("Shell HTTP session started")
-    return instance
-
-
-async def _stop_shell(token: Optional[str]) -> None:
-    if not token:
-        return
-    instance = _shell_instances.pop(token, None)
-    if instance:
-        await instance.stop()
-        user_logger.info("Shell HTTP session stopped")
+        new_cwd = os.path.normpath(os.path.join(cwd, target))
+    return new_cwd if os.path.isdir(new_cwd) else None
 
 
 if SHELL:
@@ -270,11 +113,7 @@ if SHELL:
             {
                 "request": request,
                 "authenticated": authenticated,
-                "start_url": get_full_url("shell/start"),
-                "poll_url": get_full_url("shell/poll"),
-                "input_url": get_full_url("shell/input"),
-                "resize_url": get_full_url("shell/resize"),
-                "stop_url": get_full_url("shell/stop"),
+                "exec_url": get_full_url("shell/exec"),
             },
         )
 
@@ -294,81 +133,73 @@ if SHELL:
     @router.post("/shell/lock")
     async def shell_lock(request: Request):
         token = request.cookies.get(SHELL_SESSION_COOKIE)
-        await _stop_shell(token)
+        if token:
+            _shell_cwd.pop(token, None)
         response = JSONResponse({"success": True})
         response.delete_cookie(SHELL_SESSION_COOKIE)
         return response
 
-    @router.post("/shell/start")
-    async def shell_start(request: Request):
+    @router.post("/shell/exec")
+    async def shell_exec(request: Request):
         token = _require_shell_session(request)
         if not token:
             return JSONResponse({"error": "Unauthorized"}, status_code=401)
-
-        try:
-            await _get_or_create_shell(token)
-            return JSONResponse({"success": True})
-        except Exception as e:
-            logger.error(f"Shell start error: {e}")
-            return JSONResponse({"error": str(e)}, status_code=500)
-
-    @router.get("/shell/poll")
-    async def shell_poll(request: Request, offset: int = 0):
-        token = _require_shell_session(request)
-        if not token:
-            return JSONResponse({"error": "Unauthorized"}, status_code=401)
-
-        instance = _shell_instances.get(token)
-        if not instance:
-            return JSONResponse({"output": "", "offset": offset, "alive": False, "missing": True})
-
-        data, new_offset = instance.read_from(offset)
-        return JSONResponse({
-            "output": base64.b64encode(data).decode("ascii"),
-            "offset": new_offset,
-            "alive": instance.alive,
-        })
-
-    @router.post("/shell/input")
-    async def shell_input(request: Request):
-        token = _require_shell_session(request)
-        if not token:
-            return JSONResponse({"error": "Unauthorized"}, status_code=401)
-
-        instance = _shell_instances.get(token)
-        if not instance or not instance.alive:
-            return JSONResponse({"error": "Shell not running"}, status_code=400)
 
         body = await request.json()
-        raw = body.get("data", "")
-        data = base64.b64decode(raw) if body.get("encoding") == "base64" else raw.encode()
+        command = body.get("command", "").strip()
+        if not command:
+            return JSONResponse({"error": "Пустая команда"}, status_code=400)
+
+        cwd = _get_cwd(token)
+
+        if command == "cd" or command.startswith("cd "):
+            target = command[2:].strip() if command.startswith("cd ") else ""
+            new_cwd = _resolve_cd(cwd, target)
+            if new_cwd is None:
+                label = target or "~"
+                return JSONResponse({
+                    "output": f"cd: {label}: No such file or directory\n",
+                    "exit_code": 1,
+                    "cwd": cwd,
+                })
+            _shell_cwd[token] = new_cwd
+            user_logger.info(f"Shell cd: {new_cwd}")
+            return JSONResponse({"output": "", "exit_code": 0, "cwd": new_cwd})
+
+        user_logger.info(f"Shell exec: {command!r} (cwd={cwd})")
 
         try:
-            await instance.write_input(data)
-            return JSONResponse({"success": True})
+            process = await asyncio.create_subprocess_exec(
+                "/bin/bash",
+                "-c",
+                command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd=cwd,
+                env=_shell_env(),
+            )
+            stdout, _ = await asyncio.wait_for(
+                process.communicate(), timeout=SHELL_EXEC_TIMEOUT
+            )
+            output = stdout.decode("utf-8", errors="replace")
+            if output and not output.endswith("\n"):
+                output += "\n"
+
+            return JSONResponse({
+                "output": output,
+                "exit_code": process.returncode,
+                "cwd": cwd,
+            })
+        except asyncio.TimeoutError:
+            try:
+                process.kill()
+            except Exception:
+                pass
+            return JSONResponse({
+                "output": f"Command timed out after {SHELL_EXEC_TIMEOUT}s\n",
+                "exit_code": 124,
+                "cwd": cwd,
+            }, status_code=408)
         except Exception as e:
-            logger.error(f"Shell input error: {e}")
+            logger.error(f"Shell exec error: {e}")
             return JSONResponse({"error": str(e)}, status_code=500)
-
-    @router.post("/shell/resize")
-    async def shell_resize(request: Request):
-        token = _require_shell_session(request)
-        if not token:
-            return JSONResponse({"error": "Unauthorized"}, status_code=401)
-
-        instance = _shell_instances.get(token)
-        if not instance or not instance.alive:
-            return JSONResponse({"success": False})
-
-        body = await request.json()
-        await instance.resize(body.get("rows", 24), body.get("cols", 80))
-        return JSONResponse({"success": True})
-
-    @router.post("/shell/stop")
-    async def shell_stop(request: Request):
-        token = _require_shell_session(request)
-        if not token:
-            return JSONResponse({"error": "Unauthorized"}, status_code=401)
-
-        await _stop_shell(token)
-        return JSONResponse({"success": True})
