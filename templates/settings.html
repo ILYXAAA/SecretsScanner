@@ -12,7 +12,8 @@
       data-original-fp-rules="{{ (current_fp_rules_content or '') | e }}"
       data-original-extensions="{{ (current_excluded_extensions_content or '') | e }}"
       data-original-files="{{ (current_excluded_files_content or '') | e }}"
-      data-is-sqlite="{{ is_sqlite | tojson }}">
+      data-is-sqlite="{{ is_sqlite | tojson }}"
+      data-git-push-configured="{{ git_push_configured | tojson }}">
     {% from "components/base_header.html" import header %}
     {{ header('settings', current_user) }}
     
@@ -471,6 +472,19 @@ excluded_files:
         </div>
         {% endif %}
     </div>
+
+    <div id="gitPushModal" class="git-push-modal" style="display:none;" onclick="if (event.target === this) closeGitPushModal();">
+        <div class="git-push-modal-content" onclick="event.stopPropagation();">
+            <h3>Запушить изменения в SKIB KSU SecretSearch?</h3>
+            <p>Файл будет сохранён на микросервисе и отправлен в удалённый репозиторий.</p>
+            <div class="git-push-modal-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeGitPushModal()">Отмена</button>
+                <button type="button" class="btn btn-secondary" id="gitPushNoBtn">Нет, только сохранить</button>
+                <button type="button" class="btn btn-success" id="gitPushYesBtn">Да, запушить</button>
+            </div>
+        </div>
+    </div>
+
     <script src="/secret_scanner/static/js/settings.js"></script>
 </body>
 </html>

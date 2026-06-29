@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Request, Form, Depends
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sqlalchemy.orm import Session
 from dotenv import set_key, load_dotenv
 import urllib.parse
@@ -17,10 +17,62 @@ from services.microservice_client import (
 )
 from models import User
 from services.templates import templates
+from services.rules_git_push_service import is_rules_git_push_configured, push_rules_file_to_git
 logger = logging.getLogger("main")
 user_logger = logging.getLogger("user_actions")
 
 router = APIRouter()
+
+RULES_UPDATE_SUCCESS_MESSAGES = {
+    "rules": "Правила успешно обновлены",
+    "fp_rules": "False-Positive правила успешно обновлены",
+    "extensions": "Исключённые расширения успешно обновлены",
+}
+
+RULES_GIT_PUSH_SUCCESS_MESSAGES = {
+    "rules": "Правила обновлены и запушены в SKIB KSU SecretSearch",
+    "fp_rules": "False-Positive правила обновлены и запушены в SKIB KSU SecretSearch",
+    "extensions": "Исключённые расширения обновлены и запушены в SKIB KSU SecretSearch",
+}
+
+
+def _wants_json(request: Request) -> bool:
+    return request.headers.get("x-requested-with") == "XMLHttpRequest"
+
+
+def _settings_action_response(
+    request: Request,
+    *,
+    success: bool,
+    message: str = "",
+    error: str = "",
+    success_query: str = "",
+    git_push: dict | None = None,
+):
+    if _wants_json(request):
+        if success:
+            return JSONResponse({"success": True, "message": message, "git_push": git_push})
+        return JSONResponse({"success": False, "error": error or message}, status_code=400)
+
+    if success:
+        return RedirectResponse(url=f"/secret_scanner/settings?{success_query}", status_code=302)
+    encoded_error = urllib.parse.quote(error or message)
+    return RedirectResponse(url=f"/secret_scanner/settings?error={encoded_error}", status_code=302)
+
+
+def _parse_form_bool(value: str) -> bool:
+    return (value or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _maybe_push_rules_to_git(content: str, rules_key: str, username: str) -> dict:
+    git_push = push_rules_file_to_git(content, rules_key, username)
+    if git_push.get("skipped") and git_push.get("reason") == "git push not configured":
+        raise RuntimeError("Git push не настроен (FALSES_GIT_REPO_URL / FALSES_GIT_PAT)")
+    if git_push.get("skipped") and git_push.get("reason") == "no changes":
+        return git_push
+    if not git_push.get("pushed"):
+        raise RuntimeError(git_push.get("reason") or "Git push failed")
+    return git_push
 
 def get_current_api_key():
     """Get current API key from environment"""
@@ -140,7 +192,8 @@ async def settings(request: Request, current_user: str = Depends(get_current_use
        "microservice_available": microservice_available,
        "is_sqlite": is_sqlite,
        "db_type": db_type,
-       "current_user": current_user
+       "current_user": current_user,
+       "git_push_configured": is_rules_git_push_configured(),
    })
 
 @router.post("/settings/change-password")
@@ -192,91 +245,160 @@ async def update_token(request: Request, token: str = Form(...), _: str = Depend
         return RedirectResponse(url="/secret_scanner/settings?error=microservice_unavailable", status_code=302)
 
 @router.post("/settings/update-rules")
-async def update_rules_route(request: Request, rules_content: str = Form(...), current_user: str = Depends(get_current_user)):
+async def update_rules_route(
+    request: Request,
+    rules_content: str = Form(...),
+    push_to_git: str = Form("false"),
+    current_user: str = Depends(get_current_user),
+):
+    rules_key = "rules"
+    push_to_git = _parse_form_bool(push_to_git)
     try:
         if not rules_content.strip():
-            return RedirectResponse(url="/secret_scanner/settings?error=empty_content", status_code=302)
-        
+            return _settings_action_response(request, success=False, error="Configuration content cannot be empty")
+
         response = await update_rules(rules_content)
-        
-        if response.status_code == 200:
-            user_logger.warning(f"User '{current_user}' updated scanning rules configuration")
-            return RedirectResponse(url="/secret_scanner/settings?success=rules_updated", status_code=302)
-        else:
+
+        if response.status_code != 200:
             try:
                 error_data = response.json()
                 error_message = error_data.get("message", f"Microservice error: HTTP {response.status_code}")
-            except:
+            except Exception:
                 error_message = f"Microservice error: HTTP {response.status_code}"
-            
-            encoded_error = urllib.parse.quote(error_message)
-            return RedirectResponse(url=f"/secret_scanner/settings?error={encoded_error}", status_code=302)
-            
+            return _settings_action_response(request, success=False, error=error_message)
+
+        user_logger.warning(f"User '{current_user}' updated scanning rules configuration")
+        message = RULES_UPDATE_SUCCESS_MESSAGES[rules_key]
+        git_push = None
+        if push_to_git:
+            try:
+                git_push = _maybe_push_rules_to_git(rules_content, rules_key, current_user)
+                if git_push.get("reason") == "no changes":
+                    message = f"{message}. В репозитории уже актуальная версия файла"
+                else:
+                    message = RULES_GIT_PUSH_SUCCESS_MESSAGES[rules_key]
+            except Exception as e:
+                logger.error("Rules git push error: %s", e, exc_info=True)
+                return _settings_action_response(
+                    request,
+                    success=False,
+                    error=f"Правила сохранены, но push в репозиторий не удался: {e}",
+                )
+
+        return _settings_action_response(
+            request,
+            success=True,
+            message=message,
+            success_query="success=rules_updated",
+            git_push=git_push,
+        )
     except Exception as e:
-        logger.error(f"Rules update error: {e}")
-        import traceback
-        traceback.print_exc()
-        error_message = f"Update error: {str(e)}"
-        encoded_error = urllib.parse.quote(error_message)
-        return RedirectResponse(url=f"/secret_scanner/settings?error={encoded_error}", status_code=302)
+        logger.error(f"Rules update error: {e}", exc_info=True)
+        return _settings_action_response(request, success=False, error=f"Update error: {e}")
 
 @router.post("/settings/update-fp-rules")
-async def update_fp_rules_route(request: Request, fp_rules_content: str = Form(...), current_user: str = Depends(get_current_user)):
+async def update_fp_rules_route(
+    request: Request,
+    fp_rules_content: str = Form(...),
+    push_to_git: str = Form("false"),
+    current_user: str = Depends(get_current_user),
+):
+    rules_key = "fp_rules"
+    push_to_git = _parse_form_bool(push_to_git)
     try:
         if not fp_rules_content.strip():
-            return RedirectResponse(url="/secret_scanner/settings?error=empty_content", status_code=302)
-        
+            return _settings_action_response(request, success=False, error="Configuration content cannot be empty")
+
         response = await update_fp_rules(fp_rules_content)
-        
-        if response.status_code == 200:
-            user_logger.warning(f"User '{current_user}' updated false-positive rules configuration")
-            return RedirectResponse(url="/secret_scanner/settings?success=fp_rules_updated", status_code=302)
-        else:
+
+        if response.status_code != 200:
             try:
                 error_data = response.json()
                 error_message = error_data.get("message", f"Microservice error: HTTP {response.status_code}")
-            except:
+            except Exception:
                 error_message = f"Microservice error: HTTP {response.status_code}"
-            
-            encoded_error = urllib.parse.quote(error_message)
-            return RedirectResponse(url=f"/secret_scanner/settings?error={encoded_error}", status_code=302)
-            
+            return _settings_action_response(request, success=False, error=error_message)
+
+        user_logger.warning(f"User '{current_user}' updated false-positive rules configuration")
+        message = RULES_UPDATE_SUCCESS_MESSAGES[rules_key]
+        git_push = None
+        if push_to_git:
+            try:
+                git_push = _maybe_push_rules_to_git(fp_rules_content, rules_key, current_user)
+                if git_push.get("reason") == "no changes":
+                    message = f"{message}. В репозитории уже актуальная версия файла"
+                else:
+                    message = RULES_GIT_PUSH_SUCCESS_MESSAGES[rules_key]
+            except Exception as e:
+                logger.error("FP rules git push error: %s", e, exc_info=True)
+                return _settings_action_response(
+                    request,
+                    success=False,
+                    error=f"Правила сохранены, но push в репозиторий не удался: {e}",
+                )
+
+        return _settings_action_response(
+            request,
+            success=True,
+            message=message,
+            success_query="success=fp_rules_updated",
+            git_push=git_push,
+        )
     except Exception as e:
-        logger.error(f"FP rules update error: {e}")
-        import traceback
-        traceback.print_exc()
-        error_message = f"Update error: {str(e)}"
-        encoded_error = urllib.parse.quote(error_message)
-        return RedirectResponse(url=f"/secret_scanner/settings?error={encoded_error}", status_code=302)
+        logger.error(f"FP rules update error: {e}", exc_info=True)
+        return _settings_action_response(request, success=False, error=f"Update error: {e}")
 
 @router.post("/settings/update-excluded-extensions")
-async def update_excluded_extensions_route(request: Request, excluded_extensions_content: str = Form(...), current_user: str = Depends(get_current_user)):
+async def update_excluded_extensions_route(
+    request: Request,
+    excluded_extensions_content: str = Form(...),
+    push_to_git: str = Form("false"),
+    current_user: str = Depends(get_current_user),
+):
+    rules_key = "extensions"
+    push_to_git = _parse_form_bool(push_to_git)
     try:
         if not excluded_extensions_content.strip():
-            return RedirectResponse(url="/secret_scanner/settings?error=empty_content", status_code=302)
-        
+            return _settings_action_response(request, success=False, error="Configuration content cannot be empty")
+
         response = await update_excluded_extensions(excluded_extensions_content)
-        
-        if response.status_code == 200:
-            user_logger.warning(f"User '{current_user}' updated excluded extensions configuration")
-            return RedirectResponse(url="/secret_scanner/settings?success=excluded_extensions_updated", status_code=302)
-        else:
+
+        if response.status_code != 200:
             try:
                 error_data = response.json()
                 error_message = error_data.get("message", f"Microservice error: HTTP {response.status_code}")
-            except:
+            except Exception:
                 error_message = f"Microservice error: HTTP {response.status_code}"
-            
-            encoded_error = urllib.parse.quote(error_message)
-            return RedirectResponse(url=f"/secret_scanner/settings?error={encoded_error}", status_code=302)
-            
+            return _settings_action_response(request, success=False, error=error_message)
+
+        user_logger.warning(f"User '{current_user}' updated excluded extensions configuration")
+        message = RULES_UPDATE_SUCCESS_MESSAGES[rules_key]
+        git_push = None
+        if push_to_git:
+            try:
+                git_push = _maybe_push_rules_to_git(excluded_extensions_content, rules_key, current_user)
+                if git_push.get("reason") == "no changes":
+                    message = f"{message}. В репозитории уже актуальная версия файла"
+                else:
+                    message = RULES_GIT_PUSH_SUCCESS_MESSAGES[rules_key]
+            except Exception as e:
+                logger.error("Excluded extensions git push error: %s", e, exc_info=True)
+                return _settings_action_response(
+                    request,
+                    success=False,
+                    error=f"Правила сохранены, но push в репозиторий не удался: {e}",
+                )
+
+        return _settings_action_response(
+            request,
+            success=True,
+            message=message,
+            success_query="success=excluded_extensions_updated",
+            git_push=git_push,
+        )
     except Exception as e:
-        logger.error(f"Excluded extensions update error: {e}")
-        import traceback
-        traceback.print_exc()
-        error_message = f"Update error: {str(e)}"
-        encoded_error = urllib.parse.quote(error_message)
-        return RedirectResponse(url=f"/secret_scanner/settings?error={encoded_error}", status_code=302)
+        logger.error(f"Excluded extensions update error: {e}", exc_info=True)
+        return _settings_action_response(request, success=False, error=f"Update error: {e}")
 
 @router.post("/settings/update-excluded-files")
 async def update_excluded_files_route(request: Request, excluded_files_content: str = Form(...), current_user: str = Depends(get_current_user)):

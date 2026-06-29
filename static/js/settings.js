@@ -17,14 +17,25 @@ function getIsSqlite() {
     }
 }
 
+function getGitPushConfigured() {
+    try {
+        return JSON.parse(document.body.dataset.gitPushConfigured || 'false');
+    } catch (e) {
+        return false;
+    }
+}
+
 let originalContent = {};
 let isSqlite = false;
+let gitPushConfigured = false;
+let pendingRulesSubmit = null;
 
 // Tab switching functionality
 document.addEventListener('DOMContentLoaded', function() {
     // Загружаем данные из data-атрибутов
     originalContent = loadOriginalContent();
     isSqlite = getIsSqlite();
+    gitPushConfigured = getGitPushConfigured();
     
     const tabs = document.querySelectorAll('.config-tab');
     const contents = document.querySelectorAll('.config-content');
@@ -279,15 +290,117 @@ function showNotification(message, type) {
     }, 5000);
 }
 
-// Form submission handling for all forms
-const forms = [
-    { form: 'rulesForm', btn: 'updateRulesBtn', content: 'rules_content', indicator: 'rules-unsaved' },
-    { form: 'fpRulesForm', btn: 'updateFpRulesBtn', content: 'fp_rules_content', indicator: 'fp-rules-unsaved' },
-    { form: 'excludedExtensionsForm', btn: 'updateExtensionsBtn', content: 'excluded_extensions_content', indicator: 'extensions-unsaved' },
-    { form: 'excludedFilesForm', btn: 'updateFilesBtn', content: 'excluded_files_content', indicator: 'files-unsaved' }
+// Form submission handling for rules forms (with optional git push modal)
+const rulesForms = [
+    { form: 'rulesForm', btn: 'updateRulesBtn', content: 'rules_content', indicator: 'rules-unsaved', type: 'rules' },
+    { form: 'fpRulesForm', btn: 'updateFpRulesBtn', content: 'fp_rules_content', indicator: 'fp-rules-unsaved', type: 'fp_rules' },
+    { form: 'excludedExtensionsForm', btn: 'updateExtensionsBtn', content: 'excluded_extensions_content', indicator: 'extensions-unsaved', type: 'extensions' },
 ];
 
-forms.forEach(({ form, btn, content, indicator }) => {
+const excludedFilesFormConfig = { form: 'excludedFilesForm', btn: 'updateFilesBtn', content: 'excluded_files_content', indicator: 'files-unsaved', type: 'files' };
+
+function closeGitPushModal() {
+    const modal = document.getElementById('gitPushModal');
+    if (modal) modal.style.display = 'none';
+    pendingRulesSubmit = null;
+}
+
+function openGitPushModal(submitConfig) {
+    pendingRulesSubmit = submitConfig;
+    const modal = document.getElementById('gitPushModal');
+    if (modal) modal.style.display = 'flex';
+}
+
+async function submitRulesForm({ formElement, updateBtn, contentElement, indicatorElement, type }, pushToGit) {
+    const originalBtnText = updateBtn.innerHTML;
+    updateBtn.disabled = true;
+    updateBtn.innerHTML = pushToGit ? '⏳ Сохранение и push...' : '⏳ Сохранение...';
+
+    if (indicatorElement) {
+        indicatorElement.style.display = 'none';
+    }
+
+    const formData = new FormData(formElement);
+    formData.set('push_to_git', pushToGit ? 'true' : 'false');
+
+    try {
+        const response = await fetch(formElement.action, {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+        });
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+            throw new Error(data.error || 'Не удалось обновить правила');
+        }
+
+        originalContent[type] = contentElement.value;
+        hasUnsavedChanges = document.querySelectorAll('.config-textarea').some((ta, i) => {
+            const t = ['rules', 'fp_rules', 'extensions', 'files'][i];
+            return ta.value !== originalContent[t];
+        });
+
+        showNotification('✅ ' + (data.message || 'Изменения сохранены'), 'success');
+    } catch (error) {
+        showNotification('❌ ' + error.message, 'error');
+    } finally {
+        updateBtn.disabled = false;
+        updateBtn.innerHTML = originalBtnText;
+    }
+}
+
+function bindRulesForm({ form, btn, content, indicator, type }) {
+    const formElement = document.getElementById(form);
+    const updateBtn = document.getElementById(btn);
+    const contentElement = document.getElementById(content);
+    const indicatorElement = document.getElementById(indicator);
+
+    if (!formElement || !updateBtn || !contentElement) {
+        return;
+    }
+
+    formElement.addEventListener('submit', function(e) {
+        e.preventDefault();
+
+        const contentValue = contentElement.value.trim();
+        if (!contentValue) {
+            alert('Configuration content cannot be empty');
+            return false;
+        }
+
+        const submitConfig = { formElement, updateBtn, contentElement, indicatorElement, type };
+
+        if (gitPushConfigured) {
+            openGitPushModal(submitConfig);
+        } else {
+            submitRulesForm(submitConfig, false);
+        }
+    });
+}
+
+rulesForms.forEach(bindRulesForm);
+
+document.getElementById('gitPushYesBtn')?.addEventListener('click', async function() {
+    if (!pendingRulesSubmit) return;
+    const config = pendingRulesSubmit;
+    closeGitPushModal();
+    await submitRulesForm(config, true);
+});
+
+document.getElementById('gitPushNoBtn')?.addEventListener('click', async function() {
+    if (!pendingRulesSubmit) return;
+    const config = pendingRulesSubmit;
+    closeGitPushModal();
+    await submitRulesForm(config, false);
+});
+
+// Legacy form submission for excluded files (no git push)
+const legacyForms = [excludedFilesFormConfig];
+
+legacyForms.forEach(({ form, btn, content, indicator }) => {
     const formElement = document.getElementById(form);
     const updateBtn = document.getElementById(btn);
     const contentElement = document.getElementById(content);
@@ -302,16 +415,13 @@ forms.forEach(({ form, btn, content, indicator }) => {
                 return false;
             }
             
-            // Show loading state
             updateBtn.disabled = true;
             updateBtn.innerHTML = '⏳ Updating...';
             
-            // Hide unsaved indicator since we're saving
             if (indicatorElement) {
                 indicatorElement.style.display = 'none';
             }
             
-            // Re-enable button after some time in case of error
             setTimeout(() => {
                 updateBtn.disabled = false;
                 updateBtn.innerHTML = updateBtn.innerHTML.replace('⏳ Updating...', '💾 Update');
@@ -381,8 +491,8 @@ window.addEventListener('beforeunload', function(e) {
     }
 });
 
-// Mark as saved when any form is submitted
-forms.forEach(({ form }) => {
+// Mark as saved when legacy forms are submitted
+legacyForms.forEach(({ form }) => {
     const formElement = document.getElementById(form);
     if (formElement) {
         formElement.addEventListener('submit', function() {
