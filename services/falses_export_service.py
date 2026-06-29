@@ -35,7 +35,6 @@ def _push_falses_if_configured(refresh_result: dict) -> None:
             FALSES_FILE_PATH,
             refresh_result["hash"],
             refresh_result.get("hash_count", 0),
-            force_push=refresh_result.get("on_startup", False),
         )
         refresh_result["git_push"] = push_result
         if push_result.get("pushed"):
@@ -103,25 +102,22 @@ def compute_payload_sha256(payload: str) -> str:
     return hashlib.sha256((payload or "").encode("utf-8")).hexdigest()
 
 
-def refresh_falses_file(version=None, on_startup=False):
+def refresh_falses_file(version=None):
     """Rebuild falses.txt and overwrite only when hash payload changes.
 
     The [version] header line is ignored when comparing content; only the
     semicolon-separated hashes after the first line matter.
 
-    On service startup (on_startup=True) the existing file is removed first so
-    content is always regenerated and pushed.
-
     Never raises — errors are logged and returned in the result dict.
     """
     try:
-        return _refresh_falses_file_impl(version, on_startup)
+        return _refresh_falses_file_impl(version)
     except Exception as e:
         falses_logger.error("falses.txt refresh failed: %s", e, exc_info=True)
         return {"written": False, "error": str(e)}
 
 
-def _refresh_falses_file_impl(version=None, on_startup=False):
+def _refresh_falses_file_impl(version=None):
     db = SessionLocal()
     try:
         hashes = fetch_refuted_hashes(db)
@@ -130,11 +126,7 @@ def _refresh_falses_file_impl(version=None, on_startup=False):
 
         FALSES_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-        if on_startup and FALSES_FILE_PATH.exists():
-            FALSES_FILE_PATH.unlink()
-            falses_logger.info("falses.txt removed for startup refresh at %s", FALSES_FILE_PATH)
-
-        if not on_startup and FALSES_FILE_PATH.exists():
+        if FALSES_FILE_PATH.exists():
             existing_content = FALSES_FILE_PATH.read_text(encoding="utf-8")
             existing_payload = extract_falses_payload(existing_content)
             if compute_payload_sha256(existing_payload) == payload_hash:
@@ -165,7 +157,6 @@ def _refresh_falses_file_impl(version=None, on_startup=False):
             "hash": payload_hash,
             "path": str(FALSES_FILE_PATH),
             "hash_count": len(hashes),
-            "on_startup": on_startup,
         }
         _push_falses_if_configured(result)
         return result
@@ -183,7 +174,7 @@ async def falses_refresh_scheduler():
 
     try:
         falses_logger.info("falses.txt startup refresh starting...")
-        await loop.run_in_executor(None, lambda: refresh_falses_file(on_startup=True))
+        await loop.run_in_executor(None, refresh_falses_file)
     except Exception as e:
         falses_logger.error("Initial falses.txt refresh failed: %s", e, exc_info=True)
 

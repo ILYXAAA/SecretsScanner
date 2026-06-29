@@ -338,7 +338,7 @@ async function submitRulesForm({ formElement, updateBtn, contentElement, indicat
         }
 
         originalContent[type] = contentElement.value;
-        hasUnsavedChanges = document.querySelectorAll('.config-textarea').some((ta, i) => {
+        hasUnsavedChanges = Array.from(document.querySelectorAll('.config-textarea')).some((ta, i) => {
             const t = ['rules', 'fp_rules', 'extensions', 'files'][i];
             return ta.value !== originalContent[t];
         });
@@ -475,7 +475,7 @@ document.querySelectorAll('.config-textarea').forEach((textarea, index) => {
             hasUnsavedChanges = true;
         } else if (!hasChanges) {
             // Check if any other textarea has changes
-            hasUnsavedChanges = document.querySelectorAll('.config-textarea').some((ta, i) => {
+            hasUnsavedChanges = Array.from(document.querySelectorAll('.config-textarea')).some((ta, i) => {
                 const t = ['rules', 'fp_rules', 'extensions', 'files'][i];
                 return ta.value !== originalContent[t];
             });
