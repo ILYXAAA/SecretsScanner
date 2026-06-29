@@ -158,10 +158,12 @@ def _refresh_falses_file_impl(version=None):
             "path": str(FALSES_FILE_PATH),
             "hash_count": len(hashes),
         }
-        _push_falses_if_configured(result)
-        return result
     finally:
         db.close()
+
+    # Git push can take minutes — never hold a DB connection during it.
+    _push_falses_if_configured(result)
+    return result
 
 
 async def falses_refresh_scheduler():

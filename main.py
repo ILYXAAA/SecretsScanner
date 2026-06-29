@@ -30,46 +30,37 @@ from api.middleware import log_api_request, cleanup_rate_limits
 async def check_scan_timeouts():
     """Background task to check for timed out scans"""
     while True:
+        db = SessionLocal()
         try:
-            db = SessionLocal()
-            
-            # Find all running scans
             running_scans = db.query(Scan).filter(Scan.status == "running").all()
-            
+
             for scan in running_scans:
-                # Check if scan is part of multi-scan
                 multi_scan = db.query(MultiScan).filter(
                     MultiScan.scan_ids.like(f'%"{scan.id}"%')
                 ).first()
-                
+
                 if multi_scan:
-                    # Parse scan_ids and find position
                     scan_ids = json.loads(multi_scan.scan_ids)
                     try:
                         position = scan_ids.index(scan.id)
-                        # Для мультисканов - каждому последующему скану +10 минут таймаута
                         timeout_minutes = TIMEOUT + (position * 10)
                     except ValueError:
-                        # Fallback if scan_id not found in list
                         timeout_minutes = TIMEOUT
                 else:
-                    # Regular scan - use base timeout
                     timeout_minutes = TIMEOUT
-                
-                # Check if scan has timed out
+
                 timeout_threshold = datetime.now() - timedelta(minutes=timeout_minutes)
-                
+
                 if scan.started_at < timeout_threshold:
                     scan.status = "timeout"
                     scan.completed_at = datetime.now()
-            
+
             db.commit()
-            db.close()
-            
         except Exception as e:
             logger.error(f"Error checking scan timeouts: {e}")
-        
-        # Check every minute
+        finally:
+            db.close()
+
         await asyncio.sleep(10)
 
 async def cleanup_api_data():
