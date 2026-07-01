@@ -19,6 +19,11 @@ let projectRepoUrl = '';
 let latestCommit = '';
 let hubType = '';
 
+function getFileNameFromPath(path) {
+    if (!path) return '';
+    return path.replace(/\\/g, '/').split('/').pop() || '';
+}
+
 // Получаем данные из data-атрибутов
 function loadDataFromAttributes() {
     projectRepoUrl = document.body.dataset.projectRepoUrl || '';
@@ -729,8 +734,8 @@ function sortSecrets() {
                     valueB = (b.current_secret || '').toLowerCase();
                     break;
                 case 'file':
-                    valueA = (a.path || '').toLowerCase();
-                    valueB = (b.path || '').toLowerCase();
+                    valueA = getFileNameFromPath(a.path).toLowerCase();
+                    valueB = getFileNameFromPath(b.path).toLowerCase();
                     break;
                 case 'type':
                     valueA = (a.type || '').toLowerCase();

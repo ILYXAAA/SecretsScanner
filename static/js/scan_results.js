@@ -27,6 +27,11 @@ const CONTEXT_PREVIEW_LINES_AFTER = 2;
 const CONTEXT_PREVIEW_MAX_LINES = 15;  // макс. строк в превью, если секрет не найден
 const CONTEXT_PREVIEW_MAX_CHARS = 500;
 
+function getFileNameFromPath(path) {
+    if (!path) return '';
+    return path.replace(/\\/g, '/').split('/').pop() || '';
+}
+
 /** Превью контекста: окно вокруг строки с секретом (по подстроке или по середине блока). Секрет всегда в видимой части. */
 function truncateContextAroundSecret(rawContext, rawSecret) {
     if (!rawContext || typeof rawContext !== 'string') return { text: '', hasMore: false };
@@ -458,9 +463,12 @@ function applyFiltersSync() {
             const severityMatch = activeFilters.severity.includes(secret.severity);
             const typeMatch = activeFilters.type.includes(secret.type);
             
-            // Secret value filter
-            const secretValueMatch = !activeFilters.secretValue || 
-                (secret.secret && secret.secret.toLowerCase().includes(activeFilters.secretValue.toLowerCase()));
+            // Secret / file name filter
+            const searchTerm = activeFilters.secretValue.toLowerCase();
+            const secretValueMatch = !searchTerm || (
+                (secret.secret && secret.secret.toLowerCase().includes(searchTerm)) ||
+                getFileNameFromPath(secret.path).toLowerCase().includes(searchTerm)
+            );
             
             return statusMatch && severityMatch && typeMatch && secretValueMatch;
         });
@@ -984,8 +992,8 @@ function sortSecrets() {
                     valueB = (b.secret || '').toLowerCase();
                     break;
                 case 'file':
-                    valueA = (a.path || '').toLowerCase();
-                    valueB = (b.path || '').toLowerCase();
+                    valueA = getFileNameFromPath(a.path).toLowerCase();
+                    valueB = getFileNameFromPath(b.path).toLowerCase();
                     break;
                 case 'type':
                     valueA = (a.type || '').toLowerCase();
