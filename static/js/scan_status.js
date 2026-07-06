@@ -8,11 +8,19 @@ function getScanData() {
     return {
         status: document.body.dataset.scanStatus,
         id: document.body.dataset.scanId,
+        scanType: document.body.dataset.scanType || 'secrets',
         projectName: document.body.dataset.projectName,
         callbackUrl: document.body.dataset.callbackUrl,
         startedAt: document.body.dataset.scanStartedAt,
         startedAtDisplay: document.body.dataset.scanStartedAtDisplay
     };
+}
+
+function getResultsUrl(scanId, scanType) {
+    if ((scanType || 'secrets') === 'forbidden') {
+        return `/secret_scanner/scan/${scanId}/forbidden-results`;
+    }
+    return `/secret_scanner/scan/${scanId}/results`;
 }
 
 // Получить статус задачи через новый эндпоинт
@@ -146,6 +154,12 @@ function updateMainStatus(status, description, progressFormatted) {
             desc: progressFormatted,
             showSpinner: true
         },
+        'analyzing': {
+            icon: '🔎',
+            title: 'Анализ языков и расширений',
+            desc: progressFormatted || 'Анализ языков и расширений',
+            showSpinner: true
+        },
         'completed': {
             icon: '✅',
             title: 'Сканирование завершено',
@@ -184,7 +198,7 @@ function updateProgressSection(status, progress, progressDetail, progressFormatt
     const progressStatusText = document.getElementById('progress-status-text');
 
     // Показываем прогресс только для активных статусов с числовым прогрессом
-    if (['unpacking', 'scanning', 'ml_validation'].includes(status) && progress > 0) {
+    if (['unpacking', 'scanning', 'ml_validation', 'analyzing'].includes(status) && progress > 0) {
         progressSection.style.display = 'block';
         
         const progressPercent = Math.max(0, Math.min(100, progress));
@@ -244,8 +258,9 @@ function updateActionButtons(status, statusData) {
 
     if (status === 'completed') {
         // Кнопка просмотра результатов
+        const scanData = getScanData();
         const resultsBtn = document.createElement('a');
-        resultsBtn.href = `/secret_scanner/scan/${getScanData().id}/results`;
+        resultsBtn.href = getResultsUrl(scanData.id, scanData.scanType);
         resultsBtn.className = 'btn btn-primary';
         resultsBtn.innerHTML = '📊 Посмотреть результаты';
         dynamicButtons.appendChild(resultsBtn);
@@ -261,7 +276,7 @@ function updateActionButtons(status, statusData) {
         deleteBtn.onclick = () => deleteScan();
         dynamicButtons.appendChild(deleteBtn);
 
-    } else if (['pending', 'downloading', 'unpacking', 'scanning', 'ml_validation'].includes(status)) {
+    } else if (['pending', 'downloading', 'unpacking', 'scanning', 'ml_validation', 'analyzing'].includes(status)) {
         // Кнопка отмены для активных задач
         const cancelBtn = document.createElement('button');
         cancelBtn.className = 'btn btn-danger';
@@ -313,7 +328,7 @@ function updateAdditionalInfo(status, statusData) {
         `;
         logsInfo.style.display = 'block';
 
-    } else if (['pending', 'downloading', 'unpacking', 'scanning', 'ml_validation'].includes(status)) {
+    } else if (['pending', 'downloading', 'unpacking', 'scanning', 'ml_validation', 'analyzing'].includes(status)) {
         // Показываем время выполнения для активных задач
         if (statusData.started_at) {
             elapsedTime.style.display = 'block';
@@ -321,7 +336,7 @@ function updateAdditionalInfo(status, statusData) {
         }
         
         // Показываем логи для долго выполняющихся задач
-        if (['downloading', 'unpacking', 'scanning', 'ml_validation'].includes(status)) {
+        if (['downloading', 'unpacking', 'scanning', 'ml_validation', 'analyzing'].includes(status)) {
             logsInfoText.textContent = 'Если скан завис или работает слишком долго, вы можете посмотреть логи сервиса для диагностики проблемы.';
             logsInfo.style.display = 'block';
         }
@@ -418,8 +433,9 @@ function startAutoRefresh() {
             
             // Автоперенаправление на результаты через 2 секунды для завершенных задач
             if (currentStatus === 'completed') {
+                const scanData = getScanData();
                 setTimeout(() => {
-                    window.location.href = `/secret_scanner/scan/${getScanData().id}/results`;
+                    window.location.href = getResultsUrl(scanData.id, scanData.scanType);
                 }, 2000);
             }
             return;

@@ -10,6 +10,7 @@
 </head>
 <body data-scan-status="{{ scan.status if scan.status else 'unknown' }}" 
       data-scan-id="{{ scan.id }}" 
+      data-scan-type="{{ scan_type if scan_type else 'secrets' }}"
       data-project-name="{{ scan.project_name }}"
       data-callback-url="{{ callback_url if callback_url else '' }}"
       data-scan-started-at="{{ scan.started_at.strftime('%Y-%m-%dT%H:%M:%S') if scan.started_at else '' }}"

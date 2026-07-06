@@ -102,6 +102,21 @@ class ScanRequest(BaseModel):
         description="Reference value: commit hash, branch name, or tag name. Required if repository is base URL without ref.",
         example="main"
     )
+    scan_type: Optional[str] = Field(
+        "secrets",
+        description="Scan type: 'secrets' (default) or 'forbidden'",
+        example="secrets",
+    )
+
+    @field_validator('scan_type')
+    @classmethod
+    def validate_scan_type(cls, v):
+        if v is None:
+            return "secrets"
+        v = v.strip().lower()
+        if v not in ("secrets", "forbidden"):
+            raise ValueError("scan_type must be 'secrets' or 'forbidden'")
+        return v
     
     @field_validator('repository')
     @classmethod
@@ -371,6 +386,9 @@ class ScanStatusResponse(BaseModel):
     scan_id: str = Field(description="Scan identifier")
     status: str = Field(description="Current scan status", enum=["pending", "running", "completed", "failed", "not_found"])
     message: str = Field(description="Status description")
+    scan_type: Optional[str] = Field(None, description="Scan type: secrets or forbidden")
+    violations_count: Optional[int] = Field(None, description="Forbidden violations count (forbidden scans only)")
+    forbidden_passed: Optional[bool] = Field(None, description="Whether forbidden check passed")
 
     class Config:
         json_schema_extra = {
@@ -418,6 +436,24 @@ class ScanResultsResponse(BaseModel):
     scan_id: str = Field(description="Scan identifier")
     status: str = Field(description="Scan status", enum=["completed", "not_found"])
     results: Optional[List[SecretResult]] = Field(None, description="List of detected secrets (only for completed scans)")
+
+
+class ForbiddenViolationResult(BaseModel):
+    """Individual forbidden check violation"""
+    path: str = Field(description="File path")
+    extension: Optional[str] = None
+    language: Optional[str] = None
+    category: Optional[str] = None
+
+
+class ForbiddenResultsResponse(BaseModel):
+    """Response for forbidden check results"""
+    scan_id: str
+    status: str
+    scan_type: str = "forbidden"
+    passed: Optional[bool] = None
+    summary: Optional[dict] = None
+    results: Optional[List[ForbiddenViolationResult]] = None
 
     class Config:
         json_schema_extra = {

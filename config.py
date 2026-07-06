@@ -61,6 +61,12 @@ FALSES_GIT_SSL_VERIFY = _env_unquoted("FALSES_GIT_SSL_VERIFY", "false").lower() 
 # Full path to git binary (systemd/minimal PATH often omits /usr/bin)
 FALSES_GIT_BINARY = _env_unquoted("FALSES_GIT_BINARY")
 
+# LANGUAGE_SEARCH repo (forbidden falses + languages_repo_config.yml) — URL только из .env
+LANGUAGE_SEARCH_GIT_REPO_URL = _env_unquoted("LANGUAGE_SEARCH_GIT_REPO_URL")
+LANGUAGE_SEARCH_GIT_BRANCH = _env_unquoted("LANGUAGE_SEARCH_GIT_BRANCH", "main")
+LANGUAGE_SEARCH_GIT_FALSES_PATH = _env_unquoted("LANGUAGE_SEARCH_GIT_FALSES_PATH", "/storage/falses.txt")
+LANGUAGE_SEARCH_GIT_CONFIG_PATH = _env_unquoted("LANGUAGE_SEARCH_GIT_CONFIG_PATH", "/languages_repo_config.yml")
+
 # Create necessary directories
 Path(BACKUP_DIR).mkdir(exist_ok=True)
 Path("generated").mkdir(exist_ok=True)

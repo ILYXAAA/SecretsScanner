@@ -12,8 +12,10 @@
       data-original-fp-rules="{{ (current_fp_rules_content or '') | e }}"
       data-original-extensions="{{ (current_excluded_extensions_content or '') | e }}"
       data-original-files="{{ (current_excluded_files_content or '') | e }}"
+      data-original-languages-config="{{ (current_languages_config_content or '') | e }}"
       data-is-sqlite="{{ is_sqlite | tojson }}"
-      data-git-push-configured="{{ git_push_configured | tojson }}">
+      data-git-push-configured="{{ git_push_configured | tojson }}"
+      data-language-search-git-push-configured="{{ language_search_git_push_configured | tojson }}">
     {% from "components/base_header.html" import header %}
     {{ header('settings', current_user) }}
     
@@ -32,6 +34,8 @@
             <div class="alert alert-success">False-Positive rules updated successfully!</div>
             {% elif 'success=excluded_extensions_updated' in request.url.query %}
             <div class="alert alert-success">Excluded extensions updated successfully!</div>
+            {% elif 'success=languages_config_updated' in request.url.query %}
+            <div class="alert alert-success">Languages/extensions rules updated successfully!</div>
             {% elif 'success=excluded_files_updated' in request.url.query %}
             <div class="alert alert-success">Excluded files updated successfully!</div>
             {% elif 'success=backup_created' in request.url.query %}
@@ -80,6 +84,10 @@
                 <button class="config-tab" data-tab="extensions">
                     🧩 Excluded Extensions
                     <span class="unsaved-indicator" id="extensions-unsaved" style="display: none;"></span>
+                </button>
+                <button class="config-tab" data-tab="languages-config">
+                    🌐 Языки / расширения
+                    <span class="unsaved-indicator" id="languages-config-unsaved" style="display: none;"></span>
                 </button>
                 <!-- <button class="config-tab" data-tab="files">
                     🗂️ Excluded Files
@@ -243,6 +251,51 @@ excluded_extensions:
                                 💾 Обновить правила
                             </button>
                             <button type="button" class="btn btn-secondary" onclick="resetContent('extensions')">
+                                🔄 Сбросить до текущих
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Languages / Extensions forbidden check config -->
+                <div class="config-content" id="languages-config-content">
+                    <div class="config-header">
+                        <div class="config-description">
+                            <p style="color: #666; margin-bottom: 1rem;">
+                                Правила проверки запрещённых языков и расширений (<code>languages_repo_config.yml</code>) для forbidden check.
+                            </p>
+                        </div>
+                        <div class="config-stats">
+                            {% if languages_config_info %}
+                            <div class="config-info">
+                                <p><strong>Статус файла:</strong></p>
+                                {% if languages_config_info.exists %}
+                                <p>📁 Размер: {{ "%.1f"|format(languages_config_info.size / 1024) }} KB</p>
+                                <p>📅 Изменено: {{ languages_config_info.modified | strftime if languages_config_info.modified else 'Unknown' }}</p>
+                                {% else %}
+                                <p style="color: #ff6b6b;">❌ Микросервис недоступен, либо файла не существует</p>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <form method="post" action="/secret_scanner/settings/update-languages-repo-config" id="languagesConfigForm">
+                        <div class="form-group">
+                            <label for="languages_config_content">languages_repo_config.yml (YAML):</label>
+                            <textarea
+                                id="languages_config_content"
+                                name="languages_config_content"
+                                required
+                                class="config-textarea"
+                                placeholder="forbidden_languages:
+  - perl">{{ current_languages_config_content or "" }}</textarea>
+                        </div>
+                        <div style="display: flex; gap: 1rem; align-items: center;">
+                            <button type="submit" class="btn btn-success" id="updateLanguagesConfigBtn">
+                                💾 Обновить правила
+                            </button>
+                            <button type="button" class="btn btn-secondary" onclick="resetContent('languages_config')">
                                 🔄 Сбросить до текущих
                             </button>
                         </div>

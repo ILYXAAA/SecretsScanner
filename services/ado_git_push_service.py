@@ -35,8 +35,30 @@ class AdoGitTarget:
     repo_name: str
 
 
+@dataclass(frozen=True)
+class GitPushOptions:
+    repo_url: str
+    branch: str
+    pat: str
+    ssl_verify: bool = FALSES_GIT_SSL_VERIFY
+    committer_name: str = FALSES_GIT_COMMITTER_NAME
+    committer_email: str = FALSES_GIT_COMMITTER_EMAIL
+
+
+def default_git_push_options() -> GitPushOptions:
+    return GitPushOptions(
+        repo_url=FALSES_GIT_REPO_URL,
+        branch=FALSES_GIT_BRANCH or "script_with_Docker",
+        pat=FALSES_GIT_PAT or "",
+    )
+
+
+def is_git_push_configured_for(options: GitPushOptions) -> bool:
+    return bool(options.repo_url and options.pat)
+
+
 def is_ado_git_push_configured() -> bool:
-    return bool(FALSES_GIT_REPO_URL and FALSES_GIT_PAT)
+    return is_git_push_configured_for(default_git_push_options())
 
 
 def parse_ado_git_repo_url(repo_url: str) -> AdoGitTarget:
@@ -77,8 +99,8 @@ def _normalize_repo_file_path(file_path: str) -> str:
     return path
 
 
-def _auth_headers() -> dict:
-    token = (FALSES_GIT_PAT or "").strip()
+def _auth_headers_for(pat: str) -> dict:
+    token = (pat or "").strip()
     encoded = base64.b64encode(f":{token}".encode("utf-8")).decode("ascii")
     return {
         "Authorization": f"Basic {encoded}",
@@ -86,10 +108,15 @@ def _auth_headers() -> dict:
     }
 
 
+def _auth_headers() -> dict:
+    return _auth_headers_for(FALSES_GIT_PAT)
+
+
 class AzureDevOpsGitPusher:
-    def __init__(self, target: AdoGitTarget, client: httpx.Client):
+    def __init__(self, target: AdoGitTarget, client: httpx.Client, options: GitPushOptions | None = None):
         self.target = target
         self.client = client
+        self.options = options or default_git_push_options()
         self._repo_id = None
 
     def _repo_url(self, suffix: str) -> str:
@@ -101,7 +128,7 @@ class AzureDevOpsGitPusher:
 
         response = self.client.get(
             self._repo_url(self.target.repo_name),
-            headers=_auth_headers(),
+            headers=_auth_headers_for(self.options.pat),
         )
         response.raise_for_status()
         repo_id = response.json().get("id")
@@ -114,7 +141,7 @@ class AzureDevOpsGitPusher:
         self.get_repository_id()
         response = self.client.get(
             self._repo_url(f"{self.target.repo_name}/refs"),
-            headers=_auth_headers(),
+            headers=_auth_headers_for(self.options.pat),
             params={"filter": f"heads/{branch_name}"},
         )
         response.raise_for_status()
@@ -127,7 +154,7 @@ class AzureDevOpsGitPusher:
         self.get_repository_id()
         response = self.client.get(
             self._repo_url(f"{self.target.repo_name}/items"),
-            headers=_auth_headers(),
+            headers=_auth_headers_for(self.options.pat),
             params={
                 "path": file_path,
                 "includeContent": "false",
@@ -160,8 +187,8 @@ class AzureDevOpsGitPusher:
                     {
                         "comment": commit_message,
                         "author": {
-                            "name": FALSES_GIT_COMMITTER_NAME,
-                            "email": FALSES_GIT_COMMITTER_EMAIL,
+                            "name": self.options.committer_name,
+                            "email": self.options.committer_email,
                             "date": datetime.now(timezone.utc).isoformat(),
                         },
                         "changes": [
@@ -180,7 +207,7 @@ class AzureDevOpsGitPusher:
 
             response = self.client.post(
                 self._repo_url(f"{self.target.repo_name}/pushes"),
-                headers=_auth_headers(),
+                headers=_auth_headers_for(self.options.pat),
                 json=payload,
             )
 
@@ -230,17 +257,21 @@ def _normalize_pat(pat):
     return (pat or "").strip().strip('"').strip("'")
 
 
-def _git_auth_url():
-    url = build_git_repo_url(FALSES_GIT_REPO_URL)
+def _git_auth_url_for(repo_url: str, pat: str):
+    url = build_git_repo_url(repo_url)
     parsed = urlparse(url)
     host = "%s:%s" % (parsed.hostname, parsed.port) if parsed.port else parsed.hostname
-    pat = _normalize_pat(FALSES_GIT_PAT)
-    return "%s://:%s@%s%s" % (parsed.scheme, quote(pat, safe=""), host, parsed.path)
+    normalized_pat = _normalize_pat(pat)
+    return "%s://:%s@%s%s" % (parsed.scheme, quote(normalized_pat, safe=""), host, parsed.path)
 
 
-def _git_basic_b64():
-    pat = _normalize_pat(FALSES_GIT_PAT)
-    return base64.b64encode((":%s" % pat).encode("utf-8")).decode("ascii")
+def _git_auth_url():
+    return _git_auth_url_for(FALSES_GIT_REPO_URL, FALSES_GIT_PAT)
+
+
+def _git_basic_b64_for(pat: str):
+    normalized_pat = _normalize_pat(pat)
+    return base64.b64encode((":%s" % normalized_pat).encode("utf-8")).decode("ascii")
 
 
 def _resolve_git_binary():
@@ -261,12 +292,16 @@ def _resolve_git_binary():
     )
 
 
-def _git_cmd(use_extraheader=False):
+def _git_basic_b64():
+    return _git_basic_b64_for(FALSES_GIT_PAT)
+
+
+def _git_cmd(use_extraheader=False, pat: str | None = None):
     cmd = [_resolve_git_binary()]
     if not FALSES_GIT_SSL_VERIFY:
         cmd.extend(["-c", "http.sslVerify=false"])
     if use_extraheader:
-        cmd.extend(["-c", "http.extraheader=AUTHORIZATION: basic %s" % _git_basic_b64()])
+        cmd.extend(["-c", "http.extraheader=AUTHORIZATION: basic %s" % _git_basic_b64_for(pat or FALSES_GIT_PAT)])
     return cmd
 
 
@@ -294,17 +329,18 @@ def _run_git(args, cwd, check=True, timeout=600):
     return result
 
 
-def _git_run(args, cwd, check=True, timeout=600, use_extraheader=False):
-    _run_git(_git_cmd(use_extraheader) + list(args), cwd, check=check, timeout=timeout)
+def _git_run(args, cwd, check=True, timeout=600, use_extraheader=False, pat: str | None = None):
+    _run_git(_git_cmd(use_extraheader, pat=pat) + list(args), cwd, check=check, timeout=timeout)
 
 
-def _git_clone_repo(repo_dir, branch_name, work_dir):
+def _git_clone_repo(repo_dir, branch_name, work_dir, options: GitPushOptions | None = None):
+    opts = options or default_git_push_options()
     if repo_dir.exists():
         shutil.rmtree(repo_dir, ignore_errors=True)
 
     clone_attempts = [
-        ("url", _git_auth_url(), False),
-        ("extraheader", build_git_repo_url(FALSES_GIT_REPO_URL), True),
+        ("url", _git_auth_url_for(opts.repo_url, opts.pat), False),
+        ("extraheader", build_git_repo_url(opts.repo_url), True),
     ]
 
     for auth_name, clone_url, use_extraheader in clone_attempts:
@@ -315,6 +351,7 @@ def _git_clone_repo(repo_dir, branch_name, work_dir):
                 ["clone", "-b", branch_name, clone_url, str(repo_dir)],
                 work_dir,
                 use_extraheader=use_extraheader,
+                pat=opts.pat,
             )
             ado_git_logger.info("git clone ok (auth=%s): clone -b %s", auth_name, branch_name)
             return True, use_extraheader
@@ -324,18 +361,25 @@ def _git_clone_repo(repo_dir, branch_name, work_dir):
         if repo_dir.exists():
             shutil.rmtree(repo_dir, ignore_errors=True)
         try:
-            _git_run(["clone", clone_url, str(repo_dir)], work_dir, use_extraheader=use_extraheader)
-            _git_run(["checkout", "-b", branch_name], repo_dir, use_extraheader=use_extraheader)
+            _git_run(["clone", clone_url, str(repo_dir)], work_dir, use_extraheader=use_extraheader, pat=opts.pat)
+            _git_run(["checkout", "-b", branch_name], repo_dir, use_extraheader=use_extraheader, pat=opts.pat)
             ado_git_logger.info("git clone ok new branch (auth=%s)", auth_name)
             return False, use_extraheader
         except RuntimeError:
             continue
 
-    raise RuntimeError("git clone failed (check FALSES_GIT_PAT and FALSES_GIT_REPO_URL)")
+    raise RuntimeError("git clone failed (check git PAT and repo URL)")
 
 
-def push_content_via_git_cli(content: str, repo_file_path: str, commit_message: str, force_push=False):
-    branch_name = (FALSES_GIT_BRANCH or "script_with_Docker").strip()
+def push_content_via_git_cli(
+    content: str,
+    repo_file_path: str,
+    commit_message: str,
+    force_push=False,
+    options: GitPushOptions | None = None,
+):
+    opts = options or default_git_push_options()
+    branch_name = (opts.branch or "script_with_Docker").strip()
     repo_rel_path = _normalize_repo_file_path(repo_file_path).lstrip("/")
 
     with tempfile.TemporaryDirectory(prefix="ado_git_push_") as tmp:
@@ -345,33 +389,33 @@ def push_content_via_git_cli(content: str, repo_file_path: str, commit_message: 
         local_file.write_text(content, encoding="utf-8")
 
         ado_git_logger.info("git clone starting (branch=%s)", branch_name)
-        branch_remote, use_extraheader = _git_clone_repo(repo_dir, branch_name, work_dir)
+        branch_remote, use_extraheader = _git_clone_repo(repo_dir, branch_name, work_dir, options=opts)
 
         dest = repo_dir / repo_rel_path
         dest.parent.mkdir(parents=True, exist_ok=True)
         ado_git_logger.info("copying file into clone at %s", dest)
         shutil.copy2(local_file, dest)
 
-        _git_run(["config", "user.name", FALSES_GIT_COMMITTER_NAME], repo_dir)
-        _git_run(["config", "user.email", FALSES_GIT_COMMITTER_EMAIL], repo_dir)
-        _git_run(["config", "http.postBuffer", "524288000"], repo_dir)
+        _git_run(["config", "user.name", opts.committer_name], repo_dir, pat=opts.pat)
+        _git_run(["config", "user.email", opts.committer_email], repo_dir, pat=opts.pat)
+        _git_run(["config", "http.postBuffer", "524288000"], repo_dir, pat=opts.pat)
         ado_git_logger.info("git add %s", repo_rel_path)
-        _git_run(["add", repo_rel_path], repo_dir)
+        _git_run(["add", repo_rel_path], repo_dir, pat=opts.pat)
 
-        diff = _run_git(_git_cmd(use_extraheader) + ["diff", "--cached", "--quiet"], repo_dir, check=False)
+        diff = _run_git(_git_cmd(use_extraheader, pat=opts.pat) + ["diff", "--cached", "--quiet"], repo_dir, check=False)
         if diff.returncode == 0:
             if not force_push:
                 ado_git_logger.info("git push skipped: remote already has identical content for %s", repo_rel_path)
                 return {"pushed": False, "skipped": True, "reason": "no changes", "method": "git"}
-            _git_run(["commit", "--allow-empty", "-m", commit_message], repo_dir, use_extraheader=use_extraheader)
+            _git_run(["commit", "--allow-empty", "-m", commit_message], repo_dir, use_extraheader=use_extraheader, pat=opts.pat)
         else:
-            _git_run(["commit", "-m", commit_message], repo_dir, use_extraheader=use_extraheader)
+            _git_run(["commit", "-m", commit_message], repo_dir, use_extraheader=use_extraheader, pat=opts.pat)
 
         push_args = ["push", "-u", "origin", branch_name] if not branch_remote else ["push", "origin", branch_name]
         ado_git_logger.info("git push starting (%s)", " ".join(push_args))
-        _git_run(push_args, repo_dir, timeout=1800, use_extraheader=use_extraheader)
+        _git_run(push_args, repo_dir, timeout=1800, use_extraheader=use_extraheader, pat=opts.pat)
 
-        target = parse_ado_git_repo_url(FALSES_GIT_REPO_URL)
+        target = parse_ado_git_repo_url(opts.repo_url)
         ado_git_logger.info("Pushed %s via git to %s@%s", repo_rel_path, target.repo_name, branch_name)
         return {
             "pushed": True,
@@ -381,8 +425,15 @@ def push_content_via_git_cli(content: str, repo_file_path: str, commit_message: 
         }
 
 
-def push_content_to_git(content: str, repo_file_path: str, commit_message: str, force_push=False):
-    if not is_ado_git_push_configured():
+def push_content_to_git(
+    content: str,
+    repo_file_path: str,
+    commit_message: str,
+    force_push=False,
+    options: GitPushOptions | None = None,
+):
+    opts = options or default_git_push_options()
+    if not is_git_push_configured_for(opts):
         return {"pushed": False, "skipped": True, "reason": "git push not configured"}
 
     content_size = len(content.encode("utf-8"))
@@ -393,14 +444,14 @@ def push_content_to_git(content: str, repo_file_path: str, commit_message: str, 
             round(content_size / (1024 * 1024), 1),
             _resolve_git_binary(),
         )
-        return push_content_via_git_cli(content, repo_file_path, commit_message, force_push=force_push)
+        return push_content_via_git_cli(content, repo_file_path, commit_message, force_push=force_push, options=opts)
 
-    target = parse_ado_git_repo_url(FALSES_GIT_REPO_URL)
+    target = parse_ado_git_repo_url(opts.repo_url)
     api_file_path = _normalize_repo_file_path(repo_file_path)
-    branch_name = (FALSES_GIT_BRANCH or "script_with_Docker").strip()
+    branch_name = (opts.branch or "script_with_Docker").strip()
 
-    with httpx.Client(timeout=60.0, verify=FALSES_GIT_SSL_VERIFY) as client:
-        pusher = AzureDevOpsGitPusher(target, client)
+    with httpx.Client(timeout=60.0, verify=opts.ssl_verify) as client:
+        pusher = AzureDevOpsGitPusher(target, client, options=opts)
         result = pusher.push_file(branch_name, api_file_path, content, commit_message)
         result["method"] = "rest"
         return result

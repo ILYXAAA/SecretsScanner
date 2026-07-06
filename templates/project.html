@@ -151,6 +151,13 @@
             <h2 class="section-title">🆕 Запуск нового сканирования</h2>
             <form method="post" action="/secret_scanner/project/{{ project.name }}/scan">
                 <div class="form-group">
+                    <label for="scan_type">Тип сканирования:</label>
+                    <select id="scan_type" name="scan_type" required>
+                        <option value="secrets" selected>Секреты</option>
+                        <option value="forbidden">Расширения / языки</option>
+                    </select>
+                </div>
+                <div class="form-group">
                     <label for="ref_type">Reference Type:</label>
                     <select id="ref_type" name="ref_type" required>
                         <option value="Branch">Branch</option>
@@ -172,6 +179,13 @@
         <div class="scan-form" id="localScanForm">
             <h2 class="section-title">📦 Локальное сканирование ZIP-архива</h2>
             <form method="post" action="/secret_scanner/project/{{ project.name }}/local-scan" enctype="multipart/form-data">
+                <div class="form-group">
+                    <label for="local_scan_type">Тип сканирования:</label>
+                    <select id="local_scan_type" name="scan_type" required>
+                        <option value="secrets" selected>Секреты</option>
+                        <option value="forbidden">Расширения / языки</option>
+                    </select>
+                </div>
                 <div class="form-group">
                     <label for="commit">Коммит (<span style="color: #dc3545;">required</span>):</label>
                     <input type="text" id="commit" name="commit" placeholder="a1b2c3d4..." required>
@@ -358,10 +372,15 @@
         {% endif %}
         
     <div class="scan-history">
-        <h2 class="section-title">📋 История сканирований</h2>
-        {% if scan_stats %}
+        <div class="history-tabs">
+            <button type="button" class="history-tab active" data-history-tab="secrets">📋 История сканирований</button>
+            <button type="button" class="history-tab" data-history-tab="forbidden">📋 История сканирования (расширения)</button>
+        </div>
+
+        <div class="history-tab-panel active" id="history-secrets">
+        {% if secrets_scan_stats %}
         <div class="scan-list">
-            {% for stat in scan_stats %}
+            {% for stat in secrets_scan_stats %}
             {% if stat.scan.status == 'completed' %}
             <a href="/secret_scanner/scan/{{ stat.scan.id }}/results" class="scan-item">
             {% elif stat.scan.status == 'running' %}
@@ -418,9 +437,75 @@
         {% else %}
         <div class="empty-state">
             <h3>🤷‍♂️ Не найдено</h3>
-            <p>Запустите свое первое сканирование, чтобы начать мониторинг этого проекта на наличие секретов.</p>
+            <p>Запустите свое первое сканирование секретов для этого проекта.</p>
         </div>
         {% endif %}
+        </div>
+
+        <div class="history-tab-panel" id="history-forbidden">
+        {% if forbidden_scan_stats %}
+        <div class="scan-list">
+            {% for stat in forbidden_scan_stats %}
+            {% if stat.scan.status == 'completed' %}
+            <a href="/secret_scanner/scan/{{ stat.scan.id }}/forbidden-results" class="scan-item">
+            {% elif stat.scan.status == 'running' %}
+            <a href="/secret_scanner/scan/{{ stat.scan.id }}" class="scan-item">
+            {% elif stat.scan.status == 'failed' or stat.scan.status == 'timeout' %}
+            <a href="/secret_scanner/scan/{{ stat.scan.id }}" class="scan-item">
+            {% else %}
+            <div class="scan-item">
+            {% endif %}
+                <div class="scan-details">
+                    <div class="scan-date">{{ stat.scan.started_at.strftime('%d.%m.%Y %H:%M') }}</div>
+                    <div class="scan-meta">
+                        <span class="scan-status {{ stat.scan.status }}">
+                            {% if stat.scan.status == 'running' %}⏳ Running
+                            {% elif stat.scan.status == 'completed' %}✅ Completed
+                            {% elif stat.scan.status == 'timeout' %}⏰ Timeout
+                            {% elif stat.scan.status == 'failed' %}❌ Failed
+                            {% else %}❓ Unknown
+                            {% endif %}
+                        </span>
+                        <div>
+                            • ℹ️ Запущено по: {{ stat.scan.ref_type }}: {{ stat.scan.ref }}<br>
+                            {% if stat.scan.started_by %}• 👮 <b><span style="color: #3b82f6;">{{ stat.scan.started_by }}</span></b>{% endif %}
+                        </div>
+                        <div>
+                            {% if stat.scan.repo_commit %}
+                            • ⚙️ Commit: {{ stat.scan.repo_commit }}
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                <div class="scan-stats">
+                    <div>
+                        <span class="confirmed-count">{{ stat.violations_count }}</span> violations
+                    </div>
+                    {% if stat.scan.files_scanned %}
+                    <div class="files-count">Проанализировано {{ stat.scan.files_scanned }} файлов</div>
+                    {% endif %}
+                </div>
+                <div class="scan-actions">
+                    <form method="post" action="/secret_scanner/scan/{{ stat.scan.id }}/delete" 
+                        onsubmit="return confirm('Are you sure you want to delete this scan?')"
+                        onclick="event.stopPropagation()">
+                        <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                    </form>
+                </div>
+            {% if stat.scan.status == 'completed' or stat.scan.status == 'running' or stat.scan.status == 'failed' or stat.scan.status == 'timeout' %}
+            </a>
+            {% else %}
+            </div>
+            {% endif %}
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <h3>🤷‍♂️ Не найдено</h3>
+            <p>Запустите первое сканирование расширений/языков для этого проекта.</p>
+        </div>
+        {% endif %}
+        </div>
     </div>
     </div>
     <script src="/secret_scanner/static/js/project.js"></script>

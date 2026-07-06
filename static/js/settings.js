@@ -4,7 +4,8 @@ function loadOriginalContent() {
         rules: document.body.dataset.originalRules || '',
         fp_rules: document.body.dataset.originalFpRules || '',
         extensions: document.body.dataset.originalExtensions || '',
-        files: document.body.dataset.originalFiles || ''
+        files: document.body.dataset.originalFiles || '',
+        languages_config: document.body.dataset.originalLanguagesConfig || '',
     };
 }
 
@@ -27,7 +28,15 @@ function getGitPushConfigured() {
 
 let originalContent = {};
 let isSqlite = false;
-let gitPushConfigured = false;
+function getLanguageSearchGitPushConfigured() {
+    try {
+        return JSON.parse(document.body.dataset.languageSearchGitPushConfigured || 'false');
+    } catch (e) {
+        return false;
+    }
+}
+
+let languageSearchGitPushConfigured = false;
 let pendingRulesSubmit = null;
 
 // Tab switching functionality
@@ -36,6 +45,7 @@ document.addEventListener('DOMContentLoaded', function() {
     originalContent = loadOriginalContent();
     isSqlite = getIsSqlite();
     gitPushConfigured = getGitPushConfigured();
+    languageSearchGitPushConfigured = getLanguageSearchGitPushConfigured();
     
     const tabs = document.querySelectorAll('.config-tab');
     const contents = document.querySelectorAll('.config-content');
@@ -117,6 +127,7 @@ function initializeChangeTracking() {
         { element: 'rules_content', type: 'rules', indicator: 'rules-unsaved' },
         { element: 'fp_rules_content', type: 'fp_rules', indicator: 'fp-rules-unsaved' },
         { element: 'excluded_extensions_content', type: 'extensions', indicator: 'extensions-unsaved' },
+        { element: 'languages_config_content', type: 'languages_config', indicator: 'languages-config-unsaved' },
         { element: 'excluded_files_content', type: 'files', indicator: 'files-unsaved' }
     ];
     
@@ -295,6 +306,7 @@ const rulesForms = [
     { form: 'rulesForm', btn: 'updateRulesBtn', content: 'rules_content', indicator: 'rules-unsaved', type: 'rules' },
     { form: 'fpRulesForm', btn: 'updateFpRulesBtn', content: 'fp_rules_content', indicator: 'fp-rules-unsaved', type: 'fp_rules' },
     { form: 'excludedExtensionsForm', btn: 'updateExtensionsBtn', content: 'excluded_extensions_content', indicator: 'extensions-unsaved', type: 'extensions' },
+    { form: 'languagesConfigForm', btn: 'updateLanguagesConfigBtn', content: 'languages_config_content', indicator: 'languages-config-unsaved', type: 'languages_config', languageSearchGit: true },
 ];
 
 const excludedFilesFormConfig = { form: 'excludedFilesForm', btn: 'updateFilesBtn', content: 'excluded_files_content', indicator: 'files-unsaved', type: 'files' };
@@ -352,7 +364,7 @@ async function submitRulesForm({ formElement, updateBtn, contentElement, indicat
     }
 }
 
-function bindRulesForm({ form, btn, content, indicator, type }) {
+function bindRulesForm({ form, btn, content, indicator, type, languageSearchGit }) {
     const formElement = document.getElementById(form);
     const updateBtn = document.getElementById(btn);
     const contentElement = document.getElementById(content);
@@ -372,8 +384,9 @@ function bindRulesForm({ form, btn, content, indicator, type }) {
         }
 
         const submitConfig = { formElement, updateBtn, contentElement, indicatorElement, type };
+        const pushConfigured = languageSearchGit ? languageSearchGitPushConfigured : gitPushConfigured;
 
-        if (gitPushConfigured) {
+        if (pushConfigured) {
             openGitPushModal(submitConfig);
         } else {
             submitRulesForm(submitConfig, false);

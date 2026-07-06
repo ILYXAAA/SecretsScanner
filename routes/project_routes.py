@@ -1,14 +1,15 @@
 from fastapi import APIRouter, Request, Form, Depends, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from urllib.parse import urlparse
 import urllib.parse
 import logging
 import json
 import os
 from config import get_full_url, HUB_TYPE
-from models import Project, Scan, Secret
+from models import Project, Scan, Secret, ForbiddenViolation
+from services.forbidden_scan_processing import normalize_scan_type
 from services.auth import get_current_user
 from services.database import get_db
 from services.templates import templates
@@ -223,30 +224,49 @@ async def project_page(request: Request, project_name: str, current_user: str = 
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    # Get latest scan
-    latest_scan = db.query(Scan).filter(Scan.project_name == project_name).order_by(Scan.started_at.desc()).first()
+    # Get latest scans by type
+    latest_secrets_scan = db.query(Scan).filter(
+        Scan.project_name == project_name,
+        or_(Scan.scan_type == "secrets", Scan.scan_type.is_(None)),
+    ).order_by(Scan.started_at.desc()).first()
+    latest_forbidden_scan = db.query(Scan).filter(
+        Scan.project_name == project_name,
+        Scan.scan_type == "forbidden",
+    ).order_by(Scan.started_at.desc()).first()
+    latest_scan = latest_secrets_scan
     
-    # Get language and framework statistics from latest scan
+    # Get language and framework statistics from latest secrets scan
     language_stats = []
     framework_stats = {}
-    if latest_scan:
-        language_stats = get_language_stats_from_scan(latest_scan)
-        framework_stats = get_framework_stats_from_scan(latest_scan)
+    if latest_secrets_scan:
+        language_stats = get_language_stats_from_scan(latest_secrets_scan)
+        framework_stats = get_framework_stats_from_scan(latest_secrets_scan)
     
     # Get all scans for history
     scans = db.query(Scan).filter(Scan.project_name == project_name).order_by(Scan.started_at.desc()).all()
     
-    # Count confirmed secrets for each scan
-    scan_stats = []
+    secrets_scan_stats = []
+    forbidden_scan_stats = []
     for scan in scans:
-        confirmed_count = db.query(Secret).filter(
-            Secret.scan_id == scan.id,
-            Secret.is_exception == False
-        ).count()
-        scan_stats.append({
-            "scan": scan,
-            "confirmed_count": confirmed_count
-        })
+        scan_type = normalize_scan_type(scan.scan_type)
+        if scan_type == "forbidden":
+            violations_count = scan.violations_count if scan.violations_count is not None else db.query(ForbiddenViolation).filter(
+                ForbiddenViolation.scan_id == scan.id,
+                ForbiddenViolation.is_exception == False,
+            ).count()
+            forbidden_scan_stats.append({
+                "scan": scan,
+                "violations_count": violations_count,
+            })
+        else:
+            confirmed_count = db.query(Secret).filter(
+                Secret.scan_id == scan.id,
+                Secret.is_exception == False
+            ).count()
+            secrets_scan_stats.append({
+                "scan": scan,
+                "confirmed_count": confirmed_count
+            })
     
     # Get all projects for merge functionality
     all_projects = db.query(Project).filter(Project.name != project_name).all()
@@ -257,9 +277,13 @@ async def project_page(request: Request, project_name: str, current_user: str = 
         "request": request,
         "project": project,
         "latest_scan": latest_scan,
+        "latest_secrets_scan": latest_secrets_scan,
+        "latest_forbidden_scan": latest_forbidden_scan,
         "language_stats": language_stats,
         "framework_stats": framework_stats,
-        "scan_stats": scan_stats,
+        "secrets_scan_stats": secrets_scan_stats,
+        "forbidden_scan_stats": forbidden_scan_stats,
+        "scan_stats": secrets_scan_stats,
         "all_projects": all_projects,
         "HUB_TYPE": HUB_TYPE,
         "current_user": current_user

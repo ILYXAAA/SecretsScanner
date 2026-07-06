@@ -32,6 +32,10 @@ class Scan(Base):
     detected_frameworks = Column(Text, default="{}")
     high_secrets_count = Column(Integer, default=0)
     potential_secrets_count = Column(Integer, default=0)
+    scan_type = Column(String, default="secrets")  # secrets | forbidden
+    violations_count = Column(Integer, default=0)
+    forbidden_passed = Column(Boolean, nullable=True)
+    forbidden_summary = Column(Text, nullable=True)
 
 class Secret(Base):
     __tablename__ = "secrets"
@@ -49,6 +53,27 @@ class Secret(Base):
     is_exception = Column(Boolean, default=False)
     exception_comment = Column(Text)
     refuted_at = Column(DateTime)  # Field for tracking when secret was refuted
+    confirmed_by = Column(String, nullable=True)
+    refuted_by = Column(String, nullable=True)
+
+class ForbiddenViolation(Base):
+    __tablename__ = "forbidden_violations"
+    id = Column(Integer, primary_key=True, index=True)
+    scan_id = Column(String, index=True)
+    path = Column(String)
+    size = Column(Integer)
+    category = Column(String)
+    language = Column(String)
+    extension = Column(String)
+    is_binary = Column(Boolean, default=False)
+    binary_reason = Column(String)
+    is_blocking = Column(Boolean, default=True)
+    violation_reasons = Column(Text)
+    hash_from_ci = Column(String, index=True)
+    status = Column(String, default="No status")
+    is_exception = Column(Boolean, default=False)
+    exception_comment = Column(Text)
+    refuted_at = Column(DateTime)
     confirmed_by = Column(String, nullable=True)
     refuted_by = Column(String, nullable=True)
 

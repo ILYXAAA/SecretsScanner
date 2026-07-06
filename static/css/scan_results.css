@@ -516,6 +516,22 @@ body {
     word-break: break-all;
 }
 
+.secrets-table .path-cell {
+    max-width: 0;
+    width: 38%;
+}
+
+.path-truncate {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    direction: rtl;
+    unicode-bidi: plaintext;
+    text-align: left;
+    word-break: normal;
+}
+
 .secret-type {
     background: #f3f4f6;
     padding: 0.25rem 0.5rem;
@@ -532,6 +548,13 @@ body {
     gap: 0.25rem;
     font-size: 0.8125rem;
     font-weight: 500;
+    white-space: nowrap;
+    flex-wrap: nowrap;
+}
+
+.secrets-table .status-cell {
+    white-space: nowrap;
+    width: 1%;
 }
 
 .status-confirmed {

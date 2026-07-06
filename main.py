@@ -21,6 +21,7 @@ from services.database import initialize_database
 from services.auth import ensure_user_database, auth_exception_handler
 from services.backup_service import backup_scheduler
 from services.falses_export_service import falses_refresh_scheduler
+from services.forbidden_falses_export_service import forbidden_falses_refresh_scheduler
 from logging_config import setup_logging
 
 # Import API middleware
@@ -81,6 +82,7 @@ async def lifespan(app: FastAPI):
     task2 = asyncio.create_task(backup_scheduler())
     task3 = asyncio.create_task(cleanup_api_data())
     task4 = asyncio.create_task(falses_refresh_scheduler())
+    task5 = asyncio.create_task(forbidden_falses_refresh_scheduler())
     
     yield
     
@@ -89,6 +91,7 @@ async def lifespan(app: FastAPI):
     task2.cancel()
     task3.cancel()
     task4.cancel()
+    task5.cancel()
     try:
         await task1
     except asyncio.CancelledError:
@@ -103,6 +106,10 @@ async def lifespan(app: FastAPI):
         pass
     try:
         await task4
+    except asyncio.CancelledError:
+        pass
+    try:
+        await task5
     except asyncio.CancelledError:
         pass
 

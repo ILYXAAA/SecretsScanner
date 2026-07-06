@@ -21,6 +21,17 @@ refTypeSelect.addEventListener('change', function () {
 document.addEventListener('DOMContentLoaded', function () {
     refInput.placeholder = placeholders[refTypeSelect.value];
     
+    document.querySelectorAll('.history-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            const target = tab.dataset.historyTab;
+            document.querySelectorAll('.history-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.history-tab-panel').forEach(p => p.classList.remove('active'));
+            tab.classList.add('active');
+            const panel = document.getElementById(`history-${target}`);
+            if (panel) panel.classList.add('active');
+        });
+    });
+
     // Создание круговой диаграммы
     const languageData = getLanguageStats();
     if (languageData && languageData.length > 0) {

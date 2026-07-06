@@ -9,16 +9,17 @@ from typing import List, Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, HTMLResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 import httpx
 
 from services.database import get_db
-from models import Project, Scan, Secret, MultiScan, ApiToken
+from models import Project, Scan, Secret, MultiScan, ApiToken, ForbiddenViolation
+from services.forbidden_scan_processing import normalize_scan_type
 from api.middleware import get_api_token, require_permission
 from api.schemas import (
     ProjectAddRequest, ProjectCheckRequest, ScanRequest, MultiScanRequest,
     ProjectAddResponse, ProjectCheckResponse, ScanResponse, MultiScanResponse,
-    ScanStatusResponse, ScanResultsResponse, ErrorResponse, validate_scan_id
+    ScanStatusResponse, ScanResultsResponse, ForbiddenResultsResponse, ForbiddenViolationResult, ErrorResponse, validate_scan_id
 )
 from config import MICROSERVICE_URL, APP_HOST, APP_PORT, HUB_TYPE, BASE_URL, get_auth_headers
 from routes.project_routes import find_project_by_repo_url, normalize_repo_url_for_lookup, validate_repo_url
@@ -84,7 +85,14 @@ def resolve_scan_target(
     return base_repo_url, resolved_ref_type, resolved_ref
 
 
-def _find_active_scan(db: Session, project_name: str, ref_type: str, ref: str) -> Optional[Scan]:
+def _scan_type_filter(scan_type: str):
+    normalized = normalize_scan_type(scan_type)
+    if normalized == "forbidden":
+        return Scan.scan_type == "forbidden"
+    return or_(Scan.scan_type == "secrets", Scan.scan_type.is_(None))
+
+
+def _find_active_scan(db: Session, project_name: str, ref_type: str, ref: str, scan_type: str = "secrets") -> Optional[Scan]:
     active_by_ref = (
         db.query(Scan)
         .filter(
@@ -92,6 +100,7 @@ def _find_active_scan(db: Session, project_name: str, ref_type: str, ref: str) -
             Scan.status.in_(ACTIVE_SCAN_STATUSES),
             Scan.ref_type == ref_type,
             Scan.ref == ref,
+            _scan_type_filter(scan_type),
         )
         .order_by(Scan.started_at.asc())
         .first()
@@ -108,6 +117,7 @@ def _find_active_scan(db: Session, project_name: str, ref_type: str, ref: str) -
             Scan.project_name == project_name,
             Scan.status.in_(ACTIVE_SCAN_STATUSES),
             Scan.repo_commit.isnot(None),
+            _scan_type_filter(scan_type),
         )
         .order_by(Scan.started_at.asc())
         .all()
@@ -119,7 +129,7 @@ def _find_active_scan(db: Session, project_name: str, ref_type: str, ref: str) -
 
 
 def _find_recent_completed_scan(
-    db: Session, project_name: str, ref_type: str, ref: str
+    db: Session, project_name: str, ref_type: str, ref: str, scan_type: str = "secrets"
 ) -> Optional[Scan]:
     cutoff = datetime.now() - SCAN_REUSE_MAX_AGE
 
@@ -132,6 +142,7 @@ def _find_recent_completed_scan(
             Scan.completed_at >= cutoff,
             Scan.ref_type == ref_type,
             Scan.ref == ref,
+            _scan_type_filter(scan_type),
         )
         .order_by(Scan.completed_at.desc())
         .first()
@@ -150,6 +161,7 @@ def _find_recent_completed_scan(
             Scan.completed_at.isnot(None),
             Scan.completed_at >= cutoff,
             Scan.repo_commit.isnot(None),
+            _scan_type_filter(scan_type),
         )
         .order_by(Scan.completed_at.desc())
         .all()
@@ -160,16 +172,16 @@ def _find_recent_completed_scan(
     return None
 
 
-def find_reusable_scan(db: Session, project_name: str, ref_type: str, ref: str) -> Optional[Scan]:
+def find_reusable_scan(db: Session, project_name: str, ref_type: str, ref: str, scan_type: str = "secrets") -> Optional[Scan]:
     """Return an in-flight or recently completed scan for the same project + ref/commit."""
-    return _find_active_scan(db, project_name, ref_type, ref) or _find_recent_completed_scan(
-        db, project_name, ref_type, ref
+    return _find_active_scan(db, project_name, ref_type, ref, scan_type) or _find_recent_completed_scan(
+        db, project_name, ref_type, ref, scan_type
     )
 
 
-def find_canonical_active_scan(db: Session, project_name: str, ref_type: str, ref: str) -> Optional[Scan]:
+def find_canonical_active_scan(db: Session, project_name: str, ref_type: str, ref: str, scan_type: str = "secrets") -> Optional[Scan]:
     """Oldest pending/running scan for the same target (used to resolve API request races)."""
-    return _find_active_scan(db, project_name, ref_type, ref)
+    return _find_active_scan(db, project_name, ref_type, ref, scan_type)
 
 
 def supersede_duplicate_scan(db: Session, scan: Scan) -> None:
@@ -520,7 +532,9 @@ async def api_scan(
                 content={"success": False, "message": "Microservice unavailable"}
             )
 
-        existing_scan = find_reusable_scan(db, project.name, ref_type, ref)
+        scan_type = normalize_scan_type(request.scan_type)
+
+        existing_scan = find_reusable_scan(db, project.name, ref_type, ref, scan_type)
         if existing_scan:
             response_time = int((time.time() - start_time) * 1000)
             logger.info(
@@ -537,12 +551,13 @@ async def api_scan(
             ref_type=ref_type,
             ref=ref,
             status="pending",
-            started_by=f"API:{token.name}"
+            started_by=f"API:{token.name}",
+            scan_type=scan_type,
         )
         db.add(scan)
         db.commit()
 
-        canonical_scan = find_canonical_active_scan(db, project.name, ref_type, ref)
+        canonical_scan = find_canonical_active_scan(db, project.name, ref_type, ref, scan_type)
         if canonical_scan and canonical_scan.id != scan.id:
             supersede_duplicate_scan(db, scan)
             db.commit()
@@ -555,6 +570,7 @@ async def api_scan(
         
         # Start scan via microservice
         callback_url = f"http://{APP_HOST}:{APP_PORT}/get_results/{project.name}/{scan_id}"
+        microservice_endpoint = "/forbidden_check" if scan_type == "forbidden" else "/scan"
         
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
@@ -567,7 +583,7 @@ async def api_scan(
                 }
                 
                 response = await client.post(
-                    f"{MICROSERVICE_URL}/scan",
+                    f"{MICROSERVICE_URL}{microservice_endpoint}",
                     json=microservice_request,
                     headers=get_auth_headers()
                 )
@@ -1058,7 +1074,10 @@ async def api_scan_status(
         return ScanStatusResponse(
             scan_id=scan_id,
             status=scan.status,
-            message=message
+            message=message,
+            scan_type=normalize_scan_type(scan.scan_type),
+            violations_count=scan.violations_count,
+            forbidden_passed=scan.forbidden_passed,
         )
         
     except Exception as e:
@@ -1149,6 +1168,15 @@ async def api_scan_results(
                 scan_id=scan_id,
                 status=scan.status
             )
+
+        if normalize_scan_type(scan.scan_type) == "forbidden":
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "message": "This scan is a forbidden check. Use /scan/{scan_id}/forbidden-results instead.",
+                },
+            )
         
         # Get secrets (exclude refuted ones)
         secrets = db.query(Secret).filter(
@@ -1179,6 +1207,93 @@ async def api_scan_results(
             status_code=500,
             content={"success": False, "message": "Internal server error"}
         )
+
+
+@router.get(
+    "/scan/{scan_id}/forbidden-results",
+    response_model=ForbiddenResultsResponse,
+    summary="Get forbidden check results",
+    tags=["Scanning"],
+)
+async def api_forbidden_scan_results(
+    scan_id: str,
+    db: Session = Depends(get_db),
+    token: ApiToken = Depends(require_permission("scan_results")),
+):
+    try:
+        if not validate_scan_id(scan_id):
+            return JSONResponse(
+                status_code=400,
+                content={"success": False, "message": "Invalid scan ID format"},
+            )
+
+        scan = db.query(Scan).filter(Scan.id == scan_id).first()
+        if not scan:
+            return ForbiddenResultsResponse(scan_id=scan_id, status="not_found")
+
+        if normalize_scan_type(scan.scan_type) != "forbidden":
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "message": "This scan is not a forbidden check. Use /scan/{scan_id}/results instead.",
+                },
+            )
+
+        if scan.status != "completed":
+            return ForbiddenResultsResponse(scan_id=scan_id, status=scan.status)
+
+        violations = db.query(ForbiddenViolation).filter(
+            ForbiddenViolation.scan_id == scan_id,
+            ForbiddenViolation.is_exception == False,
+        ).all()
+
+        summary = {}
+        if scan.forbidden_summary:
+            try:
+                summary = json.loads(scan.forbidden_summary)
+            except json.JSONDecodeError:
+                summary = {}
+
+        results = [
+            ForbiddenViolationResult(
+                path=v.path or "",
+                extension=v.extension,
+                language=v.language,
+                category=v.category,
+            )
+            for v in violations
+        ]
+
+        return ForbiddenResultsResponse(
+            scan_id=scan_id,
+            status="completed",
+            passed=scan.forbidden_passed,
+            summary=summary.get("summary") or summary,
+            results=results,
+        )
+    except Exception as e:
+        logger.error(f"[API: {token.name}] Error getting forbidden results: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "message": "Internal server error"},
+        )
+
+
+@router.post(
+    "/forbidden_check",
+    response_model=ScanResponse,
+    summary="Start forbidden check (alias)",
+    tags=["Scanning"],
+)
+async def api_forbidden_check(
+    request: ScanRequest,
+    db: Session = Depends(get_db),
+    token: ApiToken = Depends(require_permission("scan")),
+):
+    request.scan_type = "forbidden"
+    return await api_scan(request, db, token)
+
 
 @router.get(
     "/scan/{scan_id}/export-html",

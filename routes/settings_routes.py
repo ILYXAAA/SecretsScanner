@@ -13,11 +13,16 @@ from services.microservice_client import (
     get_fp_rules_info, get_fp_rules_content, update_fp_rules,
     get_excluded_extensions_info, get_excluded_extensions_content, update_excluded_extensions,
     get_excluded_files_info, get_excluded_files_content, update_excluded_files,
+    get_languages_repo_config_info, get_languages_repo_config_content, update_languages_repo_config,
     check_microservice_health
 )
 from models import User
 from services.templates import templates
 from services.rules_git_push_service import is_rules_git_push_configured, push_rules_file_to_git
+from services.language_search_git_push_service import (
+    is_language_search_git_push_configured,
+    push_languages_config_to_git,
+)
 logger = logging.getLogger("main")
 user_logger = logging.getLogger("user_actions")
 
@@ -175,6 +180,18 @@ async def settings(request: Request, current_user: str = Depends(get_current_use
        current_excluded_extensions_content = ""
    if current_excluded_files_content is None:
        current_excluded_files_content = ""
+
+   languages_config_info = None
+   current_languages_config_content = ""
+   if microservice_available:
+       languages_config_info = await get_languages_repo_config_info()
+       if languages_config_info and languages_config_info.get("exists", False):
+           current_languages_config_content = await get_languages_repo_config_content()
+   else:
+       languages_config_info = {"error": "microservice_unavailable"}
+
+   if current_languages_config_content is None:
+       current_languages_config_content = ""
    
    return templates.TemplateResponse("settings.html", {
        "request": request,
@@ -188,12 +205,15 @@ async def settings(request: Request, current_user: str = Depends(get_current_use
        "current_excluded_extensions_content": current_excluded_extensions_content,
        "excluded_files_info": excluded_files_info,
        "current_excluded_files_content": current_excluded_files_content,
+       "languages_config_info": languages_config_info,
+       "current_languages_config_content": current_languages_config_content,
        "BACKUP_RETENTION_DAYS": BACKUP_RETENTION_DAYS,
        "microservice_available": microservice_available,
        "is_sqlite": is_sqlite,
        "db_type": db_type,
        "current_user": current_user,
        "git_push_configured": is_rules_git_push_configured(),
+       "language_search_git_push_configured": is_language_search_git_push_configured(),
    })
 
 @router.post("/settings/change-password")
@@ -399,6 +419,62 @@ async def update_excluded_extensions_route(
     except Exception as e:
         logger.error(f"Excluded extensions update error: {e}", exc_info=True)
         return _settings_action_response(request, success=False, error=f"Update error: {e}")
+
+
+@router.post("/settings/update-languages-repo-config")
+async def update_languages_repo_config_route(
+    request: Request,
+    languages_config_content: str = Form(...),
+    push_to_git: str = Form("false"),
+    current_user: str = Depends(get_current_user),
+):
+    push_to_git = _parse_form_bool(push_to_git)
+    try:
+        if not languages_config_content.strip():
+            return _settings_action_response(request, success=False, error="Configuration content cannot be empty")
+
+        response = await update_languages_repo_config(languages_config_content)
+        if response.status_code != 200:
+            try:
+                error_data = response.json()
+                error_message = error_data.get("message", f"Microservice error: HTTP {response.status_code}")
+            except Exception:
+                error_message = f"Microservice error: HTTP {response.status_code}"
+            return _settings_action_response(request, success=False, error=error_message)
+
+        user_logger.warning(f"User '{current_user}' updated languages_repo_config.yml")
+        message = "Правила языков/расширений успешно обновлены"
+        git_push = None
+        if push_to_git:
+            if not is_language_search_git_push_configured():
+                return _settings_action_response(
+                    request,
+                    success=False,
+                    error="Git push не настроен (LANGUAGE_SEARCH_GIT_REPO_URL / FALSES_GIT_PAT)",
+                )
+            git_push = push_languages_config_to_git(languages_config_content, current_user)
+            if git_push.get("skipped") and git_push.get("reason") == "no changes":
+                message = f"{message}. В репозитории уже актуальная версия файла"
+            elif git_push.get("pushed"):
+                message = "Правила языков/расширений обновлены и запушены в LANGUAGE_SEARCH"
+            elif not git_push.get("pushed"):
+                return _settings_action_response(
+                    request,
+                    success=False,
+                    error=f"Правила сохранены, но push в репозиторий не удался: {git_push.get('reason', 'unknown')}",
+                )
+
+        return _settings_action_response(
+            request,
+            success=True,
+            message=message,
+            success_query="success=languages_config_updated",
+            git_push=git_push,
+        )
+    except Exception as e:
+        logger.error("Languages repo config update error: %s", e, exc_info=True)
+        return _settings_action_response(request, success=False, error=f"Update error: {e}")
+
 
 @router.post("/settings/update-excluded-files")
 async def update_excluded_files_route(request: Request, excluded_files_content: str = Form(...), current_user: str = Depends(get_current_user)):

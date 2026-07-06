@@ -171,3 +171,49 @@ async def update_excluded_files(content: str):
             json=payload, headers=get_auth_headers()
         )
         return response
+
+
+async def get_languages_repo_config_info():
+    """Get languages_repo_config.yml metadata from microservice."""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{MICROSERVICE_URL}/languages-repo-config-info",
+                headers=get_auth_headers(),
+                timeout=5.0,
+            )
+            if response.status_code == 200:
+                return response.json()
+    except Exception as e:
+        logger.error(f"Error fetching languages repo config info: {e}")
+    return {"error": "microservice_unavailable"}
+
+
+async def get_languages_repo_config_content():
+    """Get languages_repo_config.yml content from microservice."""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{MICROSERVICE_URL}/get-languages-repo-config",
+                headers=get_auth_headers(),
+                timeout=5.0,
+            )
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("status") == "success":
+                    return data.get("languages_repo_config", "")
+    except Exception as e:
+        logger.error(f"Error fetching languages repo config content: {e}")
+    return ""
+
+
+async def update_languages_repo_config(content: str):
+    """Update languages_repo_config.yml on microservice."""
+    payload = {"content": content}
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.post(
+            f"{MICROSERVICE_URL}/update-languages-repo-config",
+            json=payload,
+            headers=get_auth_headers(),
+        )
+        return response

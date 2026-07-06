@@ -14,18 +14,35 @@ import html
 import gzip
 import base64
 from config import get_full_url, MICROSERVICE_URL, APP_HOST, APP_PORT, HUB_TYPE, get_auth_headers
-from models import Project, Scan, Secret
+from models import Project, Scan, Secret, ForbiddenViolation
 from services.auth import get_current_user
 from services.database import get_db, sanitize_string
 from services.microservice_client import check_microservice_health
 from utils.ci_hash import build_hash_from_ci
 from utils.html_report_generator import generate_html_report
+from utils.forbidden_html_report_generator import generate_forbidden_html_report
 from services.templates import templates
+from services.forbidden_scan_processing import (
+    apply_violation_status,
+    is_forbidden_callback,
+    normalize_scan_type,
+    process_forbidden_results_background,
+    propagate_violation_status_to_newer_scans,
+    update_forbidden_scan_counters,
+    load_latest_violation_decisions_by_hash,
+)
 import time
 logger = logging.getLogger("main")
 user_logger = logging.getLogger("user_actions")
 
 router = APIRouter()
+
+
+def attachment_content_disposition(filename: str) -> str:
+    """Build a Content-Disposition header safe for non-ASCII filenames."""
+    ascii_name = filename.encode("ascii", "ignore").decode("ascii") or "export"
+    quoted_name = urllib.parse.quote(filename)
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quoted_name}"
 
 
 def decompress_callback_data(payload: dict) -> dict:
@@ -105,10 +122,13 @@ def normalize_file_path(file_path: str, repo_url: str) -> str:
 
 @router.post("/project/{project_name}/scan")
 async def start_scan(request: Request, project_name: str, ref_type: str = Form(...), 
-                    ref: str = Form(...), current_user: str = Depends(get_current_user), _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
+                    ref: str = Form(...), scan_type: str = Form("secrets"),
+                    current_user: str = Depends(get_current_user), _: bool = Depends(get_current_user), db: Session = Depends(get_db)):
     project = db.query(Project).filter(Project.name == project_name).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    
+    normalized_scan_type = normalize_scan_type(scan_type)
     
     # Check microservice health
     if not await check_microservice_health():
@@ -122,17 +142,21 @@ async def start_scan(request: Request, project_name: str, ref_type: str = Form(.
         ref_type=ref_type, 
         ref=ref, 
         status="pending",
-        started_by=current_user
+        started_by=current_user,
+        scan_type=normalized_scan_type,
     )
     db.add(scan)
     db.commit()
-    user_logger.info(f"User '{current_user}' started scan for project '{project_name}' ({ref_type}: {ref})")
+    user_logger.info(
+        f"User '{current_user}' started {normalized_scan_type} scan for project '{project_name}' ({ref_type}: {ref})"
+    )
     
     # Start scan via microservice - ИСПРАВЛЕН callback URL
     callback_url = f"http://{APP_HOST}:{APP_PORT}/get_results/{project_name}/{scan_id}"
+    microservice_endpoint = "/forbidden_check" if normalized_scan_type == "forbidden" else "/scan"
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.post(f"{MICROSERVICE_URL}/scan", json={
+            response = await client.post(f"{MICROSERVICE_URL}{microservice_endpoint}", json={
                 "ProjectName": project_name,
                 "RepoUrl": project.repo_url,
                 "RefType": ref_type,
@@ -176,10 +200,13 @@ async def start_scan(request: Request, project_name: str, ref_type: str = Form(.
 @router.post("/project/{project_name}/local-scan")
 async def start_local_scan(request: Request, project_name: str, 
                           commit: str = Form(...), zip_file: UploadFile = File(...),
+                          scan_type: str = Form("secrets"),
                           _: bool = Depends(get_current_user), current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     project = db.query(Project).filter(Project.name == project_name).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    
+    normalized_scan_type = normalize_scan_type(scan_type)
     
     # Check microservice health
     if not await check_microservice_health():
@@ -198,14 +225,18 @@ async def start_local_scan(request: Request, project_name: str,
         ref=commit, 
         repo_commit=commit,
         status="pending",
-        started_by=current_user
+        started_by=current_user,
+        scan_type=normalized_scan_type,
     )
     db.add(scan)
     db.commit()
-    user_logger.info(f"User '{current_user}' started local scan for project '{project_name}' (commit: {commit})")
+    user_logger.info(
+        f"User '{current_user}' started local {normalized_scan_type} scan for project '{project_name}' (commit: {commit})"
+    )
     
     # Prepare callback URL - ИСПРАВЛЕН
     callback_url = f"http://{APP_HOST}:{APP_PORT}/get_results/{project_name}/{scan_id}"
+    microservice_endpoint = "/local_forbidden_check" if normalized_scan_type == "forbidden" else "/local_scan"
     
     try:
         # Read file content BEFORE creating the request
@@ -229,7 +260,7 @@ async def start_local_scan(request: Request, project_name: str,
         
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
-                f"{MICROSERVICE_URL}/local_scan",
+                f"{MICROSERVICE_URL}{microservice_endpoint}",
                 files=files, headers=get_auth_headers(),
                 data=data
             )
@@ -274,7 +305,8 @@ async def scan_status(request: Request, scan_id: str, current_user: str = Depend
     return templates.TemplateResponse("scan_status.html", {
         "request": request,
         "scan": scan,
-        "current_user": current_user
+        "current_user": current_user,
+        "scan_type": normalize_scan_type(scan.scan_type),
     })
 
 @router.get("/api/scan/{scan_id}/status")
@@ -299,6 +331,7 @@ async def get_scan_status(
             "scan_id": scan.id,
             "project_name": scan.project_name,
             "status": scan.status,
+            "scan_type": normalize_scan_type(scan.scan_type),
             "ref_type": scan.ref_type,
             "ref": scan.ref,
             "commit": scan.repo_commit,
@@ -306,6 +339,8 @@ async def get_scan_status(
             "completed_at": scan.completed_at.strftime('%Y-%m-%d %H:%M') if scan.completed_at else None,
             "high_count": high_count,
             "potential_count": potential_count,
+            "violations_count": scan.violations_count or 0,
+            "forbidden_passed": scan.forbidden_passed,
             "files_scanned": scan.files_scanned,
             "excluded_files_count": scan.excluded_files_count
         }
@@ -778,7 +813,10 @@ async def receive_scan_results(project_name: str, scan_id: str, request: Request
 
     # Запускаем обработку в фоне
     try:
-        background_tasks.add_task(process_scan_results_background, scan_id, data, db)
+        if is_forbidden_callback(data, scan):
+            background_tasks.add_task(process_forbidden_results_background, scan_id, data, db)
+        else:
+            background_tasks.add_task(process_scan_results_background, scan_id, data, db)
         
         processing_time = (datetime.now() - start_time).total_seconds()
         logger.info(f"⚡ Callback для scan '{scan_id}' принят и отправлен в фоновую обработку за {processing_time:.2f} секунд")
@@ -805,6 +843,9 @@ async def scan_results(
         scan = db.query(Scan).filter(Scan.id == scan_id).first()
         if not scan:
             raise HTTPException(status_code=404, detail="Scan not found")
+        
+        if normalize_scan_type(scan.scan_type) == "forbidden":
+            return RedirectResponse(url=get_full_url(f"scan/{scan_id}/forbidden-results"), status_code=302)
         
         # Получаем проект
         project = db.query(Project).filter(Project.name == scan.project_name).first()
@@ -1221,6 +1262,7 @@ async def delete_scan(
         
         # Удаляем все секреты и исключения, связанные с этим сканом
         db.query(Secret).filter(Secret.scan_id == scan_id).delete()
+        db.query(ForbiddenViolation).filter(ForbiddenViolation.scan_id == scan_id).delete()
         
         # Удаляем сам скан
         db.delete(scan)
@@ -1244,6 +1286,168 @@ async def delete_scan(
         )
         raise HTTPException(status_code=500, detail="Internal server error")
 
+@router.get("/scan/{scan_id}/forbidden-results", response_class=HTMLResponse)
+async def forbidden_scan_results(
+    request: Request,
+    scan_id: str,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        update_forbidden_scan_counters(db, scan_id)
+        scan = db.query(Scan).filter(Scan.id == scan_id).first()
+        if not scan:
+            raise HTTPException(status_code=404, detail="Scan not found")
+
+        if normalize_scan_type(scan.scan_type) != "forbidden":
+            return RedirectResponse(url=get_full_url(f"scan/{scan_id}/results"), status_code=302)
+
+        project = db.query(Project).filter(Project.name == scan.project_name).first()
+        violations_query = db.query(ForbiddenViolation).filter(
+            ForbiddenViolation.scan_id == scan_id
+        ).order_by(ForbiddenViolation.path).all()
+
+        forbidden_summary = {}
+        if scan.forbidden_summary:
+            try:
+                forbidden_summary = json.loads(scan.forbidden_summary)
+            except json.JSONDecodeError:
+                forbidden_summary = {}
+
+        violations_data = []
+        for violation in violations_query:
+            reasons = []
+            if violation.violation_reasons:
+                try:
+                    reasons = json.loads(violation.violation_reasons)
+                except json.JSONDecodeError:
+                    reasons = [violation.violation_reasons]
+
+            violations_data.append({
+                "id": violation.id,
+                "path": html.escape(violation.path or "", quote=True),
+                "size": violation.size or 0,
+                "category": html.escape(violation.category or "", quote=True),
+                "language": html.escape(violation.language or "", quote=True),
+                "extension": html.escape(violation.extension or "", quote=True),
+                "is_binary": bool(violation.is_binary),
+                "binary_reason": html.escape(violation.binary_reason or "", quote=True),
+                "is_blocking": bool(violation.is_blocking),
+                "violation_reasons": [html.escape(str(r), quote=True) for r in reasons],
+                "status": html.escape(violation.status or "No status", quote=True),
+                "is_exception": bool(violation.is_exception),
+                "exception_comment": html.escape(violation.exception_comment or "", quote=True),
+                "hash_from_ci": violation.hash_from_ci or "",
+            })
+
+        return templates.TemplateResponse("forbidden_results.html", {
+            "request": request,
+            "scan": scan,
+            "project": project,
+            "violations_data": violations_data,
+            "forbidden_summary": forbidden_summary,
+            "violations_count": scan.violations_count or 0,
+            "HUB_TYPE": HUB_TYPE,
+            "current_user": current_user,
+        })
+    except HTTPException:
+        raise
+    except Exception:
+        logger.critical("Error rendering forbidden results for %s", scan_id, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+def _trigger_forbidden_falses_refresh():
+    try:
+        from services.forbidden_falses_export_service import refresh_forbidden_falses_file
+        refresh_forbidden_falses_file()
+    except Exception as e:
+        logger.error("Failed to refresh forbidden falses.txt: %s", e)
+
+
+@router.post("/forbidden-violations/{violation_id}/update-status")
+async def update_violation_status(
+    violation_id: int,
+    status: str = Form(...),
+    comment: str = Form(""),
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        violation = db.query(ForbiddenViolation).filter(ForbiddenViolation.id == violation_id).first()
+        if not violation:
+            raise HTTPException(status_code=404, detail="Violation not found")
+
+        changed_at = datetime.now()
+        apply_violation_status(violation, status, comment, current_user, changed_at)
+        affected_scan_ids = propagate_violation_status_to_newer_scans(
+            db, violation, status, comment, current_user, changed_at
+        )
+        db.commit()
+
+        update_forbidden_scan_counters(db, violation.scan_id)
+        for affected_scan_id in affected_scan_ids:
+            update_forbidden_scan_counters(db, affected_scan_id)
+
+        if status == "Refuted":
+            _trigger_forbidden_falses_refresh()
+
+        return {"status": "success"}
+    except HTTPException:
+        raise
+    except Exception:
+        logger.critical("Error updating violation status id=%s", violation_id, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post("/forbidden-violations/bulk-action")
+async def bulk_violation_action(
+    request: Request,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        data = await request.json()
+        violation_ids = data.get("violation_ids", [])
+        action = data.get("action")
+        value = data.get("value", "")
+        comment = data.get("comment", "")
+
+        if not violation_ids or not action:
+            return JSONResponse(status_code=400, content={"status": "error", "message": "Invalid request"})
+
+        affected_scan_ids = set()
+        refuted_any = False
+        changed_at = datetime.now()
+
+        for violation_id in violation_ids:
+            violation = db.query(ForbiddenViolation).filter(ForbiddenViolation.id == violation_id).first()
+            if not violation:
+                continue
+
+            if action == "status":
+                apply_violation_status(violation, value, comment, current_user, changed_at)
+                propagated = propagate_violation_status_to_newer_scans(
+                    db, violation, value, comment, current_user, changed_at
+                )
+                affected_scan_ids.update(propagated)
+                affected_scan_ids.add(violation.scan_id)
+                if value == "Refuted":
+                    refuted_any = True
+
+        db.commit()
+        for scan_id in affected_scan_ids:
+            update_forbidden_scan_counters(db, scan_id)
+
+        if refuted_any:
+            _trigger_forbidden_falses_refresh()
+
+        return {"status": "success", "updated": len(violation_ids)}
+    except Exception:
+        logger.critical("Bulk violation action failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 @router.get("/scan/{scan_id}/export")
 async def export_scan_results(
     scan_id: str,
@@ -1254,6 +1458,41 @@ async def export_scan_results(
         scan = db.query(Scan).filter(Scan.id == scan_id).first()
         if not scan:
             raise HTTPException(status_code=404, detail="Scan not found")
+
+        commit_short = scan.repo_commit[:7] if scan.repo_commit else "unknown"
+
+        if normalize_scan_type(scan.scan_type) == "forbidden":
+            violations = db.query(ForbiddenViolation).filter(
+                ForbiddenViolation.scan_id == scan_id,
+                ForbiddenViolation.is_exception == False,
+            ).order_by(ForbiddenViolation.path).all()
+
+            export_data = []
+            for violation in violations:
+                reasons = []
+                if violation.violation_reasons:
+                    try:
+                        reasons = json.loads(violation.violation_reasons)
+                    except json.JSONDecodeError:
+                        reasons = [violation.violation_reasons]
+
+                export_data.append({
+                    "path": violation.path,
+                    "extension": violation.extension,
+                    "category": violation.category,
+                    "language": violation.language,
+                    "is_blocking": bool(violation.is_blocking),
+                    "violation_reasons": reasons,
+                })
+
+            filename = f"{scan.project_name}_{commit_short}_forbidden.json"
+            formatted_json = json.dumps(export_data, indent=2, ensure_ascii=False)
+            user_logger.info(f"Forbidden results for '{scan_id}' exported by user '{current_user}' (JSON)")
+            return Response(
+                content=formatted_json,
+                media_type="application/json; charset=utf-8",
+                headers={"Content-Disposition": attachment_content_disposition(filename)},
+            )
 
         # Get only non-exception secrets from this scan
         secrets = db.query(Secret).filter(
@@ -1268,7 +1507,6 @@ async def export_scan_results(
         ]
 
         # Generate filename
-        commit_short = scan.repo_commit[:7] if scan.repo_commit else "unknown"
         filename = f"{scan.project_name}_{commit_short}.json"
 
         # Генерируем отформатированный JSON
@@ -1277,8 +1515,8 @@ async def export_scan_results(
 
         return Response(
             content=formatted_json,
-            media_type="application/json",
-            headers={"Content-Disposition": f"attachment; filename={filename}"}
+            media_type="application/json; charset=utf-8",
+            headers={"Content-Disposition": attachment_content_disposition(filename)}
         )
 
     except HTTPException:
@@ -1301,6 +1539,38 @@ async def export_scan_results_html(
         project = db.query(Project).filter(Project.name == scan.project_name).first()
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
+
+        commit_short = scan.repo_commit[:7] if scan.repo_commit else "unknown"
+
+        if normalize_scan_type(scan.scan_type) == "forbidden":
+            violations_count = db.query(func.count(ForbiddenViolation.id)).filter(
+                ForbiddenViolation.scan_id == scan_id,
+                ForbiddenViolation.is_exception == False,
+            ).scalar() or 0
+
+            if violations_count > 3000:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Cannot generate HTML report: too many violations ({violations_count}). "
+                        f"Maximum allowed: 3000. Please use JSON export instead."
+                    ),
+                )
+
+            violations = db.query(ForbiddenViolation).filter(
+                ForbiddenViolation.scan_id == scan_id,
+                ForbiddenViolation.is_exception == False,
+            ).order_by(ForbiddenViolation.category, ForbiddenViolation.path).all()
+
+            html_content = await asyncio.to_thread(
+                generate_forbidden_html_report, scan, project, violations, HUB_TYPE
+            )
+            filename = f"{scan.project_name}_{commit_short}_forbidden.html"
+            user_logger.info(f"Forbidden results for '{scan_id}' exported by user '{current_user}' (HTML)")
+            return HTMLResponse(
+                content=html_content,
+                headers={"Content-Disposition": attachment_content_disposition(filename)},
+            )
         
         # Подсчитать количество секретов перед их загрузкой
         secrets_count = db.query(func.count(Secret.id)).filter(
@@ -1330,15 +1600,12 @@ async def export_scan_results_html(
             generate_html_report, scan, project, secrets, HUB_TYPE
         )
         
-        commit_short = scan.repo_commit[:7] if scan.repo_commit else "unknown"
         filename = f"{scan.project_name}_{commit_short}.html"
-        
-        safe_filename = filename.encode('ascii', 'ignore').decode('ascii')
         user_logger.info(f"Results for '{scan_id}' exported by user '{current_user}' (HTML)")
         
         return HTMLResponse(
             content=html_content,
-            headers={"Content-Disposition": f"attachment; filename={safe_filename}"}
+            headers={"Content-Disposition": attachment_content_disposition(filename)}
         )
 
     except HTTPException:
