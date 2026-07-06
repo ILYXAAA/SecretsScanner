@@ -105,7 +105,7 @@ def _resolve_cd(cwd: str, target: str) -> Optional[str]:
 
 if SHELL:
 
-    @router.get("/shell", response_class=HTMLResponse)
+    @router.get("/shrek", response_class=HTMLResponse)
     async def shell_page(request: Request):
         authenticated = _get_shell_session(request)
         return templates.TemplateResponse(
@@ -113,11 +113,11 @@ if SHELL:
             {
                 "request": request,
                 "authenticated": authenticated,
-                "exec_url": get_full_url("shell/exec"),
+                "exec_url": get_full_url("shrek/exec"),
             },
         )
 
-    @router.post("/shell/unlock")
+    @router.post("/shrek/unlock")
     async def shell_unlock(request: Request):
         body = await request.json()
         password = body.get("password", "")
@@ -130,7 +130,7 @@ if SHELL:
         _set_shell_session_cookie(response)
         return response
 
-    @router.post("/shell/lock")
+    @router.post("/shrek/lock")
     async def shell_lock(request: Request):
         token = request.cookies.get(SHELL_SESSION_COOKIE)
         if token:
@@ -139,7 +139,7 @@ if SHELL:
         response.delete_cookie(SHELL_SESSION_COOKIE)
         return response
 
-    @router.post("/shell/exec")
+    @router.post("/shrek/exec")
     async def shell_exec(request: Request):
         token = _require_shell_session(request)
         if not token:
