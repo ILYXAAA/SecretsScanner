@@ -557,3 +557,10 @@ def generate_html_report(scan, project, secrets, HubType):
     """
     
     return html_content
+
+
+def attachment_content_disposition(filename: str) -> str:
+    """Content-Disposition header for file downloads (supports non-ASCII filenames)."""
+    ascii_name = filename.encode("ascii", "ignore").decode("ascii") or "export"
+    quoted_name = urllib.parse.quote(filename)
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quoted_name}"

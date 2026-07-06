@@ -19,7 +19,7 @@ from services.auth import get_current_user
 from services.database import get_db, sanitize_string
 from services.microservice_client import check_microservice_health
 from utils.ci_hash import build_hash_from_ci
-from utils.html_report_generator import generate_html_report
+from utils.html_report_generator import generate_html_report, attachment_content_disposition
 from utils.forbidden_html_report_generator import generate_forbidden_html_report
 from services.templates import templates
 from services.forbidden_scan_processing import (
@@ -36,13 +36,6 @@ logger = logging.getLogger("main")
 user_logger = logging.getLogger("user_actions")
 
 router = APIRouter()
-
-
-def attachment_content_disposition(filename: str) -> str:
-    """Build a Content-Disposition header safe for non-ASCII filenames."""
-    ascii_name = filename.encode("ascii", "ignore").decode("ascii") or "export"
-    quoted_name = urllib.parse.quote(filename)
-    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quoted_name}"
 
 
 def decompress_callback_data(payload: dict) -> dict:

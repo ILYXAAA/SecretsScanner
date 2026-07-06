@@ -24,7 +24,8 @@ from api.schemas import (
 from config import MICROSERVICE_URL, APP_HOST, APP_PORT, HUB_TYPE, BASE_URL, get_auth_headers
 from routes.project_routes import find_project_by_repo_url, normalize_repo_url_for_lookup, validate_repo_url
 from services.microservice_client import check_microservice_health
-from utils.html_report_generator import generate_html_report
+from utils.html_report_generator import generate_html_report, attachment_content_disposition
+from utils.forbidden_html_report_generator import generate_forbidden_html_report
 
 logger = logging.getLogger("main")
 user_logger = logging.getLogger("user_actions")
@@ -1336,11 +1337,12 @@ async def api_forbidden_check(
     **Prerequisites:**
     - Scan must exist
     - Scan must be completed (status: "completed")
-    - Maximum 3000 secrets allowed (for performance reasons)
+    - Maximum 3000 items allowed (secrets or violations, for performance reasons)
     
     **Limitations:**
-    - HTML reports are limited to 3000 secrets maximum
-    - For scans with more secrets, use JSON export (`/scan/{scan_id}/results`)
+    - HTML reports are limited to 3000 items maximum
+    - For secrets scans with more results, use `/scan/{scan_id}/results`
+    - For forbidden scans with more results, use `/scan/{scan_id}/forbidden-results`
     
     **Rate Limits:** Consumes 1 request from your quota
     """,
@@ -1385,6 +1387,48 @@ async def api_scan_export_html(
                 status_code=404,
                 content={"success": False, "message": "Project not found"}
             )
+
+        commit_short = scan.repo_commit[:7] if scan.repo_commit else "unknown"
+
+        if normalize_scan_type(scan.scan_type) == "forbidden":
+            violations_count = db.query(func.count(ForbiddenViolation.id)).filter(
+                ForbiddenViolation.scan_id == scan_id,
+                ForbiddenViolation.is_exception == False,
+            ).scalar() or 0
+
+            if violations_count > 3000:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "success": False,
+                        "message": (
+                            f"Cannot generate HTML report: too many violations ({violations_count}). "
+                            f"Maximum allowed: 3000. Please use /scan/{scan_id}/forbidden-results instead."
+                        ),
+                    },
+                )
+
+            violations = db.query(ForbiddenViolation).filter(
+                ForbiddenViolation.scan_id == scan_id,
+                ForbiddenViolation.is_exception == False,
+            ).order_by(ForbiddenViolation.category, ForbiddenViolation.path).all()
+
+            html_content = await asyncio.to_thread(
+                generate_forbidden_html_report, scan, project, violations, HUB_TYPE
+            )
+            filename = f"{scan.project_name}_{commit_short}_forbidden.html"
+
+            response_time = int((time.time() - start_time) * 1000)
+            logger.info(
+                f"[API: {token.name}] Forbidden HTML report exported: '{scan_id}' -> "
+                f"{violations_count} violations ({response_time}ms)"
+            )
+            user_logger.info(f"API token '{token.name}' exported forbidden HTML report for scan '{scan_id}'")
+
+            return HTMLResponse(
+                content=html_content,
+                headers={"Content-Disposition": attachment_content_disposition(filename)},
+            )
         
         # Count secrets before loading
         secrets_count = db.query(func.count(Secret.id)).filter(
@@ -1420,7 +1464,6 @@ async def api_scan_export_html(
         # Generate filename
         ref_short = scan.ref[:7] if scan.ref else "unknown"
         filename = f"{scan.project_name}_{ref_short}.html"
-        safe_filename = filename.encode('ascii', 'ignore').decode('ascii')
         
         response_time = int((time.time() - start_time) * 1000)
         logger.info(f"[API: {token.name}] HTML report exported: '{scan_id}' -> {secrets_count} secrets ({response_time}ms)")
@@ -1428,7 +1471,7 @@ async def api_scan_export_html(
         
         return HTMLResponse(
             content=html_content,
-            headers={"Content-Disposition": f"attachment; filename={safe_filename}"}
+            headers={"Content-Disposition": attachment_content_disposition(filename)}
         )
         
     except Exception as e:
