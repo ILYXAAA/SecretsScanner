@@ -115,6 +115,171 @@ function closeContextModal() {
     if (modal) modal.style.display = 'none';
 }
 
+const MANUAL_SECRET_SUFFIX = ' (добавлен вручную, см. context)';
+
+function isDetailSecretAlreadyAdded(parentPath, detailLine, detailSecret) {
+    const decodedPath = _decodeHtmlEntities(parentPath || '');
+    const decodedSecret = _decodeHtmlEntities(detailSecret || '').trim();
+    return allSecrets.some(s => {
+        if (s.line !== detailLine) return false;
+        const sPath = _decodeHtmlEntities(s.path || '');
+        const sSecret = _decodeHtmlEntities(s.secret || '');
+        return sPath === decodedPath && (
+            sSecret === decodedSecret + MANUAL_SECRET_SUFFIX ||
+            sSecret.startsWith(decodedSecret)
+        );
+    });
+}
+
+function renderSecretsDetailsTable() {
+    const parentSecret = window._secretsDetailsParentSecret;
+    const tbody = document.getElementById('secretsDetailsTableBody');
+    const countEl = document.getElementById('secretsDetailsCount');
+    if (!parentSecret || !tbody) return;
+
+    const detailsList = parentSecret.secrets_details || [];
+    const parentPath = parentSecret.path || '';
+
+    if (countEl) {
+        const addedCount = detailsList.filter(d =>
+            isDetailSecretAlreadyAdded(parentPath, d.line, d.secret)
+        ).length;
+        countEl.textContent = `Всего: ${detailsList.length} | Добавлено вручную: ${addedCount}`;
+    }
+
+    tbody.innerHTML = detailsList.map((detail, index) => {
+        const line = detail.line || 0;
+        const secretVal = safeHtml(detail.secret || '');
+        const secretType = safeHtml(detail.type || '');
+        const alreadyAdded = isDetailSecretAlreadyAdded(parentPath, line, detail.secret);
+
+        const actionCell = alreadyAdded
+            ? '<span class="secrets-details-added-label">✅ Добавлен</span>'
+            : `<button type="button" class="secrets-details-add-btn" onclick="addSecretFromDetails(${index})" title="Добавить как настоящий секрет">✅</button>`;
+
+        return `<tr class="${alreadyAdded ? 'row-added' : ''}" data-detail-index="${index}">
+            <td class="col-line">${line}</td>
+            <td class="col-secret">${secretVal}</td>
+            <td class="col-type">${secretType}</td>
+            <td class="col-action">${actionCell}</td>
+        </tr>`;
+    }).join('');
+}
+
+function openSecretsDetailsModal() {
+    const secretId = window._detailPanelSecretId;
+    const secretData = allSecrets.find(s => s.id === secretId);
+    if (!secretData || !secretData.secrets_details || secretData.secrets_details.length === 0) return;
+
+    window._secretsDetailsParentSecret = secretData;
+    renderSecretsDetailsTable();
+
+    const modal = document.getElementById('secretsDetailsModal');
+    if (modal) modal.style.display = 'block';
+}
+
+function closeSecretsDetailsModal() {
+    const modal = document.getElementById('secretsDetailsModal');
+    if (modal) modal.style.display = 'none';
+}
+
+function refreshSecretsData(newSecretsData, options = {}) {
+    const previouslyCheckedTypes = getCheckedTypeFilters();
+    secretsData = newSecretsData || [];
+    allSecrets = secretsData.slice();
+
+    allSecrets.forEach(secret => {
+        if (secret.status === null || secret.status === undefined || secret.status === '' || secret.status === 'null') {
+            secret.status = 'No status';
+        }
+        if (secret.confidence !== undefined && secret.confidence !== null) {
+            secret.confidence = parseFloat(secret.confidence) || 1.0;
+        } else {
+            secret.confidence = 1.0;
+        }
+        if (!secret.secrets_details) {
+            secret.secrets_details = [];
+        }
+    });
+
+    if (window._secretsDetailsParentSecret) {
+        const updated = allSecrets.find(s => s.id === window._secretsDetailsParentSecret.id);
+        if (updated) {
+            window._secretsDetailsParentSecret = updated;
+        }
+    }
+
+    initializeFilters({
+        preserveTypes: previouslyCheckedTypes,
+        ensureTypes: options.ensureTypes || [],
+    });
+    applyFiltersSync();
+}
+
+async function addSecretFromDetails(detailIndex) {
+    const parentSecret = window._secretsDetailsParentSecret;
+    if (!parentSecret) return;
+
+    const detailsList = parentSecret.secrets_details || [];
+    const detail = detailsList[detailIndex];
+    if (!detail) return;
+
+    const parentPath = _decodeHtmlEntities(parentSecret.path || '');
+    const detailLine = detail.line || 0;
+    const detailSecret = _decodeHtmlEntities(detail.secret || '').trim();
+    const detailType = _decodeHtmlEntities(detail.type || 'Unknown');
+    const parentContext = _decodeHtmlEntities(parentSecret.context || '');
+
+    if (isDetailSecretAlreadyAdded(parentSecret.path, detailLine, detail.secret)) {
+        renderSecretsDetailsTable();
+        return;
+    }
+
+    const pathParts = window.location.pathname.split('/');
+    const scanId = pathParts[pathParts.length - 2];
+
+    const formData = new FormData();
+    formData.append('scan_id', scanId);
+    formData.append('secret_value', detailSecret);
+    formData.append('context', parentContext);
+    formData.append('line', detailLine);
+    formData.append('secret_type', detailType);
+    formData.append('file_path', parentPath);
+
+    const btn = document.querySelector(`tr[data-detail-index="${detailIndex}"] .secrets-details-add-btn`);
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '...';
+    }
+
+    try {
+        const response = await fetch('/secret_scanner/secrets/add-custom', {
+            method: 'POST',
+            body: formData
+        });
+
+        const result = await response.json();
+
+        if (result.status === 'success') {
+            refreshSecretsData(result.secrets_data, { ensureTypes: [detail.type || detailType] });
+            renderSecretsDetailsTable();
+        } else {
+            alert('Ошибка: ' + (result.message || 'Не удалось добавить секрет'));
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = '✅';
+            }
+        }
+    } catch (error) {
+        console.error('Error adding secret from details:', error);
+        alert('Ошибка при добавлении секрета');
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = '✅';
+        }
+    }
+}
+
 // Получаем данные из data-атрибутов
 function loadDataFromAttributes() {
     projectRepoUrl = document.body.dataset.projectRepoUrl || '';
@@ -157,23 +322,9 @@ async function submitCustomSecret(event) {
         if (result.status === 'success') {
             alert('Секрет успешно добавлен!');
             closeAddSecretModal();
-            
-            // Обновить данные секретов с возвращенными данными
-            secretsData = result.secrets_data || [];
-            allSecrets = secretsData.slice();
-            
-            // Нормализовать статусы
-            allSecrets.forEach(secret => {
-                if (secret.status === null || secret.status === undefined || secret.status === '' || secret.status === 'null') {
-                    secret.status = 'No status';
-                }
-            });
-            
-            // Переинициализировать фильтры с новыми данными
-            initializeFilters();
-            
-            // Применить фильтры и обновить отображение
-            applyFiltersSync();
+
+            const addedType = document.getElementById('secretType').value;
+            refreshSecretsData(result.secrets_data, { ensureTypes: [addedType] });
             
         } else {
             alert('Ошибка: ' + result.message);
@@ -287,6 +438,9 @@ document.addEventListener('DOMContentLoaded', function() {
         if (secret.status === null || secret.status === undefined || secret.status === '' || secret.status === 'null') {
             secret.status = 'No status';
         }
+        if (!secret.secrets_details) {
+            secret.secrets_details = [];
+        }
     });
     
     allSecrets = secretsData.slice();
@@ -300,7 +454,20 @@ document.addEventListener('DOMContentLoaded', function() {
     applyFiltersSync();
 });
 
-function initializeFilters() {
+function getCheckedTypeFilters() {
+    return Array.from(document.querySelectorAll('#typeFilters input[type="checkbox"]:checked')).map(cb => cb.value);
+}
+
+function getAllTypeFilterValues() {
+    return Array.from(document.querySelectorAll('#typeFilters input[type="checkbox"]')).map(cb => cb.value);
+}
+
+function initializeFilters(options = {}) {
+    const { preserveTypes = null, ensureTypes = [] } = options;
+    const previouslyChecked = preserveTypes;
+    const previousAllTypes = preserveTypes !== null
+        ? new Set(getAllTypeFilterValues())
+        : null;
     // Get unique types
     const uniqueTypes = [...new Set(allSecrets.map(s => s.type))].sort();
     
@@ -375,9 +542,27 @@ function initializeFilters() {
         }
     }
 
-    // Type filters - DEFAULT: All types (включая новые)
+    // Type filters
     const typeFilters = urlParams.getAll('type_filter');
-    if (typeFilters.length > 0) {
+    if (previouslyChecked !== null) {
+        const typesToCheck = new Set([...previouslyChecked, ...ensureTypes]);
+        uniqueTypes.forEach(type => {
+            if (previousAllTypes && !previousAllTypes.has(type)) {
+                typesToCheck.add(type);
+            }
+        });
+        activeFilters.type = [];
+        uniqueTypes.forEach(type => {
+            const safeId = type.replace(/[^a-zA-Z0-9]/g, '_');
+            const checkbox = document.getElementById(`type-${safeId}`);
+            if (checkbox) {
+                checkbox.checked = typesToCheck.has(type);
+                if (checkbox.checked) {
+                    activeFilters.type.push(type);
+                }
+            }
+        });
+    } else if (typeFilters.length > 0) {
         typeFilters.forEach(type => {
             const checkbox = document.querySelector(`#typeFilters input[value="${type}"]`);
             if (checkbox) {
@@ -1057,6 +1242,7 @@ function loadSecretDetails(secretId) {
     
     window._detailPanelFullContext = secretData.context || '';
     window._detailPanelFullContextSecret = secretData.secret || '';
+    window._detailPanelSecretId = secretId;
 
     const { text: contextPreview, hasMore: contextHasMore } = truncateContextAroundSecret(secretData.context || '', secretData.secret || '');
     const decodedPreview = _decodeHtmlEntities(contextPreview);
@@ -1078,6 +1264,23 @@ function loadSecretDetails(secretId) {
     const safeType = safeHtml(secretData.type || '');
     const safeComment = safeHtml(secretData.exception_comment || '');
     const safeHash = escapeHtml(secretData.hash_from_ci || '');
+
+    const isTooManySecrets = _decodeHtmlEntities(secretData.type || '') === 'Too Many Secrets';
+    const detailsList = secretData.secrets_details || [];
+    const hasSecretsDetails = isTooManySecrets && detailsList.length > 0;
+
+    let detailsButtonHtml = '';
+    if (hasSecretsDetails) {
+        detailsButtonHtml = `
+                <button type="button" class="btn btn-secondary context-more-btn" onclick="openSecretsDetailsModal()" style="margin-top: 0.5rem;">
+                    Подробнее (${detailsList.length} секретов)
+                </button>`;
+    } else if (contextHasMore) {
+        detailsButtonHtml = `
+                <button type="button" class="btn btn-secondary context-more-btn" onclick="openContextModal()" style="margin-top: 0.5rem;">
+                    Подробнее
+                </button>`;
+    }
     
     // Добавить информацию о пользователях
     let userInfoHtml = '';
@@ -1230,11 +1433,7 @@ function loadSecretDetails(secretId) {
                 <div class="detail-field context-preview" style="white-space: pre-wrap; overflow-x: auto;">
                     ${contextDisplayHtml}
                 </div>
-                ${contextHasMore ? `
-                <button type="button" class="btn btn-secondary context-more-btn" onclick="openContextModal()" style="margin-top: 0.5rem;">
-                    Подробнее
-                </button>
-                ` : ''}
+                ${detailsButtonHtml}
             </div>
             
             <div class="detail-section">
@@ -1295,7 +1494,7 @@ async function deleteSecret(secretId) {
         const result = await response.json();
         
         if (result.status === 'success') {
-            // Обновить данные секретов
+            const previouslyCheckedTypes = getCheckedTypeFilters();
             secretsData = result.secrets_data || [];
             allSecrets = secretsData.slice();
             
@@ -1317,7 +1516,7 @@ async function deleteSecret(secretId) {
             showEmptyDetail();
             
             // Переинициализировать фильтры и применить их (с сохранением сортировки)
-            initializeFilters();
+            initializeFilters({ preserveTypes: previouslyCheckedTypes });
             applyFiltersSync();
             
             alert('Секрет успешно удален');

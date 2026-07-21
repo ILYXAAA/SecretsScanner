@@ -113,6 +113,108 @@ def normalize_file_path(file_path: str, repo_url: str) -> str:
     
     return file_path
 
+def parse_secrets_details(raw):
+    """Parse secrets_details JSON into a list of dicts for frontend."""
+    if not raw:
+        return []
+    try:
+        details = json.loads(raw) if isinstance(raw, str) else raw
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(details, list):
+        return []
+    result = []
+    for item in details:
+        if not isinstance(item, dict):
+            continue
+        result.append({
+            "line": int(item.get("line", 0) or 0),
+            "secret": html.escape(str(item.get("secret", "")), quote=True),
+            "type": html.escape(str(item.get("Type", item.get("type", "Unknown"))), quote=True),
+        })
+    return result
+
+def build_secret_dict(secret, previous_status=None, previous_scan_date=None):
+    """Serialize a Secret ORM object to a frontend dict."""
+    return {
+        "id": secret.id,
+        "path": html.escape(secret.path or "", quote=True),
+        "line": secret.line or 0,
+        "secret": html.escape(secret.secret or "", quote=True),
+        "hash_from_ci": secret.hash_from_ci or build_hash_from_ci(
+            secret.path or "",
+            secret.secret or "",
+            secret.line or 0
+        ),
+        "context": html.escape(secret.context or "", quote=True),
+        "severity": html.escape(secret.severity or "", quote=True),
+        "type": html.escape(secret.type or "", quote=True),
+        "confidence": float(secret.confidence) if secret.confidence is not None else 1.0,
+        "status": html.escape(secret.status or "No status", quote=True),
+        "is_exception": bool(secret.is_exception),
+        "exception_comment": html.escape(secret.exception_comment or "", quote=True),
+        "refuted_at": secret.refuted_at.strftime('%Y-%m-%d %H:%M') if secret.refuted_at else None,
+        "confirmed_by": secret.confirmed_by if secret.confirmed_by else None,
+        "refuted_by": secret.refuted_by if secret.refuted_by else None,
+        "previous_status": html.escape(previous_status or "", quote=True) if previous_status else None,
+        "previous_scan_date": previous_scan_date,
+        "secrets_details": parse_secrets_details(secret.secrets_details),
+    }
+
+def build_secrets_data_list(db, scan_id, include_previous_status=False, scan=None, project_name=None):
+    """Build secrets_data list for a scan."""
+    all_secrets_query = db.query(Secret).filter(Secret.scan_id == scan_id).order_by(
+        Secret.severity == 'Potential',
+        Secret.path,
+        Secret.line
+    ).all()
+
+    previous_decisions_by_hash = {}
+    previous_scan_dates = {}
+
+    if include_previous_status and scan and project_name:
+        if all_secrets_query and len(all_secrets_query) < 500:
+            hash_values = {
+                secret.hash_from_ci or build_hash_from_ci(
+                    secret.path or "",
+                    secret.secret or "",
+                    secret.line or 0,
+                )
+                for secret in all_secrets_query
+            }
+            previous_decisions_by_hash = load_latest_secret_decisions_by_hash(
+                db, project_name, scan_id, hash_values
+            )
+
+        previous_scans = db.query(Scan.id, Scan.completed_at).filter(
+            Scan.project_name == project_name,
+            Scan.id != scan_id,
+            Scan.completed_at < scan.completed_at
+        ).order_by(Scan.completed_at.desc()).all()
+        previous_scan_dates = {scan_info.id: scan_info.completed_at for scan_info in previous_scans}
+
+    secrets_data = []
+    for secret in all_secrets_query:
+        previous_status = None
+        previous_scan_date = None
+
+        if include_previous_status and previous_decisions_by_hash:
+            secret_hash = secret.hash_from_ci or build_hash_from_ci(
+                secret.path or "",
+                secret.secret or "",
+                secret.line or 0,
+            )
+            prev_secret = previous_decisions_by_hash.get(secret_hash)
+            if prev_secret:
+                previous_status = prev_secret.status
+                prev_date = previous_scan_dates.get(prev_secret.scan_id)
+                if prev_date:
+                    previous_scan_date = prev_date.strftime('%Y-%m-%d %H:%M')
+
+        secrets_data.append(build_secret_dict(secret, previous_status, previous_scan_date))
+
+    return secrets_data
+
 @router.post("/project/{project_name}/scan")
 async def start_scan(request: Request, project_name: str, ref_type: str = Form(...), 
                     ref: str = Form(...), scan_type: str = Form("secrets"),
@@ -556,6 +658,11 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
                             severity = result.get("severity", result.get("Severity", "High"))
                             statuses_applied["No status"] += 1
 
+                        secret_details_raw = result.get("secrets_details") or result.get("SecretsDetails")
+                        secrets_details_json = None
+                        if secret_details_raw and isinstance(secret_details_raw, list):
+                            secrets_details_json = json.dumps(secret_details_raw, ensure_ascii=False)
+
                         secret = Secret(
                             scan_id=scan_id,
                             path=path,
@@ -571,7 +678,8 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
                             status=status,
                             refuted_at=refuted_at,
                             confirmed_by=most_recent_secret.confirmed_by if most_recent_secret else None,
-                            refuted_by=most_recent_secret.refuted_by if most_recent_secret else None
+                            refuted_by=most_recent_secret.refuted_by if most_recent_secret else None,
+                            secrets_details=secrets_details_json,
                         )
                         batch_secrets.append(secret)
                     except Exception as e:
@@ -843,15 +951,6 @@ async def scan_results(
         # Получаем проект
         project = db.query(Project).filter(Project.name == scan.project_name).first()
 
-        # Загружаем секреты
-        all_secrets_query = db.query(Secret).filter(
-            Secret.scan_id == scan_id
-        ).order_by(
-            Secret.severity == 'Potential',
-            Secret.path,
-            Secret.line
-        ).all()
-
         # Денормализованные счетчики
         high_secrets = scan.high_secrets_count or 0
         potential_secrets = scan.potential_secrets_count or 0
@@ -867,71 +966,9 @@ async def scan_results(
             .filter(Secret.scan_id == scan_id).all() if row[0]
         ]
 
-        secrets_data = []
-        previous_decisions_by_hash = {}
-
-        if all_secrets_query and len(all_secrets_query) < 500:
-            hash_values = {
-                secret.hash_from_ci or build_hash_from_ci(
-                    secret.path or "",
-                    secret.secret or "",
-                    secret.line or 0,
-                )
-                for secret in all_secrets_query
-            }
-            previous_decisions_by_hash = load_latest_secret_decisions_by_hash(
-                db, scan.project_name, scan_id, hash_values
-            )
-
-        previous_scans = db.query(Scan.id, Scan.completed_at).filter(
-            Scan.project_name == scan.project_name,
-            Scan.id != scan_id,
-            Scan.completed_at < scan.completed_at
-        ).order_by(Scan.completed_at.desc()).all()
-        previous_scan_dates = {scan_info.id: scan_info.completed_at for scan_info in previous_scans}
-
-        # Обработка секретов
-        for secret in all_secrets_query:
-            previous_status = None
-            previous_scan_date = None
-
-            if previous_decisions_by_hash:
-                secret_hash = secret.hash_from_ci or build_hash_from_ci(
-                    secret.path or "",
-                    secret.secret or "",
-                    secret.line or 0,
-                )
-                prev_secret = previous_decisions_by_hash.get(secret_hash)
-                if prev_secret:
-                    previous_status = prev_secret.status
-                    previous_scan_date = previous_scan_dates.get(prev_secret.scan_id)
-                    if previous_scan_date:
-                        previous_scan_date = previous_scan_date.strftime('%Y-%m-%d %H:%M')
-
-            secret_obj = {
-                "id": secret.id,
-                "path": html.escape(secret.path or "", quote=True),
-                "line": secret.line or 0,
-                "secret": html.escape(secret.secret or "", quote=True),
-                "hash_from_ci": secret.hash_from_ci or build_hash_from_ci(
-                    secret.path or "",
-                    secret.secret or "",
-                    secret.line or 0
-                ),
-                "context": html.escape(secret.context or "", quote=True),
-                "severity": html.escape(secret.severity or "", quote=True),
-                "type": html.escape(secret.type or "", quote=True),
-                "confidence": float(secret.confidence) if secret.confidence is not None else 1.0,
-                "status": html.escape(secret.status or "No status", quote=True),
-                "is_exception": bool(secret.is_exception),
-                "exception_comment": html.escape(secret.exception_comment or "", quote=True),
-                "refuted_at": secret.refuted_at.strftime('%Y-%m-%d %H:%M') if secret.refuted_at else None,
-                "confirmed_by": secret.confirmed_by if secret.confirmed_by else None,
-                "refuted_by": secret.refuted_by if secret.refuted_by else None,
-                "previous_status": html.escape(previous_status or "", quote=True) if previous_status else None,
-                "previous_scan_date": previous_scan_date
-            }
-            secrets_data.append(secret_obj)
+        secrets_data = build_secrets_data_list(
+            db, scan_id, include_previous_status=True, scan=scan, project_name=scan.project_name
+        )
 
         return templates.TemplateResponse("scan_results.html", {
             "request": request,
@@ -1131,39 +1168,8 @@ async def add_custom_secret(request: Request, scan_id: str = Form(...), secret_v
         #logger.info(f"Custom secret successfully added with ID: '{new_secret.id}'")
         
         # Get updated secrets data
-        all_secrets_query = db.query(Secret).filter(Secret.scan_id == scan_id).order_by(
-            Secret.severity == 'Potential',
-            Secret.path,
-            Secret.line
-        ).all()
-        
-        secrets_data = []
-        for secret in all_secrets_query:
-            secret_obj = {
-                "id": secret.id,
-                "path": html.escape(secret.path or "", quote=True),
-                "line": secret.line or 0,
-                "secret": html.escape(secret.secret or "", quote=True),
-                "hash_from_ci": secret.hash_from_ci or build_hash_from_ci(
-                    secret.path or "",
-                    secret.secret or "",
-                    secret.line or 0
-                ),
-                "context": html.escape(secret.context or "", quote=True),
-                "severity": secret.severity or "",
-                "type": html.escape(secret.type or "", quote=True),
-                "confidence": float(secret.confidence) if secret.confidence is not None else 1.0,
-                "status": secret.status or "No status",
-                "is_exception": bool(secret.is_exception),
-                "exception_comment": html.escape(secret.exception_comment or "", quote=True),
-                "refuted_at": secret.refuted_at.strftime('%Y-%m-%d %H:%M') if secret.refuted_at else None,
-                "confirmed_by": secret.confirmed_by if secret.confirmed_by else None,
-                "refuted_by": secret.refuted_by if secret.refuted_by else None,
-                "previous_status": None,
-                "previous_scan_date": None
-            }
-            secrets_data.append(secret_obj)
-        
+        secrets_data = build_secrets_data_list(db, scan_id)
+
         logger.info(f"Custom secret added by '{current_user}' to scan '{scan_id}'")
         return JSONResponse(
             status_code=200,
@@ -1196,38 +1202,7 @@ async def delete_secret(secret_id: int, current_user: str = Depends(get_current_
         update_scan_counters(db, scan_id)
         
         # Get updated secrets data
-        all_secrets_query = db.query(Secret).filter(Secret.scan_id == scan_id).order_by(
-            Secret.severity == 'Potential',
-            Secret.path,
-            Secret.line
-        ).all()
-        
-        secrets_data = []
-        for secret in all_secrets_query:
-            secret_obj = {
-                "id": secret.id,
-                "path": html.escape(secret.path or "", quote=True),
-                "line": secret.line or 0,
-                "secret": html.escape(secret.secret or "", quote=True),
-                "hash_from_ci": secret.hash_from_ci or build_hash_from_ci(
-                    secret.path or "",
-                    secret.secret or "",
-                    secret.line or 0
-                ),
-                "context": html.escape(secret.context or "", quote=True),
-                "severity": secret.severity or "",
-                "type": html.escape(secret.type or "", quote=True),
-                "confidence": float(secret.confidence) if secret.confidence is not None else 1.0,
-                "status": secret.status or "No status",
-                "is_exception": bool(secret.is_exception),
-                "exception_comment": html.escape(secret.exception_comment or "", quote=True),
-                "refuted_at": secret.refuted_at.strftime('%Y-%m-%d %H:%M') if secret.refuted_at else None,
-                "confirmed_by": secret.confirmed_by if secret.confirmed_by else None,
-                "refuted_by": secret.refuted_by if secret.refuted_by else None,
-                "previous_status": None,
-                "previous_scan_date": None
-            }
-            secrets_data.append(secret_obj)
+        secrets_data = build_secrets_data_list(db, scan_id)
         
         logger.warning(f"Secret '{secret_id}' deleted by '{current_user}'")
         return {

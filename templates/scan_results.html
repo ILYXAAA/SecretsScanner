@@ -265,6 +265,35 @@
             </div>
         </div>
     </div>
+
+    <!-- Модальное окно списка секретов (Too Many Secrets) -->
+    <div id="secretsDetailsModal" class="secrets-details-modal-overlay" style="display: none;" onclick="if (event.target === this) closeSecretsDetailsModal();">
+        <div class="secrets-details-modal" onclick="event.stopPropagation();">
+            <div class="secrets-details-modal-header">
+                <div>
+                    <h3 style="margin: 0; color: #1f2937;">Секреты в файле</h3>
+                    <p id="secretsDetailsCount" class="secrets-details-count"></p>
+                </div>
+                <button type="button" onclick="closeSecretsDetailsModal()" class="secrets-details-close-btn">×</button>
+            </div>
+            <div class="secrets-details-table-wrap">
+                <table class="secrets-details-table">
+                    <thead>
+                        <tr>
+                            <th>Строка</th>
+                            <th>Секрет</th>
+                            <th>Тип</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="secretsDetailsTableBody"></tbody>
+                </table>
+            </div>
+            <div class="secrets-details-modal-footer">
+                <button type="button" onclick="closeSecretsDetailsModal()" class="btn btn-secondary">Закрыть</button>
+            </div>
+        </div>
+    </div>
     <script src="/secret_scanner/static/js/scan_results.js"></script>
 </body>
 </html>

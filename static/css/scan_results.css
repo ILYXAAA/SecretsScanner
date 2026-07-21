@@ -1012,3 +1012,157 @@ body {
     border-radius: 3px;
     font-weight: 600;
 }
+
+/* Модальное окно Too Many Secrets */
+.secrets-details-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1002;
+}
+
+.secrets-details-modal {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: white;
+    padding: 1.5rem;
+    border-radius: 12px;
+    width: 95%;
+    max-width: 900px;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.secrets-details-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 1rem;
+    flex-shrink: 0;
+}
+
+.secrets-details-count {
+    margin: 0.25rem 0 0;
+    font-size: 0.875rem;
+    color: #6b7280;
+}
+
+.secrets-details-close-btn {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    color: #6b7280;
+    padding: 0 0.25rem;
+    line-height: 1;
+}
+
+.secrets-details-table-wrap {
+    flex: 1;
+    overflow: auto;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    min-height: 200px;
+}
+
+.secrets-details-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+}
+
+.secrets-details-table thead {
+    position: sticky;
+    top: 0;
+    background: #f9fafb;
+    z-index: 1;
+}
+
+.secrets-details-table th {
+    text-align: left;
+    padding: 0.75rem 1rem;
+    border-bottom: 2px solid #e5e7eb;
+    font-weight: 600;
+    color: #374151;
+    white-space: nowrap;
+}
+
+.secrets-details-table td {
+    padding: 0.625rem 1rem;
+    border-bottom: 1px solid #f3f4f6;
+    vertical-align: middle;
+}
+
+.secrets-details-table tbody tr:hover {
+    background: #f9fafb;
+}
+
+.secrets-details-table tbody tr.row-added {
+    background: #f0fdf4;
+}
+
+.secrets-details-table .col-line {
+    width: 70px;
+    text-align: center;
+    font-family: monospace;
+    color: #6b7280;
+}
+
+.secrets-details-table .col-secret {
+    font-family: monospace;
+    word-break: break-all;
+    max-width: 350px;
+}
+
+.secrets-details-table .col-type {
+    color: #4b5563;
+    white-space: nowrap;
+}
+
+.secrets-details-table .col-action {
+    width: 110px;
+    text-align: center;
+}
+
+.secrets-details-add-btn {
+    padding: 0.35rem 0.75rem;
+    border: 1px solid #16a34a;
+    background: #fff;
+    color: #16a34a;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+    transition: background 0.15s, color 0.15s;
+}
+
+.secrets-details-add-btn:hover:not(:disabled) {
+    background: #16a34a;
+    color: #fff;
+}
+
+.secrets-details-add-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+    border-color: #d1d5db;
+    color: #9ca3af;
+}
+
+.secrets-details-added-label {
+    font-size: 0.8rem;
+    color: #16a34a;
+    font-weight: 600;
+}
+
+.secrets-details-modal-footer {
+    flex-shrink: 0;
+    margin-top: 1rem;
+    display: flex;
+    justify-content: flex-end;
+}
