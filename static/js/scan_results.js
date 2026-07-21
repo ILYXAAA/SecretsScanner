@@ -116,48 +116,113 @@ function closeContextModal() {
 }
 
 const MANUAL_SECRET_SUFFIX = ' (добавлен вручную, см. context)';
+const SECRETS_DETAILS_PAGE_SIZE = 100;
 
-function isDetailSecretAlreadyAdded(parentPath, detailLine, detailSecret) {
-    const decodedPath = _decodeHtmlEntities(parentPath || '');
-    const decodedSecret = _decodeHtmlEntities(detailSecret || '').trim();
-    return allSecrets.some(s => {
-        if (s.line !== detailLine) return false;
-        const sPath = _decodeHtmlEntities(s.path || '');
-        const sSecret = _decodeHtmlEntities(s.secret || '');
-        return sPath === decodedPath && (
-            sSecret === decodedSecret + MANUAL_SECRET_SUFFIX ||
-            sSecret.startsWith(decodedSecret)
-        );
-    });
+let manualSecretsLookup = null;
+let manualSecretsLookupPath = null;
+
+function getSecretDetailsCount(secret) {
+    if (!secret) return 0;
+    if (typeof secret.secrets_details_count === 'number') {
+        return secret.secrets_details_count;
+    }
+    return (secret.secrets_details || []).length;
 }
 
-function renderSecretsDetailsTable() {
-    const parentSecret = window._secretsDetailsParentSecret;
-    const tbody = document.getElementById('secretsDetailsTableBody');
-    const countEl = document.getElementById('secretsDetailsCount');
-    if (!parentSecret || !tbody) return;
+function usesLazyDetails(secret) {
+    const count = getSecretDetailsCount(secret);
+    const inline = secret.secrets_details || [];
+    return count > 0 && inline.length === 0;
+}
 
-    const detailsList = parentSecret.secrets_details || [];
-    const parentPath = parentSecret.path || '';
+function invalidateManualSecretsLookup() {
+    manualSecretsLookup = null;
+    manualSecretsLookupPath = null;
+}
 
-    if (countEl) {
-        const addedCount = detailsList.filter(d =>
-            isDetailSecretAlreadyAdded(parentPath, d.line, d.secret)
-        ).length;
-        countEl.textContent = `Всего: ${detailsList.length} | Добавлено вручную: ${addedCount}`;
+function buildManualSecretsLookup(parentPath) {
+    const decodedPath = _decodeHtmlEntities(parentPath || '');
+    if (manualSecretsLookup && manualSecretsLookupPath === decodedPath) {
+        return manualSecretsLookup;
     }
 
-    tbody.innerHTML = detailsList.map((detail, index) => {
+    const lookup = new Set();
+    allSecrets.forEach(s => {
+        const sPath = _decodeHtmlEntities(s.path || '');
+        if (sPath !== decodedPath) return;
+        const sSecret = _decodeHtmlEntities(s.secret || '');
+        if (!sSecret.includes('добавлен вручную')) return;
+        const rawSecret = sSecret.endsWith(MANUAL_SECRET_SUFFIX)
+            ? sSecret.slice(0, -MANUAL_SECRET_SUFFIX.length)
+            : sSecret;
+        lookup.add(`${s.line || 0}\u0000${rawSecret}`);
+    });
+
+    manualSecretsLookup = lookup;
+    manualSecretsLookupPath = decodedPath;
+    return lookup;
+}
+
+function makeManualSecretKey(line, secretValue) {
+    const decodedSecret = _decodeHtmlEntities(secretValue || '').trim();
+    return `${line || 0}\u0000${decodedSecret}`;
+}
+
+function isDetailSecretAlreadyAdded(parentPath, detailLine, detailSecret) {
+    const lookup = buildManualSecretsLookup(parentPath);
+    return lookup.has(makeManualSecretKey(detailLine, detailSecret));
+}
+
+function updateSecretsDetailsCountLabel(total, addedCount) {
+    const countEl = document.getElementById('secretsDetailsCount');
+    if (countEl) {
+        countEl.textContent = `Всего: ${total} | Добавлено вручную: ${addedCount}`;
+    }
+}
+
+function updateSecretsDetailsPagination(total, page, totalPages) {
+    const pageInfo = document.getElementById('secretsDetailsPageInfo');
+    const prevBtn = document.getElementById('secretsDetailsPrevBtn');
+    const nextBtn = document.getElementById('secretsDetailsNextBtn');
+    const pagination = document.querySelector('.secrets-details-pagination');
+
+    if (pagination) {
+        pagination.style.display = totalPages > 1 ? 'flex' : 'none';
+    }
+    if (pageInfo) {
+        pageInfo.textContent = totalPages > 0
+            ? `Страница ${page} из ${totalPages}`
+            : 'Нет данных';
+    }
+    if (prevBtn) prevBtn.disabled = page <= 1;
+    if (nextBtn) nextBtn.disabled = page >= totalPages;
+}
+
+function setSecretsDetailsLoading(isLoading) {
+    const loadingEl = document.getElementById('secretsDetailsLoading');
+    const tableWrap = document.querySelector('.secrets-details-table-wrap');
+    if (loadingEl) loadingEl.style.display = isLoading ? 'block' : 'none';
+    if (tableWrap) tableWrap.style.display = isLoading ? 'none' : 'block';
+}
+
+function renderSecretsDetailsRows(items, parentPath) {
+    const tbody = document.getElementById('secretsDetailsTableBody');
+    if (!tbody) return;
+
+    tbody.innerHTML = items.map((detail) => {
         const line = detail.line || 0;
         const secretVal = safeHtml(detail.secret || '');
         const secretType = safeHtml(detail.type || '');
-        const alreadyAdded = isDetailSecretAlreadyAdded(parentPath, line, detail.secret);
+        const globalIndex = detail.index;
+        const alreadyAdded = detail.already_added !== undefined
+            ? detail.already_added
+            : isDetailSecretAlreadyAdded(parentPath, line, detail.secret);
 
         const actionCell = alreadyAdded
             ? '<span class="secrets-details-added-label">✅ Добавлен</span>'
-            : `<button type="button" class="secrets-details-add-btn" onclick="addSecretFromDetails(${index})" title="Добавить как настоящий секрет">✅</button>`;
+            : `<button type="button" class="secrets-details-add-btn" onclick="addSecretFromDetails(${globalIndex})" title="Добавить как настоящий секрет">✅</button>`;
 
-        return `<tr class="${alreadyAdded ? 'row-added' : ''}" data-detail-index="${index}">
+        return `<tr class="${alreadyAdded ? 'row-added' : ''}" data-detail-index="${globalIndex}">
             <td class="col-line">${line}</td>
             <td class="col-secret">${secretVal}</td>
             <td class="col-type">${secretType}</td>
@@ -166,21 +231,154 @@ function renderSecretsDetailsTable() {
     }).join('');
 }
 
-function openSecretsDetailsModal() {
+function renderSecretsDetailsTableInline(page) {
+    const parentSecret = window._secretsDetailsParentSecret;
+    if (!parentSecret) return;
+
+    const detailsList = parentSecret.secrets_details || [];
+    const parentPath = parentSecret.path || '';
+    const total = detailsList.length;
+    const totalPages = Math.max(1, Math.ceil(total / SECRETS_DETAILS_PAGE_SIZE));
+    const currentPage = Math.max(1, Math.min(page || 1, totalPages));
+    const start = (currentPage - 1) * SECRETS_DETAILS_PAGE_SIZE;
+    const pageItems = detailsList.slice(start, start + SECRETS_DETAILS_PAGE_SIZE).map((detail, offset) => ({
+        ...detail,
+        index: start + offset,
+        already_added: isDetailSecretAlreadyAdded(parentPath, detail.line, detail.secret),
+    }));
+
+    let addedCount = 0;
+    if (typeof window._secretsDetailsAddedCount === 'number') {
+        addedCount = window._secretsDetailsAddedCount;
+    } else {
+        addedCount = detailsList.filter(d => isDetailSecretAlreadyAdded(parentPath, d.line, d.secret)).length;
+        window._secretsDetailsAddedCount = addedCount;
+    }
+
+    window._secretsDetailsPage = currentPage;
+    window._secretsDetailsTotalPages = totalPages;
+    window._secretsDetailsTotal = total;
+    window._secretsDetailsPageItems = pageItems;
+
+    updateSecretsDetailsCountLabel(total, addedCount);
+    updateSecretsDetailsPagination(total, currentPage, totalPages);
+    renderSecretsDetailsRows(pageItems, parentPath);
+    setSecretsDetailsLoading(false);
+}
+
+async function loadSecretsDetailsPage(page) {
+    const parentSecret = window._secretsDetailsParentSecret;
+    if (!parentSecret) return;
+
+    setSecretsDetailsLoading(true);
+    window._secretsDetailsPage = page;
+
+    try {
+        const response = await fetch(
+            `/secret_scanner/secrets/${parentSecret.id}/details?page=${page}&page_size=${SECRETS_DETAILS_PAGE_SIZE}`
+        );
+        const result = await response.json();
+
+        if (result.status !== 'success') {
+            alert('Ошибка: ' + (result.message || 'Не удалось загрузить список секретов'));
+            setSecretsDetailsLoading(false);
+            return;
+        }
+
+        window._secretsDetailsTotal = result.total || 0;
+        window._secretsDetailsTotalPages = result.total_pages || 0;
+        window._secretsDetailsAddedCount = result.added_count || 0;
+        window._secretsDetailsPageItems = result.items || [];
+
+        updateSecretsDetailsCountLabel(result.total || 0, result.added_count || 0);
+        updateSecretsDetailsPagination(result.total || 0, result.page || 1, result.total_pages || 0);
+        renderSecretsDetailsRows(window._secretsDetailsPageItems, parentSecret.path || '');
+        setSecretsDetailsLoading(false);
+    } catch (error) {
+        console.error('Error loading secrets details page:', error);
+        alert('Ошибка при загрузке списка секретов');
+        setSecretsDetailsLoading(false);
+    }
+}
+
+async function changeSecretsDetailsPage(delta) {
+    const nextPage = (window._secretsDetailsPage || 1) + delta;
+    const totalPages = window._secretsDetailsTotalPages || 1;
+    if (nextPage < 1 || nextPage > totalPages) return;
+
+    if (window._secretsDetailsMode === 'lazy') {
+        await loadSecretsDetailsPage(nextPage);
+    } else {
+        renderSecretsDetailsTableInline(nextPage);
+    }
+}
+
+async function openSecretsDetailsModal() {
     const secretId = window._detailPanelSecretId;
     const secretData = allSecrets.find(s => s.id === secretId);
-    if (!secretData || !secretData.secrets_details || secretData.secrets_details.length === 0) return;
+    const detailsCount = getSecretDetailsCount(secretData);
+    if (!secretData || detailsCount === 0) return;
 
     window._secretsDetailsParentSecret = secretData;
-    renderSecretsDetailsTable();
+    window._secretsDetailsPage = 1;
+    window._secretsDetailsAddedCount = undefined;
 
     const modal = document.getElementById('secretsDetailsModal');
     if (modal) modal.style.display = 'block';
+
+    if (usesLazyDetails(secretData)) {
+        window._secretsDetailsMode = 'lazy';
+        await loadSecretsDetailsPage(1);
+    } else {
+        window._secretsDetailsMode = 'inline';
+        renderSecretsDetailsTableInline(1);
+    }
 }
 
 function closeSecretsDetailsModal() {
     const modal = document.getElementById('secretsDetailsModal');
     if (modal) modal.style.display = 'none';
+    window._secretsDetailsPageItems = [];
+}
+
+function normalizeSecretRecord(secret) {
+    if (secret.status === null || secret.status === undefined || secret.status === '' || secret.status === 'null') {
+        secret.status = 'No status';
+    }
+    if (secret.confidence !== undefined && secret.confidence !== null) {
+        secret.confidence = parseFloat(secret.confidence) || 1.0;
+    } else {
+        secret.confidence = 1.0;
+    }
+    if (!secret.secrets_details) {
+        secret.secrets_details = [];
+    }
+    return secret;
+}
+
+function appendAddedSecret(addedSecret, ensureTypes) {
+    const normalized = normalizeSecretRecord({ ...addedSecret });
+    allSecrets.push(normalized);
+    secretsData = allSecrets.slice();
+    invalidateManualSecretsLookup();
+
+    const previouslyCheckedTypes = getCheckedTypeFilters();
+    initializeFilters({
+        preserveTypes: previouslyCheckedTypes,
+        ensureTypes: ensureTypes || [normalized.type],
+    });
+    applyFiltersSync();
+    return normalized;
+}
+
+function markDetailRowAsAdded(globalIndex) {
+    const row = document.querySelector(`tr[data-detail-index="${globalIndex}"]`);
+    if (!row) return;
+    row.classList.add('row-added');
+    const actionCell = row.querySelector('.col-action');
+    if (actionCell) {
+        actionCell.innerHTML = '<span class="secrets-details-added-label">✅ Добавлен</span>';
+    }
 }
 
 function refreshSecretsData(newSecretsData, options = {}) {
@@ -188,19 +386,8 @@ function refreshSecretsData(newSecretsData, options = {}) {
     secretsData = newSecretsData || [];
     allSecrets = secretsData.slice();
 
-    allSecrets.forEach(secret => {
-        if (secret.status === null || secret.status === undefined || secret.status === '' || secret.status === 'null') {
-            secret.status = 'No status';
-        }
-        if (secret.confidence !== undefined && secret.confidence !== null) {
-            secret.confidence = parseFloat(secret.confidence) || 1.0;
-        } else {
-            secret.confidence = 1.0;
-        }
-        if (!secret.secrets_details) {
-            secret.secrets_details = [];
-        }
-    });
+    allSecrets.forEach(secret => normalizeSecretRecord(secret));
+    invalidateManualSecretsLookup();
 
     if (window._secretsDetailsParentSecret) {
         const updated = allSecrets.find(s => s.id === window._secretsDetailsParentSecret.id);
@@ -220,8 +407,8 @@ async function addSecretFromDetails(detailIndex) {
     const parentSecret = window._secretsDetailsParentSecret;
     if (!parentSecret) return;
 
-    const detailsList = parentSecret.secrets_details || [];
-    const detail = detailsList[detailIndex];
+    const pageItems = window._secretsDetailsPageItems || [];
+    const detail = pageItems.find(item => item.index === detailIndex);
     if (!detail) return;
 
     const parentPath = _decodeHtmlEntities(parentSecret.path || '');
@@ -231,7 +418,7 @@ async function addSecretFromDetails(detailIndex) {
     const parentContext = _decodeHtmlEntities(parentSecret.context || '');
 
     if (isDetailSecretAlreadyAdded(parentSecret.path, detailLine, detail.secret)) {
-        renderSecretsDetailsTable();
+        markDetailRowAsAdded(detailIndex);
         return;
     }
 
@@ -245,6 +432,7 @@ async function addSecretFromDetails(detailIndex) {
     formData.append('line', detailLine);
     formData.append('secret_type', detailType);
     formData.append('file_path', parentPath);
+    formData.append('lightweight', 'true');
 
     const btn = document.querySelector(`tr[data-detail-index="${detailIndex}"] .secrets-details-add-btn`);
     if (btn) {
@@ -260,9 +448,29 @@ async function addSecretFromDetails(detailIndex) {
 
         const result = await response.json();
 
-        if (result.status === 'success') {
+        if (result.status === 'success' && result.added_secret) {
+            appendAddedSecret(result.added_secret, [detail.type || detailType]);
+            markDetailRowAsAdded(detailIndex);
+
+            if (typeof window._secretsDetailsAddedCount === 'number') {
+                window._secretsDetailsAddedCount += 1;
+            }
+            updateSecretsDetailsCountLabel(
+                window._secretsDetailsTotal || getSecretDetailsCount(parentSecret),
+                window._secretsDetailsAddedCount || 0
+            );
+
+            const pageItem = pageItems.find(item => item.index === detailIndex);
+            if (pageItem) {
+                pageItem.already_added = true;
+            }
+        } else if (result.status === 'success' && result.secrets_data) {
             refreshSecretsData(result.secrets_data, { ensureTypes: [detail.type || detailType] });
-            renderSecretsDetailsTable();
+            if (window._secretsDetailsMode === 'lazy') {
+                await loadSecretsDetailsPage(window._secretsDetailsPage || 1);
+            } else {
+                renderSecretsDetailsTableInline(window._secretsDetailsPage || 1);
+            }
         } else {
             alert('Ошибка: ' + (result.message || 'Не удалось добавить секрет'));
             if (btn) {
@@ -310,6 +518,7 @@ async function submitCustomSecret(event) {
     formData.append('line', document.getElementById('secretLine').value);
     formData.append('secret_type', document.getElementById('secretType').value);
     formData.append('file_path', document.getElementById('secretPath').value);
+    formData.append('lightweight', 'true');
     
     try {
         const response = await fetch('/secret_scanner/secrets/add-custom', {
@@ -324,7 +533,11 @@ async function submitCustomSecret(event) {
             closeAddSecretModal();
 
             const addedType = document.getElementById('secretType').value;
-            refreshSecretsData(result.secrets_data, { ensureTypes: [addedType] });
+            if (result.added_secret) {
+                appendAddedSecret(result.added_secret, [addedType]);
+            } else if (result.secrets_data) {
+                refreshSecretsData(result.secrets_data, { ensureTypes: [addedType] });
+            }
             
         } else {
             alert('Ошибка: ' + result.message);
@@ -434,14 +647,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // Normalize statuses immediately
-    secretsData.forEach(secret => {
-        if (secret.status === null || secret.status === undefined || secret.status === '' || secret.status === 'null') {
-            secret.status = 'No status';
-        }
-        if (!secret.secrets_details) {
-            secret.secrets_details = [];
-        }
-    });
+    secretsData.forEach(secret => normalizeSecretRecord(secret));
     
     allSecrets = secretsData.slice();
     
@@ -1266,14 +1472,14 @@ function loadSecretDetails(secretId) {
     const safeHash = escapeHtml(secretData.hash_from_ci || '');
 
     const isTooManySecrets = _decodeHtmlEntities(secretData.type || '') === 'Too Many Secrets';
-    const detailsList = secretData.secrets_details || [];
-    const hasSecretsDetails = isTooManySecrets && detailsList.length > 0;
+    const detailsCount = getSecretDetailsCount(secretData);
+    const hasSecretsDetails = isTooManySecrets && detailsCount > 0;
 
     let detailsButtonHtml = '';
     if (hasSecretsDetails) {
         detailsButtonHtml = `
                 <button type="button" class="btn btn-secondary context-more-btn" onclick="openSecretsDetailsModal()" style="margin-top: 0.5rem;">
-                    Подробнее (${detailsList.length} секретов)
+                    Подробнее (${detailsCount} секретов)
                 </button>`;
     } else if (contextHasMore) {
         detailsButtonHtml = `
@@ -1498,18 +1704,8 @@ async function deleteSecret(secretId) {
             secretsData = result.secrets_data || [];
             allSecrets = secretsData.slice();
             
-            // Нормализовать статусы
-            allSecrets.forEach(secret => {
-                if (secret.status === null || secret.status === undefined || secret.status === '' || secret.status === 'null') {
-                    secret.status = 'No status';
-                }
-                // Исправление: убедиться что confidence это число
-                if (secret.confidence !== undefined && secret.confidence !== null) {
-                    secret.confidence = parseFloat(secret.confidence) || 1.0;
-                } else {
-                    secret.confidence = 1.0;
-                }
-            });
+            allSecrets.forEach(secret => normalizeSecretRecord(secret));
+            invalidateManualSecretsLookup();
             
             // Очистить выделение и показать пустую панель
             selectedSecrets.clear();

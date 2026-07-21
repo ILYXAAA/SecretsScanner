@@ -289,6 +289,12 @@
                     <tbody id="secretsDetailsTableBody"></tbody>
                 </table>
             </div>
+            <div id="secretsDetailsLoading" class="secrets-details-loading" style="display: none;">Загрузка...</div>
+            <div class="secrets-details-pagination">
+                <button type="button" id="secretsDetailsPrevBtn" class="btn btn-secondary" onclick="changeSecretsDetailsPage(-1)">← Назад</button>
+                <span id="secretsDetailsPageInfo" class="secrets-details-page-info"></span>
+                <button type="button" id="secretsDetailsNextBtn" class="btn btn-secondary" onclick="changeSecretsDetailsPage(1)">Вперёд →</button>
+            </div>
             <div class="secrets-details-modal-footer">
                 <button type="button" onclick="closeSecretsDetailsModal()" class="btn btn-secondary">Закрыть</button>
             </div>
