@@ -341,15 +341,19 @@ function closeSecretsDetailsModal() {
     window._secretsDetailsPageItems = [];
 }
 
+function parseConfidence(value, defaultValue = 1.0) {
+    if (value === undefined || value === null || value === '') {
+        return defaultValue;
+    }
+    const parsed = parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : defaultValue;
+}
+
 function normalizeSecretRecord(secret) {
     if (secret.status === null || secret.status === undefined || secret.status === '' || secret.status === 'null') {
         secret.status = 'No status';
     }
-    if (secret.confidence !== undefined && secret.confidence !== null) {
-        secret.confidence = parseFloat(secret.confidence) || 1.0;
-    } else {
-        secret.confidence = 1.0;
-    }
+    secret.confidence = parseConfidence(secret.confidence, 1.0);
     if (!secret.secrets_details) {
         secret.secrets_details = [];
     }
