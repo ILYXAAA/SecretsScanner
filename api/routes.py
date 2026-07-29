@@ -23,6 +23,7 @@ from api.schemas import (
 )
 from config import MICROSERVICE_URL, APP_HOST, APP_PORT, HUB_TYPE, BASE_URL, get_auth_headers
 from routes.project_routes import find_project_by_repo_url, normalize_repo_url_for_lookup, validate_repo_url
+from utils.project_name import generate_project_name_from_repo_url
 from services.microservice_client import check_microservice_health
 from utils.html_report_generator import generate_html_report, attachment_content_disposition
 from utils.forbidden_html_report_generator import generate_forbidden_html_report
@@ -277,29 +278,20 @@ async def api_project_add(
                 message=f"Project with this repository already exists: {existing_project.name}"
             )
         
-        # Generate project name from repository URL
+        # Generate unique project name from repository URL
         try:
-            # Extract project name from URL (last part of path)
-            if normalized_url.endswith('.git'):
-                repo_name = normalized_url.split('/')[-1][:-4]  # Remove .git
-            else:
-                repo_name = normalized_url.split('/')[-1]
-                
-            # Clean project name
-            project_name = repo_name.replace('-', '_').replace('.', '_')
-            
-            # Ensure uniqueness
-            base_name = project_name
-            counter = 1
-            while db.query(Project).filter(Project.name == project_name).first():
-                project_name = f"{base_name}_{counter}"
-                counter += 1
-                
+            project_name = generate_project_name_from_repo_url(db, normalized_url, Project)
+        except ValueError as e:
+            logger.error(f"[API: {token.name}] Error generating project name: {e}")
+            return JSONResponse(
+                status_code=400,
+                content={"success": False, "message": "Could not generate project name from repository URL"},
+            )
         except Exception as e:
             logger.error(f"[API: {token.name}] Error generating project name: {e}")
             return JSONResponse(
                 status_code=400,
-                content={"success": False, "message": "Could not generate project name from repository URL"}
+                content={"success": False, "message": "Could not generate project name from repository URL"},
             )
         
         # Create project

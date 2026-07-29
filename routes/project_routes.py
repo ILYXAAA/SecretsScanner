@@ -17,6 +17,8 @@ from services.templates import templates
 logger = logging.getLogger("main")
 user_logger = logging.getLogger("user_actions")
 
+from utils.project_name import generate_project_name_from_repo_url
+
 router = APIRouter()
 
 def canonicalize_repo_url(repo_url: str) -> str:
@@ -337,6 +339,61 @@ async def add_project(request: Request, project_name: str = Form(...), repo_url:
     except Exception as e:
         logger.error(f"Error adding project: {e}")
         return RedirectResponse(url=get_full_url("dashboard?error=unexpected_error"), status_code=302)
+
+
+@router.post("/projects/add-from-url")
+async def add_project_from_url(
+    repo_url: str = Form(...),
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create a project with an auto-generated unique name from the repository URL."""
+    try:
+        repo_url = repo_url.strip()
+        if not repo_url:
+            return JSONResponse(
+                status_code=400,
+                content={"status": "error", "message": "Repository URL is required"},
+            )
+
+        normalized_url = validate_repo_url(repo_url, HUB_TYPE)
+
+        existing_url = find_project_by_repo_url(db, normalized_url)
+        if existing_url:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "status": "error",
+                    "message": f"Project with this repository already exists: {existing_url.name}",
+                    "project_name": existing_url.name,
+                },
+            )
+
+        project_name = generate_project_name_from_repo_url(db, normalized_url, Project)
+        project = Project(name=project_name, repo_url=normalized_url, created_by=current_user)
+        db.add(project)
+        db.commit()
+        user_logger.info(
+            f"User '{current_user}' auto-created project '{project_name}' with repo URL: {normalized_url}"
+        )
+
+        return {
+            "status": "success",
+            "project_name": project_name,
+            "repo_url": normalized_url,
+        }
+    except ValueError as e:
+        return JSONResponse(
+            status_code=400,
+            content={"status": "error", "message": str(e)},
+        )
+    except Exception as e:
+        logger.error(f"Error auto-adding project: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": "Internal server error"},
+        )
+
     
 @router.post("/projects/update")
 async def update_project(request: Request, project_id: int = Form(...), project_name: str = Form(...), 

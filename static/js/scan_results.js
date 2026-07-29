@@ -1761,7 +1761,7 @@ function loadSecretDetails(secretId) {
                     ${safeHash || '—'}
                 </div>
                 <div style="font-size: 0.8rem; color: #666; margin-top: 0.25rem;">
-                    Хеш для CI (falses.txt): path + secret + line
+                    Хеш для CI (falses.txt): project + path + secret + line
                 </div>
             </div>
             

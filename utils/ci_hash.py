@@ -53,13 +53,18 @@ def extract_repo_suffix(repo_url: str) -> str:
     return "/".join(suffix_segments)
 
 
-def build_hash_from_ci(file_path: str, secret_value: str, line_number: int) -> str:
+def build_hash_from_ci(
+    project_name: str,
+    file_path: str,
+    secret_value: str,
+    line_number: int,
+) -> str:
     """
     SHA-256 hash for external CI matching:
-    normalized file path + secret value + line number (concatenated, no delimiter).
+    project_name + normalized file path + secret value + line number (concatenated, no delimiter).
     """
     normalized_path = normalize_path_for_ci_hash(file_path)
-    raw = f"{normalized_path}{secret_value or ''}{line_number}"
+    raw = f"{project_name or ''}{normalized_path}{secret_value or ''}{line_number}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 

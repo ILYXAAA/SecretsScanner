@@ -116,13 +116,15 @@ def normalize_file_path(file_path: str, repo_url: str) -> str:
 MANUAL_SECRET_SUFFIX = " (добавлен вручную, см. context)"
 
 
-def build_secret_export_item(secret) -> dict:
+def build_secret_export_item(secret, project_name: str = "") -> dict:
     """Serialize a Secret for JSON file export."""
     path = secret.path or ""
     line_number = secret.line or 0
     secret_value = secret.secret or ""
     return {
-        "result_hash": secret.hash_from_ci or build_hash_from_ci(path, secret_value, line_number),
+        "result_hash": secret.hash_from_ci or build_hash_from_ci(
+            project_name, path, secret_value, line_number
+        ),
         "path": normalize_path_for_ci_hash(path),
         "line_number": line_number,
         "secret": "***",
@@ -131,7 +133,7 @@ def build_secret_export_item(secret) -> dict:
     }
 
 
-def build_secret_dict(secret, previous_status=None, previous_scan_date=None):
+def build_secret_dict(secret, previous_status=None, previous_scan_date=None, project_name: str = ""):
     """Serialize a Secret ORM object to a frontend dict."""
     return {
         "id": secret.id,
@@ -139,9 +141,10 @@ def build_secret_dict(secret, previous_status=None, previous_scan_date=None):
         "line": secret.line or 0,
         "secret": html.escape(secret.secret or "", quote=True),
         "hash_from_ci": secret.hash_from_ci or build_hash_from_ci(
+            project_name,
             secret.path or "",
             secret.secret or "",
-            secret.line or 0
+            secret.line or 0,
         ),
         "context": html.escape(secret.context or "", quote=True),
         "severity": html.escape(secret.severity or "", quote=True),
@@ -172,6 +175,7 @@ def build_secrets_data_list(db, scan_id, include_previous_status=False, scan=Non
         if all_secrets_query and len(all_secrets_query) < 500:
             hash_values = {
                 secret.hash_from_ci or build_hash_from_ci(
+                    project_name,
                     secret.path or "",
                     secret.secret or "",
                     secret.line or 0,
@@ -196,6 +200,7 @@ def build_secrets_data_list(db, scan_id, include_previous_status=False, scan=Non
 
         if include_previous_status and previous_decisions_by_hash:
             secret_hash = secret.hash_from_ci or build_hash_from_ci(
+                project_name or "",
                 secret.path or "",
                 secret.secret or "",
                 secret.line or 0,
@@ -207,7 +212,9 @@ def build_secrets_data_list(db, scan_id, include_previous_status=False, scan=Non
                 if prev_date:
                     previous_scan_date = prev_date.strftime('%Y-%m-%d %H:%M')
 
-        secrets_data.append(build_secret_dict(secret, previous_status, previous_scan_date))
+        secrets_data.append(
+            build_secret_dict(secret, previous_status, previous_scan_date, project_name or "")
+        )
 
     return secrets_data
 
@@ -600,6 +607,7 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
                 for result in batch:
                     batch_hash_values.add(
                         build_hash_from_ci(
+                            project_name,
                             sanitize_string(result.get("path", "")),
                             sanitize_string(result.get("secret", "")),
                             result.get("line", 0),
@@ -622,7 +630,7 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
                         path = sanitize_string(result.get("path", ""))
                         line = result.get("line", 0)
                         secret_value = sanitize_string(result.get("secret", ""))
-                        secret_hash = build_hash_from_ci(path, secret_value, line)
+                        secret_hash = build_hash_from_ci(project_name, path, secret_value, line)
                         most_recent_secret = previous_decisions_by_hash.get(secret_hash)
 
                         # Apply the most recent decision
@@ -718,9 +726,10 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
                         line=manual_secret.line,
                         secret=manual_secret.secret,
                         hash_from_ci=build_hash_from_ci(
+                            project_name,
                             manual_secret.path or "",
                             manual_secret.secret or "",
-                            manual_secret.line or 0
+                            manual_secret.line or 0,
                         ),
                         context=manual_secret.context,
                         severity=manual_secret.severity,
@@ -1136,9 +1145,10 @@ async def add_custom_secret(request: Request, scan_id: str = Form(...), secret_v
             line=line,
             secret=modified_secret_value,
             hash_from_ci=build_hash_from_ci(
+                scan.project_name or "",
                 normalized_path or "",
                 modified_secret_value or "",
-                line or 0
+                line or 0,
             ),
             context=full_context,
             severity="High",
@@ -1474,7 +1484,9 @@ async def export_scan_results(
             Secret.is_exception == False
         ).order_by(Secret.path, Secret.line).all()
 
-        export_data = [build_secret_export_item(secret) for secret in secrets]
+        export_data = [
+            build_secret_export_item(secret, scan.project_name or "") for secret in secrets
+        ]
 
         # Generate filename
         filename = f"{scan.project_name}_{commit_short}.json"

@@ -20,7 +20,7 @@ def upgrade(migration_system):
 
         for row in rows:
             secret_id = row[0]
-            hash_from_ci = build_hash_from_ci(row[1] or "", row[2] or "", row[3] or 0)
+            hash_from_ci = build_hash_from_ci("", row[1] or "", row[2] or "", row[3] or 0)
 
             conn.execute(
                 text("UPDATE secrets SET hash_from_ci = :hash_value WHERE id = :id"),

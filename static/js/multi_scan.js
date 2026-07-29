@@ -1,3 +1,20 @@
+function deriveProjectNameFromRepoUrl(baseRepoUrl) {
+    let url = (baseRepoUrl || '').trim().replace(/\/$/, '');
+    if (!url) {
+        throw new Error('Пустой URL репозитория');
+    }
+
+    let segment = url.split('/').pop() || '';
+    if (segment.toLowerCase().endsWith('.git')) {
+        segment = segment.slice(0, -4);
+    }
+    if (!segment) {
+        throw new Error('Не удалось извлечь имя репозитория из URL');
+    }
+
+    return segment.replace(/-/g, '_').replace(/\./g, '_');
+}
+
 function parseAzureDevOpsUrl(repoUrl) {
     const urlObj = new URL(repoUrl);
     
@@ -12,11 +29,9 @@ function parseAzureDevOpsUrl(repoUrl) {
         const owner = pathParts[0];
         const repository = pathParts[1];
         
-        // Parse ref information from GitHub URL
         let refType = 'branch';
         let ref = 'main';
         
-        // Check for commit in path (format: /commit/hash)
         const commitIndex = pathParts.indexOf('commit');
         if (commitIndex !== -1 && commitIndex === 2) {
             refType = 'commit';
@@ -24,9 +39,7 @@ function parseAzureDevOpsUrl(repoUrl) {
             if (!ref) {
                 throw new Error('URL некорректен: отсутствует хеш коммита после "/commit/"');
             }
-        }
-        // Check for tree (branch) or tag
-        else if (pathParts.length > 3) {
+        } else if (pathParts.length > 3) {
             if (pathParts[2] === 'tree') {
                 refType = 'branch';
                 ref = pathParts.slice(3).join('/');
@@ -36,13 +49,12 @@ function parseAzureDevOpsUrl(repoUrl) {
             }
         }
         
-        // Clean base repo URL - remove commit/tree/tag paths
         const baseRepoUrl = `${urlObj.protocol}//${urlObj.host}/${owner}/${repository}`;
         
         return {
             server: urlObj.hostname,
             collection: owner,
-            project: `${owner}_${repository}`,
+            project: owner,
             repository: repository,
             refType: refType,
             ref: ref,
@@ -50,7 +62,7 @@ function parseAzureDevOpsUrl(repoUrl) {
         };
     }
     
-    // Original Azure DevOps parsing logic
+    // Azure DevOps parsing logic
     const server = urlObj.hostname;
     const pathParts = urlObj.pathname.split('/').filter(part => part !== '');
     
@@ -152,7 +164,7 @@ function validateUrls(urls) {
             results.push({
                 originalUrl: url,
                 parsed: parsed,
-                projectName: `${parsed.project}_${parsed.repository}`
+                projectName: deriveProjectNameFromRepoUrl(parsed.baseRepoUrl)
             });
         } catch (error) {
             errors.push({
@@ -219,20 +231,22 @@ function showConfirmationDialog(missingProjects) {
 async function createProjects(missingProjects) {
     for (const item of missingProjects) {
         try {
-            const response = await fetch('/secret_scanner/projects/add', {
+            const response = await fetch('/secret_scanner/projects/add-from-url', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
                 },
                 body: new URLSearchParams({
-                    project_name: item.projectName,
                     repo_url: item.parsed.baseRepoUrl
                 })
             });
-            
-            if (!response.ok) {
-                throw new Error(`Не удалось создать проект ${item.projectName}`);
+
+            const data = await response.json();
+            if (!response.ok || data.status !== 'success') {
+                throw new Error(data.message || `Не удалось создать проект для ${item.parsed.baseRepoUrl}`);
             }
+
+            item.projectName = data.project_name;
         } catch (error) {
             console.error('Error creating project:', error);
             throw error;
