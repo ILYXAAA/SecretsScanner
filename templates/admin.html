@@ -614,6 +614,40 @@
         <div id="tab-data" class="tab-content">
             <div class="section">
                 <h2 class="section-title">
+                    <span>📝</span>
+                    falses.txt для CI
+                </h2>
+
+                <div class="form-container">
+                    <p style="color: #666; margin-bottom: 1rem;">
+                        Пересобрать <code>falses.txt</code> из опровергнутых секретов в БД и отправить в настроенный Git-репозиторий.
+                        Автообновление также выполняется по расписанию в фоне.
+                    </p>
+                    <div id="falsesStatusInfo" style="margin-bottom: 1rem; color: #666; font-size: 0.9rem;">
+                        Загрузка статуса...
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-primary" id="refreshFalsesBtn" onclick="refreshFalsesFile()">
+                            <span>🔄</span>
+                            Обновить falses.txt и отправить в Git
+                        </button>
+                    </div>
+                </div>
+
+                <div id="refreshFalsesProgress" style="display: none; margin-top: 1rem;">
+                    <div style="background: #f8f9fa; border-radius: 8px; padding: 1.5rem;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;">
+                            <div class="spinner" style="width: 20px; height: 20px; border: 2px solid #e1e5e9; border-top: 2px solid #28a745; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                            <div class="checkmark" style="display: none; width: 20px; height: 20px; font-size: 20px; color: #28a745;">✅</div>
+                            <span style="font-weight: 600;">Обновление falses.txt...</span>
+                        </div>
+                        <div id="refreshFalsesMessage" style="color: #666;">Инициализация...</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2 class="section-title">
                     <span>📄</span>
                     Экспорт секретов
                 </h2>

@@ -13,7 +13,8 @@ from typing import Dict, Optional
 import uuid
 import re
 from services.auth import ADMIN_ROLE, USER_ROLE, VALID_ROLES, get_admin_user, get_user_db, get_password_hash
-from services.backup_service import create_database_backup, get_backup_status, list_backups
+from services.falses_export_service import refresh_falses_file, FALSES_FILE_PATH
+from services.falses_git_push_service import is_falses_git_push_configured
 from models import User, Secret, Scan, Project, Settings
 from services.templates import templates
 from services.database import get_db
@@ -741,6 +742,88 @@ async def download_secrets(task_id: str, _: str = Depends(get_admin_user)):
             status_code=500,
             content={"status": "error", "message": str(e)}
         )
+
+
+def _format_falses_refresh_message(result: dict) -> str:
+    if result.get("error"):
+        return f"Ошибка: {result['error']}"
+
+    parts = []
+    hash_count = result.get("hash_count", 0)
+    if result.get("written"):
+        parts.append(f"Файл обновлён ({hash_count} хешей)")
+    else:
+        parts.append(f"Содержимое не изменилось ({hash_count} хешей)")
+
+    git_push = result.get("git_push")
+    if git_push:
+        if git_push.get("pushed"):
+            method = git_push.get("method", "git")
+            branch = git_push.get("branch")
+            if branch:
+                parts.append(f"Push в репозиторий выполнен ({method}, {branch})")
+            else:
+                parts.append(f"Push в репозиторий выполнен ({method})")
+        elif git_push.get("skipped"):
+            parts.append(f"Push пропущен: {git_push.get('reason', 'unknown')}")
+        elif git_push.get("error"):
+            parts.append(f"Ошибка push: {git_push['error']}")
+    elif not result.get("written"):
+        parts.append("Push не выполнялся")
+
+    return ". ".join(parts)
+
+
+@router.get("/admin/falses-status")
+async def admin_falses_status(_: str = Depends(get_admin_user)):
+    """Get falses.txt export configuration status for admin UI."""
+    return {
+        "status": "success",
+        "file_path": str(FALSES_FILE_PATH),
+        "file_exists": FALSES_FILE_PATH.exists(),
+        "git_push_configured": is_falses_git_push_configured(),
+    }
+
+
+@router.post("/admin/refresh-falses")
+async def admin_refresh_falses(_: str = Depends(get_admin_user)):
+    """Manually rebuild falses.txt and push to Git if configured."""
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: refresh_falses_file(force_git_push=True),
+        )
+
+        if result.get("error"):
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "status": "error",
+                    "message": _format_falses_refresh_message(result),
+                    "result": result,
+                },
+            )
+
+        logger.info(
+            "Manual falses.txt refresh by admin: written=%s, hash_count=%s, git_push=%s",
+            result.get("written"),
+            result.get("hash_count"),
+            result.get("git_push"),
+        )
+
+        return {
+            "status": "success",
+            "message": _format_falses_refresh_message(result),
+            "result": result,
+        }
+    except Exception as e:
+        logger.error("Manual falses.txt refresh failed: %s", e, exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": str(e)},
+        )
+
 
 @router.get("/admin/backup-status")
 async def backup_status(_: bool = Depends(get_admin_user)):

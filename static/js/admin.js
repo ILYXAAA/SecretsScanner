@@ -39,6 +39,10 @@ function switchTab(tabName) {
     if (tabName === 'scanning') {
         loadModelsInfo();
     }
+
+    if (tabName === 'data') {
+        loadFalsesStatus();
+    }
 }
 
 // Load users on page load
@@ -46,6 +50,7 @@ function switchTab(tabName) {
 document.addEventListener('DOMContentLoaded', function() {
     loadUsers();
     loadApiTokens();
+    loadFalsesStatus();
 
     const projectsForm = document.getElementById('exportProjectsForm');
     if (projectsForm) {
@@ -723,6 +728,70 @@ document.addEventListener('click', function(e) {
         dropdown.style.display = 'none';
     }
 });
+
+async function loadFalsesStatus() {
+    const statusEl = document.getElementById('falsesStatusInfo');
+    if (!statusEl) return;
+
+    try {
+        const response = await fetch('/secret_scanner/admin/falses-status');
+        const data = await response.json();
+        if (!response.ok || data.status !== 'success') {
+            throw new Error(data.message || 'Failed to load falses status');
+        }
+
+        const gitStatus = data.git_push_configured
+            ? 'настроен'
+            : 'не настроен (FALSES_GIT_REPO_URL / FALSES_GIT_PAT)';
+        const fileStatus = data.file_exists ? 'существует' : 'ещё не создан';
+
+        statusEl.textContent = `Файл: ${data.file_path} (${fileStatus}). Push в Git: ${gitStatus}.`;
+    } catch (error) {
+        console.error('Falses status error:', error);
+        statusEl.textContent = 'Не удалось загрузить статус falses.txt';
+    }
+}
+
+async function refreshFalsesFile() {
+    const refreshBtn = document.getElementById('refreshFalsesBtn');
+    const progress = document.getElementById('refreshFalsesProgress');
+    const messageEl = document.getElementById('refreshFalsesMessage');
+    if (!refreshBtn || !progress || !messageEl) return;
+
+    refreshBtn.disabled = true;
+    progress.style.display = 'block';
+    messageEl.textContent = 'Пересборка falses.txt и отправка в репозиторий... Может занять несколько минут.';
+
+    const spinner = progress.querySelector('.spinner');
+    const checkmark = progress.querySelector('.checkmark');
+    if (spinner) spinner.style.display = 'inline-block';
+    if (checkmark) checkmark.style.display = 'none';
+
+    try {
+        const response = await fetch('/secret_scanner/admin/refresh-falses', {
+            method: 'POST',
+        });
+        const data = await response.json();
+
+        if (spinner) spinner.style.display = 'none';
+        if (checkmark) checkmark.style.display = 'inline-block';
+
+        if (!response.ok || data.status !== 'success') {
+            throw new Error(data.message || 'Refresh failed');
+        }
+
+        messageEl.textContent = data.message || 'Готово';
+        messageEl.style.color = '#155724';
+        await loadFalsesStatus();
+    } catch (error) {
+        console.error('Falses refresh error:', error);
+        if (spinner) spinner.style.display = 'none';
+        messageEl.textContent = `Ошибка: ${error.message}`;
+        messageEl.style.color = '#721c24';
+    } finally {
+        refreshBtn.disabled = false;
+    }
+}
 
 document.getElementById('exportForm').addEventListener('submit', async function(e) {
     e.preventDefault();

@@ -17,8 +17,16 @@ FALSES_FILE_NAME = "falses.txt"
 FALSES_FILE_PATH = Path(FALSES_EXPORT_DIR) / FALSES_FILE_NAME
 
 
-def _push_falses_if_configured(refresh_result: dict) -> None:
-    if not refresh_result.get("written"):
+def _push_falses_if_configured(refresh_result: dict, force: bool = False) -> None:
+    if not force and not refresh_result.get("written"):
+        return
+
+    if force and not FALSES_FILE_PATH.exists():
+        refresh_result["git_push"] = {
+            "pushed": False,
+            "skipped": True,
+            "reason": "falses.txt does not exist",
+        }
         return
 
     try:
@@ -28,6 +36,11 @@ def _push_falses_if_configured(refresh_result: dict) -> None:
             falses_logger.info(
                 "falses.txt git push skipped: FALSES_GIT_REPO_URL or FALSES_GIT_PAT is not set"
             )
+            refresh_result["git_push"] = {
+                "pushed": False,
+                "skipped": True,
+                "reason": "git push not configured",
+            }
             return
 
         falses_logger.info("falses.txt git push starting...")
@@ -102,16 +115,21 @@ def compute_payload_sha256(payload: str) -> str:
     return hashlib.sha256((payload or "").encode("utf-8")).hexdigest()
 
 
-def refresh_falses_file(version=None):
+def refresh_falses_file(version=None, force_git_push: bool = False):
     """Rebuild falses.txt and overwrite only when hash payload changes.
 
     The [version] header line is ignored when comparing content; only the
     semicolon-separated hashes after the first line matter.
 
+    When force_git_push is True, push to the configured Git repo even if the
+    file payload did not change (manual admin sync).
+
     Never raises — errors are logged and returned in the result dict.
     """
     try:
-        return _refresh_falses_file_impl(version)
+        result = _refresh_falses_file_impl(version)
+        _push_falses_if_configured(result, force=force_git_push)
+        return result
     except Exception as e:
         falses_logger.error("falses.txt refresh failed: %s", e, exc_info=True)
         return {"written": False, "error": str(e)}
@@ -158,12 +176,9 @@ def _refresh_falses_file_impl(version=None):
             "path": str(FALSES_FILE_PATH),
             "hash_count": len(hashes),
         }
+        return result
     finally:
         db.close()
-
-    # Git push can take minutes — never hold a DB connection during it.
-    _push_falses_if_configured(result)
-    return result
 
 
 async def falses_refresh_scheduler():
