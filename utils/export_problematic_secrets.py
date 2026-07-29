@@ -29,8 +29,7 @@ def main():
         query = text("""
             SELECT secret, confidence, type, context
             FROM secrets 
-            WHERE status = 'Refuted' 
-            AND type NOT IN ('Too Long Line', 'Too Many Secrets')
+            WHERE status = 'Refuted'
             ORDER BY type, confidence DESC
         """)
         rows = conn.execute(query).fetchall()

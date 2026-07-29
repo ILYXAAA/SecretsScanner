@@ -266,7 +266,7 @@
         </div>
     </div>
 
-    <!-- Модальное окно списка секретов (Too Many Secrets) -->
+    <!-- Модальное окно списка секретов в схлопнутой группе -->
     <div id="secretsDetailsModal" class="secrets-details-modal-overlay" style="display: none;" onclick="if (event.target === this) closeSecretsDetailsModal();">
         <div class="secrets-details-modal" onclick="event.stopPropagation();">
             <div class="secrets-details-modal-header">
@@ -289,7 +289,6 @@
                     <tbody id="secretsDetailsTableBody"></tbody>
                 </table>
             </div>
-            <div id="secretsDetailsLoading" class="secrets-details-loading" style="display: none;">Загрузка...</div>
             <div class="secrets-details-pagination">
                 <button type="button" id="secretsDetailsPrevBtn" class="btn btn-secondary" onclick="changeSecretsDetailsPage(-1)">← Назад</button>
                 <span id="secretsDetailsPageInfo" class="secrets-details-page-info"></span>

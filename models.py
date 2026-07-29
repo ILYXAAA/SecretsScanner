@@ -55,7 +55,6 @@ class Secret(Base):
     refuted_at = Column(DateTime)  # Field for tracking when secret was refuted
     confirmed_by = Column(String, nullable=True)
     refuted_by = Column(String, nullable=True)
-    secrets_details = Column(Text, nullable=True)  # JSON array for "Too Many Secrets" type
 
 class ForbiddenViolation(Base):
     __tablename__ = "forbidden_violations"

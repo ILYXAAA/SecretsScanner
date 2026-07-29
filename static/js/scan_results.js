@@ -115,72 +115,104 @@ function closeContextModal() {
     if (modal) modal.style.display = 'none';
 }
 
-const MANUAL_SECRET_SUFFIX = ' (добавлен вручную, см. context)';
-const SECRETS_DETAILS_PAGE_SIZE = 100;
+const GROUP_COLLAPSE_THRESHOLD = 50;
+const GROUP_MODAL_PAGE_SIZE = 100;
 
-let manualSecretsLookup = null;
-let manualSecretsLookupPath = null;
+let displayRows = [];
+let currentGroup = null;
 
-function getSecretDetailsCount(secret) {
-    if (!secret) return 0;
-    if (typeof secret.secrets_details_count === 'number') {
-        return secret.secrets_details_count;
-    }
-    return (secret.secrets_details || []).length;
+function normalizeSecretStatus(status) {
+    if (!status || status === '' || status === 'null') return 'No status';
+    return status;
 }
 
-function usesLazyDetails(secret) {
-    const count = getSecretDetailsCount(secret);
-    const inline = secret.secrets_details || [];
-    return count > 0 && inline.length === 0;
+function buildGroupKey(path, status) {
+    return `${path || ''}|||${normalizeSecretStatus(status)}`;
 }
 
-function invalidateManualSecretsLookup() {
-    manualSecretsLookup = null;
-    manualSecretsLookupPath = null;
-}
-
-function buildManualSecretsLookup(parentPath) {
-    const decodedPath = _decodeHtmlEntities(parentPath || '');
-    if (manualSecretsLookup && manualSecretsLookupPath === decodedPath) {
-        return manualSecretsLookup;
+function buildDisplayRows(secrets) {
+    const groupsMap = new Map();
+    for (const secret of secrets) {
+        const key = buildGroupKey(secret.path, secret.status);
+        if (!groupsMap.has(key)) {
+            groupsMap.set(key, []);
+        }
+        groupsMap.get(key).push(secret);
     }
 
-    const lookup = new Set();
-    allSecrets.forEach(s => {
-        const sPath = _decodeHtmlEntities(s.path || '');
-        if (sPath !== decodedPath) return;
-        const sSecret = _decodeHtmlEntities(s.secret || '');
-        if (!sSecret.includes('добавлен вручную')) return;
-        const rawSecret = sSecret.endsWith(MANUAL_SECRET_SUFFIX)
-            ? sSecret.slice(0, -MANUAL_SECRET_SUFFIX.length)
-            : sSecret;
-        lookup.add(`${s.line || 0}\u0000${rawSecret}`);
-    });
+    const displayRowsResult = [];
+    const processedKeys = new Set();
 
-    manualSecretsLookup = lookup;
-    manualSecretsLookupPath = decodedPath;
-    return lookup;
+    for (const secret of secrets) {
+        const key = buildGroupKey(secret.path, secret.status);
+        if (processedKeys.has(key)) continue;
+        processedKeys.add(key);
+
+        const members = groupsMap.get(key) || [];
+        if (members.length > GROUP_COLLAPSE_THRESHOLD) {
+            displayRowsResult.push({
+                isGroup: true,
+                groupKey: key,
+                path: secret.path,
+                status: normalizeSecretStatus(secret.status),
+                memberIds: members.map(m => m.id),
+                members,
+                count: members.length,
+            });
+        } else {
+            displayRowsResult.push(...members);
+        }
+    }
+
+    return displayRowsResult;
 }
 
-function makeManualSecretKey(line, secretValue) {
-    const decodedSecret = _decodeHtmlEntities(secretValue || '').trim();
-    return `${line || 0}\u0000${decodedSecret}`;
+function getGroupTypeLabel(members) {
+    const types = [...new Set(members.map(m => m.type).filter(Boolean))];
+    if (types.length === 0) return '—';
+    if (types.length === 1) return types[0];
+    return `Разные (${types.length})`;
 }
 
-function isDetailSecretAlreadyAdded(parentPath, detailLine, detailSecret) {
-    const lookup = buildManualSecretsLookup(parentPath);
-    return lookup.has(makeManualSecretKey(detailLine, detailSecret));
+function getGroupSeverityLabel(members) {
+    const severities = [...new Set(members.map(m => m.severity).filter(Boolean))];
+    if (severities.length === 0) return '—';
+    if (severities.length === 1) return severities[0];
+    return 'Mixed';
 }
 
-function updateSecretsDetailsCountLabel(total, addedCount) {
+function getGroupConfidenceLabel(members) {
+    const values = members.map(m => parseConfidence(m.confidence, 0));
+    if (!values.length) return '—';
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    if (min === max) return `${Math.round(min * 100)}%`;
+    return `${Math.round(min * 100)}–${Math.round(max * 100)}%`;
+}
+
+function getDisplayRowByIndex(index) {
+    return displayRows[index] || null;
+}
+
+function findGroupByKey(groupKey) {
+    return displayRows.find(row => row.isGroup && row.groupKey === groupKey) || null;
+}
+
+function refreshCurrentGroup() {
+    if (!currentGroup) return null;
+    const updated = findGroupByKey(currentGroup.groupKey);
+    currentGroup = updated;
+    window._currentGroup = updated;
+    return updated;
+}
+
+function updateGroupModalCountLabel() {
     const countEl = document.getElementById('secretsDetailsCount');
-    if (countEl) {
-        countEl.textContent = `Всего: ${total} | Добавлено вручную: ${addedCount}`;
-    }
+    if (!countEl || !currentGroup) return;
+    countEl.textContent = `Всего: ${currentGroup.count} | Статус: ${normalizeSecretStatus(currentGroup.status)}`;
 }
 
-function updateSecretsDetailsPagination(total, page, totalPages) {
+function updateGroupModalPagination(total, page, totalPages) {
     const pageInfo = document.getElementById('secretsDetailsPageInfo');
     const prevBtn = document.getElementById('secretsDetailsPrevBtn');
     const nextBtn = document.getElementById('secretsDetailsNextBtn');
@@ -190,39 +222,41 @@ function updateSecretsDetailsPagination(total, page, totalPages) {
         pagination.style.display = totalPages > 1 ? 'flex' : 'none';
     }
     if (pageInfo) {
-        pageInfo.textContent = totalPages > 0
-            ? `Страница ${page} из ${totalPages}`
-            : 'Нет данных';
+        pageInfo.textContent = totalPages > 0 ? `Страница ${page} из ${totalPages}` : 'Нет данных';
     }
     if (prevBtn) prevBtn.disabled = page <= 1;
     if (nextBtn) nextBtn.disabled = page >= totalPages;
 }
 
-function setSecretsDetailsLoading(isLoading) {
-    const loadingEl = document.getElementById('secretsDetailsLoading');
-    const tableWrap = document.querySelector('.secrets-details-table-wrap');
-    if (loadingEl) loadingEl.style.display = isLoading ? 'block' : 'none';
-    if (tableWrap) tableWrap.style.display = isLoading ? 'none' : 'block';
-}
+function renderGroupModalPage(page) {
+    if (!currentGroup) return;
 
-function renderSecretsDetailsRows(items, parentPath) {
+    const members = currentGroup.members || [];
+    const total = members.length;
+    const totalPages = Math.max(1, Math.ceil(total / GROUP_MODAL_PAGE_SIZE));
+    const currentPage = Math.max(1, Math.min(page || 1, totalPages));
+    const start = (currentPage - 1) * GROUP_MODAL_PAGE_SIZE;
+    const pageMembers = members.slice(start, start + GROUP_MODAL_PAGE_SIZE);
+
+    window._groupModalPage = currentPage;
+    window._groupModalTotalPages = totalPages;
+
+    updateGroupModalCountLabel();
+    updateGroupModalPagination(total, currentPage, totalPages);
+
     const tbody = document.getElementById('secretsDetailsTableBody');
     if (!tbody) return;
 
-    tbody.innerHTML = items.map((detail) => {
-        const line = detail.line || 0;
-        const secretVal = safeHtml(detail.secret || '');
-        const secretType = safeHtml(detail.type || '');
-        const globalIndex = detail.index;
-        const alreadyAdded = detail.already_added !== undefined
-            ? detail.already_added
-            : isDetailSecretAlreadyAdded(parentPath, line, detail.secret);
+    tbody.innerHTML = pageMembers.map(member => {
+        const line = member.line || 0;
+        const secretVal = safeHtml(member.secret || '');
+        const secretType = safeHtml(member.type || '');
+        const isConfirmed = normalizeSecretStatus(member.status) === 'Confirmed';
+        const actionCell = isConfirmed
+            ? '<span class="secrets-details-added-label">✅ Подтверждён</span>'
+            : `<button type="button" class="secrets-details-add-btn" onclick="confirmGroupMember(${member.id})" title="Подтвердить секрет">✅</button>`;
 
-        const actionCell = alreadyAdded
-            ? '<span class="secrets-details-added-label">✅ Добавлен</span>'
-            : `<button type="button" class="secrets-details-add-btn" onclick="addSecretFromDetails(${globalIndex})" title="Добавить как настоящий секрет">✅</button>`;
-
-        return `<tr class="${alreadyAdded ? 'row-added' : ''}" data-detail-index="${globalIndex}">
+        return `<tr data-secret-id="${member.id}">
             <td class="col-line">${line}</td>
             <td class="col-secret">${secretVal}</td>
             <td class="col-type">${secretType}</td>
@@ -231,114 +265,134 @@ function renderSecretsDetailsRows(items, parentPath) {
     }).join('');
 }
 
-function renderSecretsDetailsTableInline(page) {
-    const parentSecret = window._secretsDetailsParentSecret;
-    if (!parentSecret) return;
-
-    const detailsList = parentSecret.secrets_details || [];
-    const parentPath = parentSecret.path || '';
-    const total = detailsList.length;
-    const totalPages = Math.max(1, Math.ceil(total / SECRETS_DETAILS_PAGE_SIZE));
-    const currentPage = Math.max(1, Math.min(page || 1, totalPages));
-    const start = (currentPage - 1) * SECRETS_DETAILS_PAGE_SIZE;
-    const pageItems = detailsList.slice(start, start + SECRETS_DETAILS_PAGE_SIZE).map((detail, offset) => ({
-        ...detail,
-        index: start + offset,
-        already_added: isDetailSecretAlreadyAdded(parentPath, detail.line, detail.secret),
-    }));
-
-    let addedCount = 0;
-    if (typeof window._secretsDetailsAddedCount === 'number') {
-        addedCount = window._secretsDetailsAddedCount;
-    } else {
-        addedCount = detailsList.filter(d => isDetailSecretAlreadyAdded(parentPath, d.line, d.secret)).length;
-        window._secretsDetailsAddedCount = addedCount;
-    }
-
-    window._secretsDetailsPage = currentPage;
-    window._secretsDetailsTotalPages = totalPages;
-    window._secretsDetailsTotal = total;
-    window._secretsDetailsPageItems = pageItems;
-
-    updateSecretsDetailsCountLabel(total, addedCount);
-    updateSecretsDetailsPagination(total, currentPage, totalPages);
-    renderSecretsDetailsRows(pageItems, parentPath);
-    setSecretsDetailsLoading(false);
-}
-
-async function loadSecretsDetailsPage(page) {
-    const parentSecret = window._secretsDetailsParentSecret;
-    if (!parentSecret) return;
-
-    setSecretsDetailsLoading(true);
-    window._secretsDetailsPage = page;
-
-    try {
-        const response = await fetch(
-            `/secret_scanner/secrets/${parentSecret.id}/details?page=${page}&page_size=${SECRETS_DETAILS_PAGE_SIZE}`
-        );
-        const result = await response.json();
-
-        if (result.status !== 'success') {
-            alert('Ошибка: ' + (result.message || 'Не удалось загрузить список секретов'));
-            setSecretsDetailsLoading(false);
-            return;
-        }
-
-        window._secretsDetailsTotal = result.total || 0;
-        window._secretsDetailsTotalPages = result.total_pages || 0;
-        window._secretsDetailsAddedCount = result.added_count || 0;
-        window._secretsDetailsPageItems = result.items || [];
-
-        updateSecretsDetailsCountLabel(result.total || 0, result.added_count || 0);
-        updateSecretsDetailsPagination(result.total || 0, result.page || 1, result.total_pages || 0);
-        renderSecretsDetailsRows(window._secretsDetailsPageItems, parentSecret.path || '');
-        setSecretsDetailsLoading(false);
-    } catch (error) {
-        console.error('Error loading secrets details page:', error);
-        alert('Ошибка при загрузке списка секретов');
-        setSecretsDetailsLoading(false);
-    }
-}
-
-async function changeSecretsDetailsPage(delta) {
-    const nextPage = (window._secretsDetailsPage || 1) + delta;
-    const totalPages = window._secretsDetailsTotalPages || 1;
-    if (nextPage < 1 || nextPage > totalPages) return;
-
-    if (window._secretsDetailsMode === 'lazy') {
-        await loadSecretsDetailsPage(nextPage);
-    } else {
-        renderSecretsDetailsTableInline(nextPage);
-    }
-}
-
-async function openSecretsDetailsModal() {
-    const secretId = window._detailPanelSecretId;
-    const secretData = allSecrets.find(s => s.id === secretId);
-    const detailsCount = getSecretDetailsCount(secretData);
-    if (!secretData || detailsCount === 0) return;
-
-    window._secretsDetailsParentSecret = secretData;
-    window._secretsDetailsPage = 1;
-    window._secretsDetailsAddedCount = undefined;
-
+function openGroupSecretsModal() {
+    if (!currentGroup || !currentGroup.members || currentGroup.members.length === 0) return;
+    window._groupModalPage = 1;
     const modal = document.getElementById('secretsDetailsModal');
     if (modal) modal.style.display = 'block';
-
-    if (usesLazyDetails(secretData)) {
-        window._secretsDetailsMode = 'lazy';
-        await loadSecretsDetailsPage(1);
-    } else {
-        window._secretsDetailsMode = 'inline';
-        renderSecretsDetailsTableInline(1);
-    }
+    renderGroupModalPage(1);
 }
 
 function closeSecretsDetailsModal() {
     const modal = document.getElementById('secretsDetailsModal');
     if (modal) modal.style.display = 'none';
-    window._secretsDetailsPageItems = [];
+}
+
+function changeSecretsDetailsPage(delta) {
+    const nextPage = (window._groupModalPage || 1) + delta;
+    const totalPages = window._groupModalTotalPages || 1;
+    if (nextPage < 1 || nextPage > totalPages) return;
+    renderGroupModalPage(nextPage);
+}
+
+async function confirmGroupMember(secretId) {
+    const btn = document.querySelector(`#secretsDetailsTableBody tr[data-secret-id="${secretId}"] .secrets-details-add-btn`);
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '...';
+    }
+
+    try {
+        const response = await fetch(`/secret_scanner/secrets/${secretId}/update-status`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ status: 'Confirmed', comment: '' }),
+        });
+
+        if (!response.ok) {
+            alert('Ошибка при подтверждении секрета');
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = '✅';
+            }
+            return;
+        }
+
+        const secret = allSecrets.find(s => s.id === secretId);
+        if (secret) {
+            secret.status = 'Confirmed';
+            secret.is_exception = false;
+            secret.exception_comment = null;
+            secret.refuted_at = null;
+        }
+
+        applyFiltersSync();
+
+        const updatedGroup = refreshCurrentGroup();
+        if (!updatedGroup || updatedGroup.count <= GROUP_COLLAPSE_THRESHOLD) {
+            closeSecretsDetailsModal();
+            if (updatedGroup && updatedGroup.count > 0) {
+                showEmptyDetail();
+            }
+            return;
+        }
+
+        const totalPages = Math.max(1, Math.ceil(updatedGroup.count / GROUP_MODAL_PAGE_SIZE));
+        const page = Math.min(window._groupModalPage || 1, totalPages);
+        renderGroupModalPage(page);
+
+        if (currentGroup) {
+            loadGroupDetails(currentGroup);
+        }
+    } catch (error) {
+        console.error('Error confirming group member:', error);
+        alert('Ошибка при подтверждении секрета');
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = '✅';
+        }
+    }
+}
+
+async function updateGroupStatus(status) {
+    if (!currentGroup || !currentGroup.memberIds || currentGroup.memberIds.length === 0) return;
+
+    let comment = '';
+    if (status === 'Refuted') {
+        const input = prompt('Введите комментарий (опционально):');
+        if (input === null) return;
+        comment = input;
+    }
+
+    try {
+        const response = await fetch('/secret_scanner/secrets/bulk-action', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                secret_ids: currentGroup.memberIds,
+                action: 'status',
+                value: status,
+                comment,
+            }),
+        });
+
+        if (!response.ok) {
+            alert('Ошибка при обновлении статуса группы');
+            return;
+        }
+
+        currentGroup.memberIds.forEach(secretId => {
+            const secret = allSecrets.find(s => s.id === secretId);
+            if (!secret) return;
+            secret.status = status;
+            if (status === 'Refuted') {
+                secret.is_exception = true;
+                secret.exception_comment = comment;
+                secret.refuted_at = new Date().toISOString().slice(0, 16).replace('T', ' ');
+            } else {
+                secret.is_exception = false;
+                secret.exception_comment = null;
+                secret.refuted_at = null;
+            }
+        });
+
+        closeSecretsDetailsModal();
+        applyFiltersSync();
+        showEmptyDetail();
+    } catch (error) {
+        console.error('Error updating group status:', error);
+        alert('Ошибка при обновлении статуса группы');
+    }
 }
 
 function parseConfidence(value, defaultValue = 1.0) {
@@ -354,9 +408,6 @@ function normalizeSecretRecord(secret) {
         secret.status = 'No status';
     }
     secret.confidence = parseConfidence(secret.confidence, 1.0);
-    if (!secret.secrets_details) {
-        secret.secrets_details = [];
-    }
     return secret;
 }
 
@@ -364,7 +415,6 @@ function appendAddedSecret(addedSecret, ensureTypes) {
     const normalized = normalizeSecretRecord({ ...addedSecret });
     allSecrets.push(normalized);
     secretsData = allSecrets.slice();
-    invalidateManualSecretsLookup();
 
     const previouslyCheckedTypes = getCheckedTypeFilters();
     initializeFilters({
@@ -375,121 +425,18 @@ function appendAddedSecret(addedSecret, ensureTypes) {
     return normalized;
 }
 
-function markDetailRowAsAdded(globalIndex) {
-    const row = document.querySelector(`tr[data-detail-index="${globalIndex}"]`);
-    if (!row) return;
-    row.classList.add('row-added');
-    const actionCell = row.querySelector('.col-action');
-    if (actionCell) {
-        actionCell.innerHTML = '<span class="secrets-details-added-label">✅ Добавлен</span>';
-    }
-}
-
 function refreshSecretsData(newSecretsData, options = {}) {
     const previouslyCheckedTypes = getCheckedTypeFilters();
     secretsData = newSecretsData || [];
     allSecrets = secretsData.slice();
 
     allSecrets.forEach(secret => normalizeSecretRecord(secret));
-    invalidateManualSecretsLookup();
-
-    if (window._secretsDetailsParentSecret) {
-        const updated = allSecrets.find(s => s.id === window._secretsDetailsParentSecret.id);
-        if (updated) {
-            window._secretsDetailsParentSecret = updated;
-        }
-    }
 
     initializeFilters({
         preserveTypes: previouslyCheckedTypes,
         ensureTypes: options.ensureTypes || [],
     });
     applyFiltersSync();
-}
-
-async function addSecretFromDetails(detailIndex) {
-    const parentSecret = window._secretsDetailsParentSecret;
-    if (!parentSecret) return;
-
-    const pageItems = window._secretsDetailsPageItems || [];
-    const detail = pageItems.find(item => item.index === detailIndex);
-    if (!detail) return;
-
-    const parentPath = _decodeHtmlEntities(parentSecret.path || '');
-    const detailLine = detail.line || 0;
-    const detailSecret = _decodeHtmlEntities(detail.secret || '').trim();
-    const detailType = _decodeHtmlEntities(detail.type || 'Unknown');
-    const parentContext = _decodeHtmlEntities(parentSecret.context || '');
-
-    if (isDetailSecretAlreadyAdded(parentSecret.path, detailLine, detail.secret)) {
-        markDetailRowAsAdded(detailIndex);
-        return;
-    }
-
-    const pathParts = window.location.pathname.split('/');
-    const scanId = pathParts[pathParts.length - 2];
-
-    const formData = new FormData();
-    formData.append('scan_id', scanId);
-    formData.append('secret_value', detailSecret);
-    formData.append('context', parentContext);
-    formData.append('line', detailLine);
-    formData.append('secret_type', detailType);
-    formData.append('file_path', parentPath);
-    formData.append('lightweight', 'true');
-
-    const btn = document.querySelector(`tr[data-detail-index="${detailIndex}"] .secrets-details-add-btn`);
-    if (btn) {
-        btn.disabled = true;
-        btn.textContent = '...';
-    }
-
-    try {
-        const response = await fetch('/secret_scanner/secrets/add-custom', {
-            method: 'POST',
-            body: formData
-        });
-
-        const result = await response.json();
-
-        if (result.status === 'success' && result.added_secret) {
-            appendAddedSecret(result.added_secret, [detail.type || detailType]);
-            markDetailRowAsAdded(detailIndex);
-
-            if (typeof window._secretsDetailsAddedCount === 'number') {
-                window._secretsDetailsAddedCount += 1;
-            }
-            updateSecretsDetailsCountLabel(
-                window._secretsDetailsTotal || getSecretDetailsCount(parentSecret),
-                window._secretsDetailsAddedCount || 0
-            );
-
-            const pageItem = pageItems.find(item => item.index === detailIndex);
-            if (pageItem) {
-                pageItem.already_added = true;
-            }
-        } else if (result.status === 'success' && result.secrets_data) {
-            refreshSecretsData(result.secrets_data, { ensureTypes: [detail.type || detailType] });
-            if (window._secretsDetailsMode === 'lazy') {
-                await loadSecretsDetailsPage(window._secretsDetailsPage || 1);
-            } else {
-                renderSecretsDetailsTableInline(window._secretsDetailsPage || 1);
-            }
-        } else {
-            alert('Ошибка: ' + (result.message || 'Не удалось добавить секрет'));
-            if (btn) {
-                btn.disabled = false;
-                btn.textContent = '✅';
-            }
-        }
-    } catch (error) {
-        console.error('Error adding secret from details:', error);
-        alert('Ошибка при добавлении секрета');
-        if (btn) {
-            btn.disabled = false;
-            btn.textContent = '✅';
-        }
-    }
 }
 
 // Получаем данные из data-атрибутов
@@ -874,8 +821,10 @@ function applyFiltersSync() {
     selectedSecrets.clear();
     showEmptyDetail();
 
-    // Apply sorting to filtered results
+    // Apply sorting to filtered results, then build display rows
     sortSecrets();
+    displayRows = buildDisplayRows(filteredSecrets);
+    sortDisplayRows();
 
     // Update URL, stats, and render
     updateURL();
@@ -939,7 +888,7 @@ function updateURL() {
 function renderTable() {
     const tableContainer = document.getElementById('secretsTable');
     
-    if (filteredSecrets.length === 0) {
+    if (displayRows.length === 0) {
         tableContainer.innerHTML = `
             <div class="empty-results">
                 <h3>No secrets found</h3>
@@ -949,14 +898,10 @@ function renderTable() {
         return;
     }
 
-    // Calculate pagination
     const startIndex = (currentPage - 1) * pageSize;
-    const endIndex = Math.min(startIndex + pageSize, filteredSecrets.length);
-    const pageSecrets = filteredSecrets.slice(startIndex, endIndex);
+    const endIndex = Math.min(startIndex + pageSize, displayRows.length);
+    const pageRows = displayRows.slice(startIndex, endIndex);
 
-    // console.log(`Rendering ${pageSecrets.length} secrets (${startIndex}-${endIndex} of ${filteredSecrets.length})`);
-
-    // Generate table HTML -- deleted <th>📍 Line</th>
     let tableHTML = `
         <table class="secrets-table">
             <thead class="table-header">
@@ -972,40 +917,69 @@ function renderTable() {
             <tbody>
     `;
 
-    pageSecrets.forEach((secret, index) => {
+    pageRows.forEach((row, index) => {
         const globalIndex = startIndex + index;
-        tableHTML += `
-            <tr class="secret-row ${safeHtml(secret.severity).toLowerCase()}" data-secret-id="${secret.id}" data-secret-index="${globalIndex}">
+        if (row.isGroup) {
+            const severityLabel = getGroupSeverityLabel(row.members);
+            const severityClass = severityLabel.toLowerCase() === 'mixed' ? 'potential' : severityLabel.toLowerCase();
+            tableHTML += `
+            <tr class="secret-row group-row ${severityClass}" data-is-group="true" data-group-key="${encodeURIComponent(row.groupKey)}" data-row-index="${globalIndex}">
                 <td>
-                    <div class="secret-value">${safeHtml(secret.secret)}</div>
+                    <div class="secret-value">${row.count} секретов в файле</div>
                 </td>
                 <td>
-                    <span class="secret-file">${escapeHtml((secret.path || '').split('/').pop())}</span>
+                    <span class="secret-file">${escapeHtml((row.path || '').split('/').pop())}</span>
                 </td>
                 <td>
-                    <span class="secret-type">${escapeHtml(secret.type)}</span>
+                    <span class="secret-type">${escapeHtml(getGroupTypeLabel(row.members))}</span>
                 </td>
                 <td>
                     <div class="secret-status">
-                        ${getStatusHTML(secret)}
+                        ${getStatusHTML({ status: row.status })}
                     </div>
                 </td>
                 <td>
-                    <div class="secret-confidence" style="font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace; font-weight: 600; color: ${secret.confidence >= 0.8 ? '#059669' : secret.confidence >= 0.5 ? '#d97706' : '#dc2626'}; text-align: center;">
-                        ${(secret.confidence * 100).toFixed(0)}%
+                    <div class="secret-confidence" style="font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace; font-weight: 600; color: #6b7280; text-align: center;">
+                        ${escapeHtml(getGroupConfidenceLabel(row.members))}
                     </div>
                 </td>
                 <td>
-                    <div class="secret-severity ${safeHtml(secret.severity).toLowerCase()}">${escapeHtml(secret.severity)}</div>
+                    <div class="secret-severity ${escapeHtml(severityLabel).toLowerCase()}">${escapeHtml(severityLabel)}</div>
                 </td>
             </tr>
         `;
+        } else {
+            tableHTML += `
+            <tr class="secret-row ${safeHtml(row.severity).toLowerCase()}" data-secret-id="${row.id}" data-row-index="${globalIndex}">
+                <td>
+                    <div class="secret-value">${safeHtml(row.secret)}</div>
+                </td>
+                <td>
+                    <span class="secret-file">${escapeHtml((row.path || '').split('/').pop())}</span>
+                </td>
+                <td>
+                    <span class="secret-type">${escapeHtml(row.type)}</span>
+                </td>
+                <td>
+                    <div class="secret-status">
+                        ${getStatusHTML(row)}
+                    </div>
+                </td>
+                <td>
+                    <div class="secret-confidence" style="font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace; font-weight: 600; color: ${row.confidence >= 0.8 ? '#059669' : row.confidence >= 0.5 ? '#d97706' : '#dc2626'}; text-align: center;">
+                        ${(row.confidence * 100).toFixed(0)}%
+                    </div>
+                </td>
+                <td>
+                    <div class="secret-severity ${safeHtml(row.severity).toLowerCase()}">${escapeHtml(row.severity)}</div>
+                </td>
+            </tr>
+        `;
+        }
     });
 
     tableHTML += '</tbody></table>';
     tableContainer.innerHTML = tableHTML;
-
-    // Attach event listeners
     initializeTableEventListeners();
 }
 
@@ -1025,11 +999,13 @@ function getStatusHTML(secret) {
 
 function initializeTableEventListeners() {
     const secretRows = document.querySelectorAll('.secret-row');
-    secretRows.forEach((row, index) => {
+    secretRows.forEach((row) => {
         row.addEventListener('click', function(e) {
-            const secretId = parseInt(row.dataset.secretId);
-            const globalIndex = parseInt(row.dataset.secretIndex);
-            handleSecretClick(e, secretId, globalIndex);
+            const rowIndex = parseInt(row.dataset.rowIndex, 10);
+            const isGroup = row.dataset.isGroup === 'true';
+            const secretId = row.dataset.secretId ? parseInt(row.dataset.secretId, 10) : null;
+            const groupKey = row.dataset.groupKey ? decodeURIComponent(row.dataset.groupKey) : null;
+            handleRowClick(e, { rowIndex, isGroup, secretId, groupKey });
         });
     });
 
@@ -1044,14 +1020,13 @@ function initializeTableEventListeners() {
 }
 
 function renderPagination() {
-    const totalPages = Math.ceil(filteredSecrets.length / pageSize);
+    const totalPages = Math.ceil(displayRows.length / pageSize);
     const startIndex = (currentPage - 1) * pageSize + 1;
-    const endIndex = Math.min(currentPage * pageSize, filteredSecrets.length);
+    const endIndex = Math.min(currentPage * pageSize, displayRows.length);
 
-    // Pagination info
     const paginationInfo = document.getElementById('paginationInfo');
     if (paginationInfo) {
-        paginationInfo.textContent = `Показаны ${startIndex}-${endIndex} из ${filteredSecrets.length} секретов`;
+        paginationInfo.textContent = `Показаны ${displayRows.length === 0 ? 0 : startIndex}-${endIndex} из ${displayRows.length} строк (${filteredSecrets.length} секретов)`;
     }
 
     // Pagination controls
@@ -1106,7 +1081,7 @@ function renderPagination() {
 }
 
 function goToPage(page) {
-    const totalPages = Math.ceil(filteredSecrets.length / pageSize);
+    const totalPages = Math.ceil(displayRows.length / pageSize);
     if (page >= 1 && page <= totalPages) {
         currentPage = page;
         selectedSecrets.clear();
@@ -1147,79 +1122,105 @@ function toggleFiltersPanel() {
     }
 }
 
-function handleSecretClick(e, secretId, index) {
+function handleRowClick(e, { rowIndex, isGroup, secretId, groupKey }) {
     e.preventDefault();
 
     const isCtrlPressed = e.ctrlKey || e.metaKey;
 
     if (isCtrlPressed) {
-        toggleMultiSelection(secretId, index);
+        toggleMultiSelection(rowIndex, isGroup, secretId, groupKey);
         return;
     }
 
     if (e.shiftKey && lastClickedIndex !== -1 && selectedSecrets.size > 0) {
-        selectRange(lastClickedIndex, index);
+        selectRange(lastClickedIndex, rowIndex);
         return;
     }
 
     clearMultiSelection();
-    selectSingleSecret(secretId, index);
+    selectSingleRow(rowIndex, isGroup, secretId, groupKey);
 }
 
-function toggleMultiSelection(secretId, index) {
-    const row = document.querySelector(`[data-secret-id="${secretId}"]`);
+function getRowMemberIds(row) {
+    if (!row) return [];
+    if (row.isGroup) return row.memberIds.slice();
+    return [row.id];
+}
+
+function toggleMultiSelection(rowIndex, isGroup, secretId, groupKey) {
+    const row = getDisplayRowByIndex(rowIndex);
     if (!row) return;
 
-    if (selectedSecrets.has(secretId)) {
-        selectedSecrets.delete(secretId);
-        row.classList.remove('multi-selected', 'selected');
+    const memberIds = getRowMemberIds(row);
+    const rowEl = isGroup
+        ? document.querySelector(`[data-group-key="${encodeURIComponent(groupKey || '')}"]`)
+        : document.querySelector(`[data-secret-id="${secretId}"]`);
+    const allSelected = memberIds.every(id => selectedSecrets.has(id));
+
+    if (allSelected) {
+        memberIds.forEach(id => selectedSecrets.delete(id));
+        if (rowEl) rowEl.classList.remove('multi-selected', 'selected');
     } else {
-        selectedSecrets.add(secretId);
-        row.classList.remove('selected');
-        row.classList.add('multi-selected');
+        memberIds.forEach(id => selectedSecrets.add(id));
+        if (rowEl) {
+            rowEl.classList.remove('selected');
+            rowEl.classList.add('multi-selected');
+        }
     }
 
-    lastClickedIndex = index;
+    lastClickedIndex = rowIndex;
     updateSelectionView();
+}
+
+function selectSingleRow(rowIndex, isGroup, secretId, groupKey) {
+    clearMultiSelection();
+
+    const row = getDisplayRowByIndex(rowIndex);
+    if (!row) return;
+
+    const rowEl = isGroup
+        ? document.querySelector(`[data-group-key="${encodeURIComponent(groupKey || '')}"]`)
+        : document.querySelector(`[data-secret-id="${secretId}"]`);
+
+    if (rowEl) {
+        rowEl.classList.add('selected');
+        getRowMemberIds(row).forEach(id => selectedSecrets.add(id));
+        currentSecret = isGroup ? null : secretId;
+        lastClickedIndex = rowIndex;
+        if (isGroup) {
+            loadGroupDetails(row);
+        } else {
+            loadSecretDetails(secretId);
+        }
+    }
 }
 
 function selectRange(startIndex, endIndex) {
     const start = Math.min(startIndex, endIndex);
     const end = Math.max(startIndex, endIndex);
-    
-    // Get the current page secrets
     const pageStartIndex = (currentPage - 1) * pageSize;
-    const pageEndIndex = Math.min(pageStartIndex + pageSize, filteredSecrets.length);
-    
+    const pageEndIndex = Math.min(pageStartIndex + pageSize, displayRows.length);
+
     for (let i = start; i <= end; i++) {
-        if (i >= pageStartIndex && i < pageEndIndex) {
-            const secret = filteredSecrets[i];
-            if (secret) {
-                const row = document.querySelector(`[data-secret-id="${secret.id}"]`);
-                if (row) {
-                    selectedSecrets.add(secret.id);
-                    row.classList.add('multi-selected');
-                    row.classList.remove('selected');
-                }
-            }
+        if (i < pageStartIndex || i >= pageEndIndex) continue;
+        const row = displayRows[i];
+        if (!row) continue;
+        getRowMemberIds(row).forEach(id => selectedSecrets.add(id));
+        const rowEl = row.isGroup
+            ? document.querySelector(`[data-group-key="${encodeURIComponent(row.groupKey)}"]`)
+            : document.querySelector(`[data-secret-id="${row.id}"]`);
+        if (rowEl) {
+            rowEl.classList.add('multi-selected');
+            rowEl.classList.remove('selected');
         }
     }
-    
+
     lastClickedIndex = endIndex;
     updateSelectionView();
 }
 
 function selectSingleSecret(secretId, index) {
-    clearMultiSelection();
-    
-    const row = document.querySelector(`[data-secret-id="${secretId}"]`);
-    if (row) {
-        row.classList.add('selected');
-        selectedSecrets.add(secretId);
-        currentSecret = secretId;
-        lastClickedIndex = index;
-        loadSecretDetails(secretId);
-    }
+    selectSingleRow(index, false, secretId, null);
 }
 
 function clearMultiSelection() {
@@ -1311,14 +1312,16 @@ function showEmptyDetail() {
 function selectAllVisibleSecrets() {
     const visibleRows = document.querySelectorAll('.secret-row');
     selectedSecrets.clear();
-    
-    visibleRows.forEach(row => {
-        const secretId = parseInt(row.dataset.secretId);
-        selectedSecrets.add(secretId);
-        row.classList.add('multi-selected');
-        row.classList.remove('selected');
+
+    visibleRows.forEach(rowEl => {
+        const rowIndex = parseInt(rowEl.dataset.rowIndex, 10);
+        const row = getDisplayRowByIndex(rowIndex);
+        if (!row) return;
+        getRowMemberIds(row).forEach(id => selectedSecrets.add(id));
+        rowEl.classList.add('multi-selected');
+        rowEl.classList.remove('selected');
     });
-    
+
     showBulkDetail();
 }
 
@@ -1340,7 +1343,7 @@ function handleSort(column) {
     }
     
     // Применяем сортировку
-    sortSecrets();
+    sortDisplayRows();
     renderTable();
     renderPagination();
     
@@ -1364,6 +1367,79 @@ function updateSortIndicators() {
             header.classList.add(sort.direction === 'asc' ? 'sort-asc' : 'sort-desc');
         }
     }
+}
+
+function sortDisplayRows() {
+    if (sortColumns.length === 0) {
+        displayRows.sort((a, b) => {
+            const confA = a.isGroup
+                ? Math.max(...a.members.map(m => parseConfidence(m.confidence, 0)))
+                : parseConfidence(a.confidence, 0);
+            const confB = b.isGroup
+                ? Math.max(...b.members.map(m => parseConfidence(m.confidence, 0)))
+                : parseConfidence(b.confidence, 0);
+            return confB - confA;
+        });
+        return;
+    }
+
+    displayRows.sort((a, b) => {
+        for (let sort of sortColumns) {
+            let valueA, valueB;
+
+            switch (sort.column) {
+                case 'secret':
+                    valueA = a.isGroup ? a.count : (a.secret || '').toLowerCase();
+                    valueB = b.isGroup ? b.count : (b.secret || '').toLowerCase();
+                    break;
+                case 'file':
+                    valueA = getFileNameFromPath(a.path).toLowerCase();
+                    valueB = getFileNameFromPath(b.path).toLowerCase();
+                    break;
+                case 'type':
+                    valueA = a.isGroup
+                        ? getGroupTypeLabel(a.members).toLowerCase()
+                        : (a.type || '').toLowerCase();
+                    valueB = b.isGroup
+                        ? getGroupTypeLabel(b.members).toLowerCase()
+                        : (b.type || '').toLowerCase();
+                    break;
+                case 'status':
+                    const statusOrder = { 'Confirmed': 3, 'No status': 2, 'Refuted': 1 };
+                    valueA = statusOrder[normalizeSecretStatus(a.status)] || 0;
+                    valueB = statusOrder[normalizeSecretStatus(b.status)] || 0;
+                    break;
+                case 'severity':
+                    const severityOrder = { 'High': 2, 'Potential': 1, 'Mixed': 0 };
+                    valueA = a.isGroup
+                        ? severityOrder[getGroupSeverityLabel(a.members)] || 0
+                        : severityOrder[a.severity] || 0;
+                    valueB = b.isGroup
+                        ? severityOrder[getGroupSeverityLabel(b.members)] || 0
+                        : severityOrder[b.severity] || 0;
+                    break;
+                case 'confidence':
+                    valueA = a.isGroup
+                        ? Math.max(...a.members.map(m => parseConfidence(m.confidence, 0)))
+                        : parseConfidence(a.confidence, 0);
+                    valueB = b.isGroup
+                        ? Math.max(...b.members.map(m => parseConfidence(m.confidence, 0)))
+                        : parseConfidence(b.confidence, 0);
+                    break;
+                default:
+                    continue;
+            }
+
+            let comparison = 0;
+            if (valueA < valueB) comparison = -1;
+            else if (valueA > valueB) comparison = 1;
+
+            if (comparison !== 0) {
+                return sort.direction === 'asc' ? comparison : -comparison;
+            }
+        }
+        return 0;
+    });
 }
 
 function sortSecrets() {
@@ -1424,6 +1500,66 @@ function sortSecrets() {
     });
 }
 
+function loadGroupDetails(groupRow) {
+    currentGroup = groupRow;
+    window._currentGroup = groupRow;
+
+    const safePath = safeHtml(groupRow.path || '');
+    const safeStatus = safeHtml(groupRow.status || '');
+    const count = groupRow.count || 0;
+
+    const detailPanel = document.getElementById('detailPanel');
+    if (!detailPanel) return;
+
+    detailPanel.innerHTML = `
+        <div class="detail-content">
+            <h3>Группа секретов</h3>
+
+            <div class="detail-section">
+                <h4>📁 Путь до файла</h4>
+                <div class="detail-field">${safePath}</div>
+            </div>
+
+            <div class="detail-section">
+                <h4>📦 Количество секретов</h4>
+                <div class="detail-field">${count}</div>
+            </div>
+
+            <div class="detail-section">
+                <h4>📊 Статус группы</h4>
+                <div class="detail-field">${safeStatus}</div>
+            </div>
+
+            <div class="status-controls">
+                <h4 style="margin-bottom: 8px;">Статус для всей группы</h4>
+                <div class="status-buttons">
+                    <button class="status-btn ${groupRow.status === 'Confirmed' ? 'active' : ''}"
+                            onclick="updateGroupStatus('Confirmed')">
+                        ✅ Подтвердить все
+                    </button>
+                    <button class="status-btn ${groupRow.status === 'No status' ? 'active' : ''}"
+                            onclick="updateGroupStatus('No status')">
+                        ⚪ Без статуса
+                    </button>
+                    <button class="status-btn ${groupRow.status === 'Refuted' ? 'active' : ''}"
+                            onclick="updateGroupStatus('Refuted')">
+                        ❌ Опровергнуть все
+                    </button>
+                </div>
+            </div>
+
+            <div class="detail-section">
+                <button type="button" class="btn btn-secondary context-more-btn" onclick="openGroupSecretsModal()" style="margin-top: 0.5rem;">
+                    Подробнее (${count} секретов)
+                </button>
+                <div style="font-size: 0.8rem; color: #666; margin-top: 0.25rem;">
+                    Просмотрите секреты по отдельности и подтвердите только реальные находки.
+                </div>
+            </div>
+        </div>
+    `;
+}
+
 function loadSecretDetails(secretId) {
     const secretData = allSecrets.find(s => s.id === secretId);
     if (!secretData) return;
@@ -1475,17 +1611,8 @@ function loadSecretDetails(secretId) {
     const safeComment = safeHtml(secretData.exception_comment || '');
     const safeHash = escapeHtml(secretData.hash_from_ci || '');
 
-    const isTooManySecrets = _decodeHtmlEntities(secretData.type || '') === 'Too Many Secrets';
-    const detailsCount = getSecretDetailsCount(secretData);
-    const hasSecretsDetails = isTooManySecrets && detailsCount > 0;
-
     let detailsButtonHtml = '';
-    if (hasSecretsDetails) {
-        detailsButtonHtml = `
-                <button type="button" class="btn btn-secondary context-more-btn" onclick="openSecretsDetailsModal()" style="margin-top: 0.5rem;">
-                    Подробнее (${detailsCount} секретов)
-                </button>`;
-    } else if (contextHasMore) {
+    if (contextHasMore) {
         detailsButtonHtml = `
                 <button type="button" class="btn btn-secondary context-more-btn" onclick="openContextModal()" style="margin-top: 0.5rem;">
                     Подробнее
@@ -1709,7 +1836,6 @@ async function deleteSecret(secretId) {
             allSecrets = secretsData.slice();
             
             allSecrets.forEach(secret => normalizeSecretRecord(secret));
-            invalidateManualSecretsLookup();
             
             // Очистить выделение и показать пустую панель
             selectedSecrets.clear();

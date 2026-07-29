@@ -1013,7 +1013,7 @@ body {
     font-weight: 600;
 }
 
-/* Модальное окно Too Many Secrets */
+/* Модальное окно схлопнутой группы секретов */
 .secrets-details-modal-overlay {
     position: fixed;
     top: 0;
@@ -1167,6 +1167,19 @@ body {
     justify-content: flex-end;
 }
 
+.secret-row.group-row {
+    background: #f8fafc;
+}
+
+.secret-row.group-row:hover {
+    background: #eef2ff;
+}
+
+.secret-row.group-row .secret-value {
+    font-weight: 600;
+    color: #4338ca;
+}
+
 .secrets-details-pagination {
     display: flex;
     align-items: center;
@@ -1181,11 +1194,4 @@ body {
     color: #4b5563;
     min-width: 180px;
     text-align: center;
-}
-
-.secrets-details-loading {
-    text-align: center;
-    padding: 2rem;
-    color: #6b7280;
-    font-size: 0.875rem;
 }

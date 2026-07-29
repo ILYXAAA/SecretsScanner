@@ -18,7 +18,7 @@ from models import Project, Scan, Secret, ForbiddenViolation
 from services.auth import get_current_user
 from services.database import get_db, sanitize_string
 from services.microservice_client import check_microservice_health
-from utils.ci_hash import build_hash_from_ci
+from utils.ci_hash import build_hash_from_ci, normalize_path_for_ci_hash
 from utils.html_report_generator import generate_html_report, attachment_content_disposition
 from utils.forbidden_html_report_generator import generate_forbidden_html_report
 from services.templates import templates
@@ -114,80 +114,26 @@ def normalize_file_path(file_path: str, repo_url: str) -> str:
     return file_path
 
 MANUAL_SECRET_SUFFIX = " (добавлен вручную, см. context)"
-DETAILS_PAGE_SIZE_DEFAULT = 100
-DETAILS_PAGE_SIZE_MAX = 200
 
 
-def get_secrets_details_count(raw):
-    """Return number of items in secrets_details without full serialization."""
-    if not raw:
-        return 0
-    try:
-        details = json.loads(raw) if isinstance(raw, str) else raw
-    except (json.JSONDecodeError, TypeError):
-        return 0
-    return len(details) if isinstance(details, list) else 0
-
-
-def load_secrets_details_raw(raw):
-    """Load secrets_details as a list of dicts from DB JSON."""
-    if not raw:
-        return []
-    try:
-        details = json.loads(raw) if isinstance(raw, str) else raw
-    except (json.JSONDecodeError, TypeError):
-        return []
-    return details if isinstance(details, list) else []
-
-
-def serialize_secrets_detail_item(item):
-    """Serialize a single secrets_details item for the frontend."""
-    if not isinstance(item, dict):
-        return None
+def build_secret_export_item(secret) -> dict:
+    """Serialize a Secret for JSON file export."""
+    path = secret.path or ""
+    line_number = secret.line or 0
+    secret_value = secret.secret or ""
     return {
-        "line": int(item.get("line", 0) or 0),
-        "secret": html.escape(str(item.get("secret", "")), quote=True),
-        "type": html.escape(str(item.get("Type", item.get("type", "Unknown"))), quote=True),
+        "result_hash": secret.hash_from_ci or build_hash_from_ci(path, secret_value, line_number),
+        "path": normalize_path_for_ci_hash(path),
+        "line_number": line_number,
+        "secret": "***",
+        "message": secret.type or "",
+        "context": secret.context or "",
     }
 
 
-def parse_secrets_details(raw):
-    """Parse secrets_details JSON into a list of dicts for frontend."""
-    result = []
-    for item in load_secrets_details_raw(raw):
-        serialized = serialize_secrets_detail_item(item)
-        if serialized:
-            result.append(serialized)
-    return result
-
-
-def build_manual_secrets_lookup(db, scan_id, parent_path):
-    """Build lookup set of (line, secret_value) for manually added secrets in the same file."""
-    manual_secrets = db.query(Secret.line, Secret.secret).filter(
-        Secret.scan_id == scan_id,
-        Secret.path == parent_path,
-        Secret.secret.like(f"%{MANUAL_SECRET_SUFFIX}")
-    ).all()
-
-    lookup = set()
-    for line, secret in manual_secrets:
-        secret_value = secret or ""
-        if secret_value.endswith(MANUAL_SECRET_SUFFIX):
-            secret_value = secret_value[:-len(MANUAL_SECRET_SUFFIX)]
-        lookup.add((line or 0, secret_value))
-    return lookup
-
-
-def is_detail_already_added(lookup, line, secret_value):
-    """Check if a secrets_details item was already added manually."""
-    raw_secret = str(secret_value or "")
-    return (line or 0, raw_secret) in lookup
-
-
-def build_secret_dict(secret, previous_status=None, previous_scan_date=None, include_details=False):
+def build_secret_dict(secret, previous_status=None, previous_scan_date=None):
     """Serialize a Secret ORM object to a frontend dict."""
-    details_count = get_secrets_details_count(secret.secrets_details)
-    obj = {
+    return {
         "id": secret.id,
         "path": html.escape(secret.path or "", quote=True),
         "line": secret.line or 0,
@@ -210,13 +156,6 @@ def build_secret_dict(secret, previous_status=None, previous_scan_date=None, inc
         "previous_status": html.escape(previous_status or "", quote=True) if previous_status else None,
         "previous_scan_date": previous_scan_date,
     }
-    if include_details:
-        obj["secrets_details"] = parse_secrets_details(secret.secrets_details)
-    else:
-        obj["secrets_details"] = []
-        if details_count > 0:
-            obj["secrets_details_count"] = details_count
-    return obj
 
 def build_secrets_data_list(db, scan_id, include_previous_status=False, scan=None, project_name=None):
     """Build secrets_data list for a scan."""
@@ -715,11 +654,6 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
                             severity = result.get("severity", result.get("Severity", "High"))
                             statuses_applied["No status"] += 1
 
-                        secret_details_raw = result.get("secrets_details") or result.get("SecretsDetails")
-                        secrets_details_json = None
-                        if secret_details_raw and isinstance(secret_details_raw, list):
-                            secrets_details_json = json.dumps(secret_details_raw, ensure_ascii=False)
-
                         secret = Secret(
                             scan_id=scan_id,
                             path=path,
@@ -728,7 +662,7 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
                             hash_from_ci=secret_hash,
                             context=sanitize_string(result.get("context", "")),
                             severity=severity,
-                            confidence=result.get("confidence", 1.0),
+                            confidence=result.get("confidence", result.get("Confidence", 1.0)),
                             type=sanitize_string(result.get("Type", result.get("type", "Unknown"))),
                             is_exception=is_exception,
                             exception_comment=sanitize_string(exception_comment) if exception_comment else None,
@@ -736,7 +670,6 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
                             refuted_at=refuted_at,
                             confirmed_by=most_recent_secret.confirmed_by if most_recent_secret else None,
                             refuted_by=most_recent_secret.refuted_by if most_recent_secret else None,
-                            secrets_details=secrets_details_json,
                         )
                         batch_secrets.append(secret)
                     except Exception as e:
@@ -1160,83 +1093,6 @@ async def bulk_secret_action(
         )
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@router.get("/secrets/{secret_id}/details")
-async def get_secret_details(
-    secret_id: int,
-    page: int = 1,
-    page_size: int = DETAILS_PAGE_SIZE_DEFAULT,
-    current_user: str = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Return paginated secrets_details for a Too Many Secrets finding."""
-    try:
-        secret = db.query(Secret).filter(Secret.id == secret_id).first()
-        if not secret:
-            return JSONResponse(status_code=404, content={"status": "error", "message": "Secret not found"})
-
-        details_raw = load_secrets_details_raw(secret.secrets_details)
-        total = len(details_raw)
-        if total == 0:
-            return JSONResponse(
-                status_code=200,
-                content={
-                    "status": "success",
-                    "total": 0,
-                    "page": 1,
-                    "page_size": page_size,
-                    "total_pages": 0,
-                    "added_count": 0,
-                    "items": [],
-                },
-            )
-
-        page_size = max(1, min(page_size, DETAILS_PAGE_SIZE_MAX))
-        total_pages = max(1, (total + page_size - 1) // page_size)
-        page = max(1, min(page, total_pages))
-        start = (page - 1) * page_size
-        end = start + page_size
-
-        manual_lookup = build_manual_secrets_lookup(db, secret.scan_id, secret.path or "")
-        added_count = sum(
-            1 for item in details_raw
-            if isinstance(item, dict) and is_detail_already_added(
-                manual_lookup,
-                int(item.get("line", 0) or 0),
-                str(item.get("secret", "")),
-            )
-        )
-
-        items = []
-        for index, item in enumerate(details_raw[start:end], start=start):
-            serialized = serialize_secrets_detail_item(item)
-            if not serialized:
-                continue
-            raw_secret = str(item.get("secret", "")) if isinstance(item, dict) else ""
-            serialized["index"] = index
-            serialized["already_added"] = is_detail_already_added(
-                manual_lookup,
-                serialized["line"],
-                raw_secret,
-            )
-            items.append(serialized)
-
-        return JSONResponse(
-            status_code=200,
-            content={
-                "status": "success",
-                "total": total,
-                "page": page,
-                "page_size": page_size,
-                "total_pages": total_pages,
-                "added_count": added_count,
-                "items": items,
-            },
-        )
-    except Exception as e:
-        logger.error(f"Error loading secret details for secret_id={secret_id}: {e}")
-        return JSONResponse(status_code=500, content={"status": "error", "message": "Failed to load secret details"})
-
-
 @router.post("/secrets/add-custom")
 async def add_custom_secret(request: Request, scan_id: str = Form(...), secret_value: str = Form(...),
                            context: str = Form(...), line: int = Form(...), secret_type: str = Form(...),
@@ -1302,7 +1158,7 @@ async def add_custom_secret(request: Request, scan_id: str = Form(...), secret_v
         
         #logger.info(f"Custom secret successfully added with ID: '{new_secret.id}'")
 
-        added_secret = build_secret_dict(new_secret, include_details=False)
+        added_secret = build_secret_dict(new_secret)
         use_lightweight = str(lightweight).lower() in ("1", "true", "yes")
 
         if use_lightweight:
@@ -1616,13 +1472,9 @@ async def export_scan_results(
         secrets = db.query(Secret).filter(
             Secret.scan_id == scan_id,
             Secret.is_exception == False
-        ).all()
+        ).order_by(Secret.path, Secret.line).all()
 
-        # Create export data (only path and line)
-        export_data = [
-            {"path": secret.path, "line": secret.line}
-            for secret in secrets
-        ]
+        export_data = [build_secret_export_item(secret) for secret in secrets]
 
         # Generate filename
         filename = f"{scan.project_name}_{commit_short}.json"
