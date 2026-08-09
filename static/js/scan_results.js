@@ -285,6 +285,14 @@ function changeSecretsDetailsPage(delta) {
     renderGroupModalPage(nextPage);
 }
 
+function removeMemberFromCurrentGroup(secretId) {
+    if (!currentGroup) return;
+    currentGroup.members = (currentGroup.members || []).filter(member => member.id !== secretId);
+    currentGroup.memberIds = (currentGroup.memberIds || []).filter(id => id !== secretId);
+    currentGroup.count = currentGroup.members.length;
+    window._currentGroup = currentGroup;
+}
+
 async function confirmGroupMember(secretId) {
     const btn = document.querySelector(`#secretsDetailsTableBody tr[data-secret-id="${secretId}"] .secrets-details-add-btn`);
     if (btn) {
@@ -316,24 +324,20 @@ async function confirmGroupMember(secretId) {
             secret.refuted_at = null;
         }
 
+        removeMemberFromCurrentGroup(secretId);
         applyFiltersSync();
 
-        const updatedGroup = refreshCurrentGroup();
-        if (!updatedGroup || updatedGroup.count <= GROUP_COLLAPSE_THRESHOLD) {
+        if (!currentGroup || currentGroup.members.length === 0) {
             closeSecretsDetailsModal();
-            if (updatedGroup && updatedGroup.count > 0) {
-                showEmptyDetail();
-            }
+            showEmptyDetail();
             return;
         }
 
-        const totalPages = Math.max(1, Math.ceil(updatedGroup.count / GROUP_MODAL_PAGE_SIZE));
+        loadGroupDetails(currentGroup);
+
+        const totalPages = Math.max(1, Math.ceil(currentGroup.count / GROUP_MODAL_PAGE_SIZE));
         const page = Math.min(window._groupModalPage || 1, totalPages);
         renderGroupModalPage(page);
-
-        if (currentGroup) {
-            loadGroupDetails(currentGroup);
-        }
     } catch (error) {
         console.error('Error confirming group member:', error);
         alert('Ошибка при подтверждении секрета');
@@ -1080,6 +1084,13 @@ function renderPagination() {
     paginationControls.innerHTML = controlsHTML;
 }
 
+function resetSecretsTableScroll() {
+    const container = document.getElementById('secretsTableContainer');
+    if (container) {
+        container.scrollTop = 0;
+    }
+}
+
 function goToPage(page) {
     const totalPages = Math.ceil(displayRows.length / pageSize);
     if (page >= 1 && page <= totalPages) {
@@ -1089,6 +1100,7 @@ function goToPage(page) {
         updateURL();
         renderTable();
         renderPagination();
+        resetSecretsTableScroll();
     }
 }
 
@@ -1100,6 +1112,7 @@ function changePageSize() {
     updateURL();
     renderTable();
     renderPagination();
+    resetSecretsTableScroll();
 }
 
 function toggleFiltersPanel() {
@@ -1147,14 +1160,16 @@ function getRowMemberIds(row) {
     return [row.id];
 }
 
+function getRowElement(rowIndex) {
+    return document.querySelector(`tr.secret-row[data-row-index="${rowIndex}"]`);
+}
+
 function toggleMultiSelection(rowIndex, isGroup, secretId, groupKey) {
     const row = getDisplayRowByIndex(rowIndex);
     if (!row) return;
 
     const memberIds = getRowMemberIds(row);
-    const rowEl = isGroup
-        ? document.querySelector(`[data-group-key="${encodeURIComponent(groupKey || '')}"]`)
-        : document.querySelector(`[data-secret-id="${secretId}"]`);
+    const rowEl = getRowElement(rowIndex);
     const allSelected = memberIds.every(id => selectedSecrets.has(id));
 
     if (allSelected) {
@@ -1178,9 +1193,7 @@ function selectSingleRow(rowIndex, isGroup, secretId, groupKey) {
     const row = getDisplayRowByIndex(rowIndex);
     if (!row) return;
 
-    const rowEl = isGroup
-        ? document.querySelector(`[data-group-key="${encodeURIComponent(groupKey || '')}"]`)
-        : document.querySelector(`[data-secret-id="${secretId}"]`);
+    const rowEl = getRowElement(rowIndex);
 
     if (rowEl) {
         rowEl.classList.add('selected');
@@ -1206,9 +1219,7 @@ function selectRange(startIndex, endIndex) {
         const row = displayRows[i];
         if (!row) continue;
         getRowMemberIds(row).forEach(id => selectedSecrets.add(id));
-        const rowEl = row.isGroup
-            ? document.querySelector(`[data-group-key="${encodeURIComponent(row.groupKey)}"]`)
-            : document.querySelector(`[data-secret-id="${row.id}"]`);
+        const rowEl = getRowElement(i);
         if (rowEl) {
             rowEl.classList.add('multi-selected');
             rowEl.classList.remove('selected');
