@@ -17,10 +17,64 @@
       data-git-push-configured="{{ git_push_configured | tojson }}"
       data-language-search-git-push-configured="{{ language_search_git_push_configured | tojson }}">
     {% from "components/base_header.html" import header %}
+    {% macro ui_icon(name, class='', size=18) %}
+    <img src="/secret_scanner/static/icons/new/{{ name }}" alt="" class="ui-icon{% if class %} {{ class }}{% endif %}" width="{{ size }}" height="{{ size }}">
+    {% endmacro %}
+
+    {% macro section_heading(icon, badge, tint, title) %}
+    <h2 class="section-title">
+        <span class="section-icon-badge {{ badge }}">
+            {{ ui_icon(icon, 'section-title-icon ' ~ tint, 18) }}
+        </span>
+        <span class="section-title-text">{{ title }}</span>
+    </h2>
+    {% endmacro %}
+
+    {% macro file_stats(info) %}
+    {% if info %}
+    <div class="config-info">
+        <p><strong>Статус файла:</strong></p>
+        {% if info.exists %}
+        <p class="config-meta-line">
+            {{ ui_icon('Files.svg', 'meta-icon icon-tint-info', 14) }}
+            Размер: {{ "%.1f"|format(info.size / 1024) }} KB
+        </p>
+        <p class="config-meta-line">
+            {{ ui_icon('BaselineCalendarMonth.svg', 'meta-icon icon-tint-warn', 14) }}
+            Изменено: {{ info.modified | strftime if info.modified else 'Unknown' }}
+        </p>
+        {% else %}
+        <p class="config-error-line">
+            {{ ui_icon('Error.svg', 'icon-tint-error', 14) }}
+            Микросервис недоступен, либо файла не существует
+        </p>
+        {% endif %}
+    </div>
+    {% endif %}
+    {% endmacro %}
+
+    {% macro form_actions(save_id, reset_type) %}
+    <div class="form-actions-row">
+        <button type="submit" class="btn btn-success" id="{{ save_id }}">
+            {{ ui_icon('Commit.svg', 'btn-icon btn-icon-light', 16) }}
+            Обновить правила
+        </button>
+        <button type="button" class="btn btn-secondary" onclick="resetContent('{{ reset_type }}')">
+            {{ ui_icon('ArrowSync.svg', 'btn-icon icon-tint-info', 16) }}
+            Сбросить до текущих
+        </button>
+    </div>
+    {% endmacro %}
+
     {{ header('settings', current_user) }}
     
     <div class="container">
-        <h1 class="page-title">Настройки</h1>
+        <div class="page-header">
+            <h1 class="page-title">
+                {{ ui_icon('BaselineSettings.svg', 'page-title-icon icon-tint-info', 24) }}
+                Настройки
+            </h1>
+        </div>
         {% if 'error=microservice_unavailable' in rules_info %}
             <div class="alert alert-error">Microservice is unavailable. Please check if the scanning service is running.</div>
         {% endif %}
@@ -67,30 +121,35 @@
         
         <!-- Combined Configuration Section with Tabs -->
         <div class="settings-section">
-            <h2 class="section-title">⚙️ Настройка .yml файлов (правил сканирования)</h2>
-            <p style="color: #666; margin-bottom: 2rem;">
+            {{ section_heading('FileYaml.svg', 'badge-blue', 'icon-tint-info', 'Настройка .yml файлов (правил сканирования)') }}
+            <p class="section-description">
                 Управление конфигурационными файлами сканирования. Выберите файл для редактирования.
             </p>
             
             <div class="config-tabs">
                 <button class="config-tab active" data-tab="rules">
-                    🛡️ Rules Configuration
+                    {{ ui_icon('AddShieldHalf.svg', 'tab-icon icon-tint-success', 16) }}
+                    Rules Configuration
                     <span class="unsaved-indicator" id="rules-unsaved" style="display: none;"></span>
                 </button>
                 <button class="config-tab" data-tab="fp-rules">
-                    🚫 False-Positive
+                    {{ ui_icon('FalsePositive.svg', 'tab-icon icon-tint-error', 16) }}
+                    False-Positive
                     <span class="unsaved-indicator" id="fp-rules-unsaved" style="display: none;"></span>
                 </button>
                 <button class="config-tab" data-tab="extensions">
-                    🧩 Excluded Extensions
+                    {{ ui_icon('Extensions.svg', 'tab-icon icon-tint-warn', 16) }}
+                    Excluded Extensions
                     <span class="unsaved-indicator" id="extensions-unsaved" style="display: none;"></span>
                 </button>
                 <button class="config-tab" data-tab="languages-config">
-                    🌐 Языки / расширения
+                    {{ ui_icon('GeoActive.svg', 'tab-icon icon-tint-info', 16) }}
+                    Языки / расширения
                     <span class="unsaved-indicator" id="languages-config-unsaved" style="display: none;"></span>
                 </button>
                 <!-- <button class="config-tab" data-tab="files">
-                    🗂️ Excluded Files
+                    {{ ui_icon('FolderWithFilesLinear.svg', 'tab-icon icon-tint-warn', 16) }}
+                    Excluded Files
                     <span class="unsaved-indicator" id="files-unsaved" style="display: none;"></span>
                 </button> -->
             </div>
@@ -100,28 +159,20 @@
                 <div class="config-content active" id="rules-content">
                     <div class="config-header">
                         <div class="config-description">
-                            <p style="color: #666; margin-bottom: 1rem;">
+                            <p class="config-hint">
                                 Отредактируйте конфигурацию правил YAML для определения паттернов секретов.
                             </p>
-                            <p style="color: #666; margin-bottom: 1rem;">
-                                🛑 Параметр <span style="color: #a73b28;">severity</span> можно выставлять любой, т.к. его переопределяет модель-классификатор на микросервисе.
+                            <p class="config-hint">
+                                {{ ui_icon('AlertErrorStroke16.svg', 'hint-icon icon-tint-error', 14) }}
+                                <span>Параметр <span class="param-highlight param-severity">severity</span> можно выставлять любой, т.к. его переопределяет модель-классификатор на микросервисе.</span>
                             </p>
-                            <p style="color: #666; margin-bottom: 1rem;">
-                                🏷️ Параметр <span style="color: #28a745;">message</span> - это тип секрета (Type), отображается рядом с секретом в отчетах.
+                            <p class="config-hint">
+                                {{ ui_icon('ReviewCheckmark.svg', 'hint-icon icon-tint-success', 14) }}
+                                <span>Параметр <span class="param-highlight param-message">message</span> — это тип секрета (Type), отображается рядом с секретом в отчетах.</span>
                             </p>
                         </div>
                         <div class="config-stats">
-                            {% if rules_info %}
-                            <div class="config-info">
-                                <p><strong>Статус файла:</strong></p>
-                                {% if rules_info.exists %}
-                                <p>📁 Размер: {{ "%.1f"|format(rules_info.size / 1024) }} KB</p>
-                                <p>📅 Изменено: {{ rules_info.modified | strftime if rules_info.modified else 'Unknown' }}</p>
-                                {% else %}
-                                <p style="color: #ff6b6b;">❌ Микросервис недоступен, либо файла не существует</p>
-                                {% endif %}
-                            </div>
-                            {% endif %}
+                            {{ file_stats(rules_info) }}
                         </div>
                     </div>
                     
@@ -140,14 +191,7 @@
   pattern: "\\s*-----\\s*BEGIN*PRIVATE KEY*\\s*-----"
   severity: HIGH'>{{ current_rules_content or "" }}</textarea>
                         </div>
-                        <div style="display: flex; gap: 1rem; align-items: center;">
-                            <button type="submit" class="btn btn-success" id="updateRulesBtn">
-                                💾 Обновить правила
-                            </button>
-                            <button type="button" class="btn btn-secondary" onclick="resetContent('rules')">
-                                🔄 Сбросить до текущих
-                            </button>
-                        </div>
+                        {{ form_actions('updateRulesBtn', 'rules') }}
                     </form>
                 </div>
 
@@ -155,29 +199,21 @@
                 <div class="config-content" id="fp-rules-content">
                     <div class="config-header">
                         <div class="config-description">
-                            <p style="color: #666; margin-bottom: 1rem;">
-                                Настройте правила для игнорирования ложных срабатываний при сканировании. 
+                            <p class="config-hint">
+                                Настройте правила для игнорирования ложных срабатываний при сканировании.
                             </p>
-                            <p style="color: #666; margin-bottom: 1rem;">
-                                📄 Если строка из .yml файла находится в <span style="color: #28a745;">context</span> найденного секрета - данный секрет не учитывается при сканировании.
+                            <p class="config-hint">
+                                {{ ui_icon('Files.svg', 'hint-icon icon-tint-info', 14) }}
+                                <span>Если строка из .yml файла находится в <span class="param-highlight param-message">context</span> найденного секрета — данный секрет не учитывается при сканировании.</span>
                             </p>
-                            <p style="color: #666; margin-bottom: 1rem;">
-                                ⚠️ Если хотите добавить строку, в которой содержится двойная кавычка (<span style="color: #43a93c; font-size:medium; font-weight: bold;">"</span>), то необходимо записывать строку в одинарных: <br>
-                                Пример: <b>- 'tes<span style="color: #43a93c; font-weight: bolder;">"</span>t'</b>
+                            <p class="config-hint">
+                                {{ ui_icon('AlertErrorStroke16.svg', 'hint-icon icon-tint-warn', 14) }}
+                                <span>Если хотите добавить строку, в которой содержится двойная кавычка (<span class="quote-char">"</span>), то необходимо записывать строку в одинарных: <br>
+                                Пример: <b>- 'tes<span class="quote-char">"</span>t'</b></span>
                             </p>
                         </div>
                         <div class="config-stats">
-                            {% if fp_rules_info %}
-                            <div class="config-info">
-                                <p><strong>Статус файла:</strong></p>
-                                {% if fp_rules_info.exists %}
-                                <p>📁 Размер: {{ "%.1f"|format(fp_rules_info.size / 1024) }} KB</p>
-                                <p>📅 Изменено: {{ fp_rules_info.modified | strftime if fp_rules_info.modified else 'Unknown' }}</p>
-                                {% else %}
-                                <p style="color: #ff6b6b;">❌ Микросервис недоступен, либо файла не существует</p>
-                                {% endif %}
-                            </div>
-                            {% endif %}
+                            {{ file_stats(fp_rules_info) }}
                         </div>
                     </div>
                     
@@ -197,14 +233,7 @@ false_positive:
   - "sha256"
   - "password = null"'>{{ current_fp_rules_content or "" }}</textarea>
                         </div>
-                        <div style="display: flex; gap: 1rem; align-items: center;">
-                            <button type="submit" class="btn btn-success" id="updateFpRulesBtn">
-                                💾 Обновить правила
-                            </button>
-                            <button type="button" class="btn btn-secondary" onclick="resetContent('fp_rules')">
-                                🔄 Сбросить до текущих
-                            </button>
-                        </div>
+                        {{ form_actions('updateFpRulesBtn', 'fp_rules') }}
                     </form>
                 </div>
 
@@ -212,22 +241,13 @@ false_positive:
                 <div class="config-content" id="extensions-content">
                     <div class="config-header">
                         <div class="config-description">
-                            <p style="color: #666; margin-bottom: 1rem;">
-                                🚫 Файлы исключаются из сканирования, если их расширение совпадает с одним из шаблонов в <span style="color: #df224e;">excluded_extensions.yml</span>
+                            <p class="config-hint">
+                                {{ ui_icon('FalsePositive.svg', 'hint-icon icon-tint-error', 14) }}
+                                <span>Файлы исключаются из сканирования, если их расширение совпадает с одним из шаблонов в <span class="param-highlight param-severity">excluded_extensions.yml</span></span>
                             </p>
                         </div>
                         <div class="config-stats">
-                            {% if excluded_extensions_info %}
-                            <div class="config-info">
-                                <p><strong>Статус файла:</strong></p>
-                                {% if excluded_extensions_info.exists %}
-                                <p>📁 Размер: {{ "%.1f"|format(excluded_extensions_info.size / 1024) }} KB</p>
-                                <p>📅 Изменено: {{ excluded_extensions_info.modified | strftime if excluded_extensions_info.modified else 'Unknown' }}</p>
-                                {% else %}
-                                <p style="color: #ff6b6b;">❌ Микросервис недоступен, либо файла не существует</p>
-                                {% endif %}
-                            </div>
-                            {% endif %}
+                            {{ file_stats(excluded_extensions_info) }}
                         </div>
                     </div>
                     
@@ -246,14 +266,7 @@ excluded_extensions:
 - jpg
 - jpeg">{{ current_excluded_extensions_content or "" }}</textarea>
                         </div>
-                        <div style="display: flex; gap: 1rem; align-items: center;">
-                            <button type="submit" class="btn btn-success" id="updateExtensionsBtn">
-                                💾 Обновить правила
-                            </button>
-                            <button type="button" class="btn btn-secondary" onclick="resetContent('extensions')">
-                                🔄 Сбросить до текущих
-                            </button>
-                        </div>
+                        {{ form_actions('updateExtensionsBtn', 'extensions') }}
                     </form>
                 </div>
 
@@ -261,22 +274,12 @@ excluded_extensions:
                 <div class="config-content" id="languages-config-content">
                     <div class="config-header">
                         <div class="config-description">
-                            <p style="color: #666; margin-bottom: 1rem;">
+                            <p class="config-hint">
                                 Правила проверки запрещённых языков и расширений (<code>languages_repo_config.yml</code>) для forbidden check.
                             </p>
                         </div>
                         <div class="config-stats">
-                            {% if languages_config_info %}
-                            <div class="config-info">
-                                <p><strong>Статус файла:</strong></p>
-                                {% if languages_config_info.exists %}
-                                <p>📁 Размер: {{ "%.1f"|format(languages_config_info.size / 1024) }} KB</p>
-                                <p>📅 Изменено: {{ languages_config_info.modified | strftime if languages_config_info.modified else 'Unknown' }}</p>
-                                {% else %}
-                                <p style="color: #ff6b6b;">❌ Микросервис недоступен, либо файла не существует</p>
-                                {% endif %}
-                            </div>
-                            {% endif %}
+                            {{ file_stats(languages_config_info) }}
                         </div>
                     </div>
 
@@ -291,14 +294,7 @@ excluded_extensions:
                                 placeholder="forbidden_languages:
   - perl">{{ current_languages_config_content or "" }}</textarea>
                         </div>
-                        <div style="display: flex; gap: 1rem; align-items: center;">
-                            <button type="submit" class="btn btn-success" id="updateLanguagesConfigBtn">
-                                💾 Обновить правила
-                            </button>
-                            <button type="button" class="btn btn-secondary" onclick="resetContent('languages_config')">
-                                🔄 Сбросить до текущих
-                            </button>
-                        </div>
+                        {{ form_actions('updateLanguagesConfigBtn', 'languages_config') }}
                     </form>
                 </div>
 
@@ -311,17 +307,7 @@ excluded_extensions:
                             </p>
                         </div>
                         <div class="config-stats">
-                            {% if excluded_files_info %}
-                            <div class="config-info">
-                                <p><strong>Статус файла:</strong></p>
-                                {% if excluded_files_info.exists %}
-                                <p>📁 Размер: {{ "%.1f"|format(excluded_files_info.size / 1024) }} KB</p>
-                                <p>📅 Изменено: {{ excluded_files_info.modified | strftime if excluded_files_info.modified else 'Unknown' }}</p>
-                                {% else %}
-                                <p style="color: #ff6b6b;">❌ Микросервис недоступен, либо файла не существует</p>
-                                {% endif %}
-                            </div>
-                            {% endif %}
+                            {{ file_stats(excluded_files_info) }}
                         </div>
                     </div>
                     
@@ -340,39 +326,36 @@ excluded_files:
 - requirements.txt
 - CMakeLists.txt">{{ current_excluded_files_content or "" }}</textarea>
                         </div>
-                        <div style="display: flex; gap: 1rem; align-items: center;">
-                            <button type="submit" class="btn btn-success" id="updateFilesBtn">
-                                💾 Обновить правила
-                            </button>
-                            <button type="button" class="btn btn-secondary" onclick="resetContent('files')">
-                                🔄 Сбросить до текущих
-                            </button>
-                        </div>
+                        {{ form_actions('updateFilesBtn', 'files') }}
                     </form>
                 </div>
             </div>
         </div>
         
         <div class="settings-section">
-            <h2 class="section-title">🔑 Security</h2>
-            <p style="color: #666; margin-bottom: 2rem;">
+            {{ section_heading('LockPassword.svg', 'badge-purple', 'icon-tint-purple', 'Security') }}
+            <p class="section-description">
                 Настройка токенов, ключей и безопасности аккаунта.
             </p>
             
             <div class="config-tabs">
                 {% if is_admin_user(current_user) %}
                 <button class="config-tab active" data-tab="api-key">
-                    🔐 API Key
+                    {{ ui_icon('InterfaceUnlockCombinationComboKeyKeyholeLockSecureSecuritySquareUnlockUnlocked.svg', 'tab-icon icon-tint-purple', 16) }}
+                    API Key
                 </button>
                 <button class="config-tab" data-tab="password-change">
-                    🔒 Смена пароля
+                    {{ ui_icon('LockPassword.svg', 'tab-icon icon-tint-info', 16) }}
+                    Смена пароля
                 </button>
                 <button class="config-tab" data-tab="pat-token">
-                    🔑 PAT Token
+                    {{ ui_icon('ForgotPassword.svg', 'tab-icon icon-tint-warn', 16) }}
+                    PAT Token
                 </button>
                 {% else %}
                 <button class="config-tab active" data-tab="password-change">
-                    🔒 Смена пароля
+                    {{ ui_icon('LockPassword.svg', 'tab-icon icon-tint-info', 16) }}
+                    Смена пароля
                 </button>
                 {% endif %}
             </div>
@@ -386,8 +369,9 @@ excluded_files:
                             <p style="color: #666; margin-bottom: 1rem;">
                                 API ключ для аутентификации при обращении к микросервису сканирования.
                             </p>
-                            <p style="color: #666; margin-bottom: 1rem;">
-                                ⚠️ Изменение ключа потребует перезапуска микросервиса с новым ключом.
+                            <p class="config-hint">
+                                {{ ui_icon('AlertErrorStroke16.svg', 'hint-icon icon-tint-warn', 14) }}
+                                <span>Изменение ключа потребует перезапуска микросервиса с новым ключом.</span>
                             </p>
                         </div>
                     </div>
@@ -403,7 +387,8 @@ excluded_files:
                             <input type="password" id="api_key" name="api_key" placeholder="your_new_api_key_here" required>
                         </div>
                         <button type="submit" class="btn btn-primary">
-                            💾 Обновить API ключ
+                            {{ ui_icon('Commit.svg', 'btn-icon btn-icon-light', 16) }}
+                            Обновить API ключ
                         </button>
                     </form>
                 </div>
@@ -436,7 +421,8 @@ excluded_files:
                         </div>
                         
                         <button type="submit" class="btn btn-primary" id="changePasswordBtn">
-                            🔐 Изменить пароль
+                            {{ ui_icon('LockPassword.svg', 'btn-icon btn-icon-light', 16) }}
+                            Изменить пароль
                         </button>
                     </form>
                 </div>
@@ -463,7 +449,8 @@ excluded_files:
                             <input type="password" id="token" name="token" placeholder="aboba_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" required>
                         </div>
                         <button type="submit" class="btn btn-primary">
-                            💾 Обновить токен
+                            {{ ui_icon('Commit.svg', 'btn-icon btn-icon-light', 16) }}
+                            Обновить токен
                         </button>
                     </form>
                 </div>
@@ -474,9 +461,9 @@ excluded_files:
        <!-- Database Backup Section -->
         {% if is_admin_user(current_user) %}
         <div class="settings-section">
-            <h2 class="section-title">💾 Database Backup Management</h2>
+            {{ section_heading('AcceptDatabase.svg', 'badge-green', 'icon-tint-success', 'Database Backup Management') }}
             {% if is_sqlite %}
-            <p style="color: #666; margin-bottom: 1rem;">
+            <p class="section-description">
                 Управление резервными копиями базы данных. Автоматические бэкапы создаются каждые 24 часа.
             </p>
             
@@ -491,17 +478,19 @@ excluded_files:
                 </div>
             </div>
             
-            <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+            <div class="backup-actions">
                 <button type="button" class="btn btn-primary" onclick="createBackup()" id="createBackupBtn">
-                    💾 Создать бэкап БД
+                    {{ ui_icon('AcceptDatabase.svg', 'btn-icon btn-icon-light', 16) }}
+                    Создать бэкап БД
                 </button>
                 <button type="button" class="btn btn-info" onclick="refreshBackups()" id="refreshBtn">
-                    🔄 Обновить список
+                    {{ ui_icon('ArrowSync.svg', 'btn-icon icon-tint-info', 16) }}
+                    Обновить список
                 </button>
             </div>
             
             <div id="backup-list-container">
-                <h3 style="margin-bottom: 0.5rem;">Последние бэкапы:</h3>
+                <h3 class="backup-list-title">Последние бэкапы:</h3>
                 <div class="backup-list" id="backup-list">
                     <div style="padding: 2rem; text-align: center; color: #666;">
                         <div class="spinner"></div>
@@ -510,14 +499,14 @@ excluded_files:
                 </div>
             </div>
             {% else %}
-            <div class="alert alert-error">
-                ⚠️ Бэкапы базы данных доступны только для SQLite. 
-                Текущая БД: {{ db_type }}
+            <div class="alert alert-error alert-with-icon">
+                {{ ui_icon('AlertErrorStroke16.svg', 'icon-tint-warn', 16) }}
+                <span>Бэкапы базы данных доступны только для SQLite. Текущая БД: {{ db_type }}</span>
             </div>
-            <p style="color: #666; margin-bottom: 1rem;">
+            <p class="section-description">
                 Для создания бэкапов PostgreSQL или MySQL используйте соответствующие инструменты:
             </p>
-            <div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; border: 1px solid #e1e5e9; font-family: monospace; font-size: 0.9rem;">
+            <div class="db-hint-box">
                 <strong>PostgreSQL:</strong> pg_dump database_name > backup.sql<br>
                 <strong>MySQL:</strong> mysqldump database_name > backup.sql
             </div>
@@ -528,12 +517,18 @@ excluded_files:
 
     <div id="gitPushModal" class="git-push-modal" style="display:none;" onclick="if (event.target === this) closeGitPushModal();">
         <div class="git-push-modal-content" onclick="event.stopPropagation();">
-            <h3>Запушить изменения в SKIB KSU SecretSearch?</h3>
+            <h3 class="git-push-modal-title">
+                {{ ui_icon('Commit.svg', 'icon-tint-info', 20) }}
+                Запушить изменения в SKIB KSU SecretSearch?
+            </h3>
             <p>Файл будет сохранён на микросервисе и отправлен в удалённый репозиторий.</p>
             <div class="git-push-modal-actions">
                 <button type="button" class="btn btn-secondary" onclick="closeGitPushModal()">Отмена</button>
                 <button type="button" class="btn btn-secondary" id="gitPushNoBtn">Нет, только сохранить</button>
-                <button type="button" class="btn btn-success" id="gitPushYesBtn">Да, запушить</button>
+                <button type="button" class="btn btn-success" id="gitPushYesBtn">
+                    {{ ui_icon('repository.svg', 'btn-icon btn-icon-light', 16) }}
+                    Да, запушить
+                </button>
             </div>
         </div>
     </div>

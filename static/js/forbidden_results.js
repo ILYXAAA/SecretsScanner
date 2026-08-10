@@ -7,6 +7,9 @@ let filteredViolations = [];
 let currentPage = 1;
 let pageSize = 2000;
 let isFiltersOpen = false;
+let filtersToggleBtnClosedHtml = '';
+let filtersToggleBtnOpenHtml = '';
+let emptyDetailHtml = '';
 let activeFilters = {
     status: [],
     blocking: [],
@@ -90,6 +93,16 @@ function normalizeViolations() {
 }
 
 document.addEventListener('DOMContentLoaded', function () {
+    const filtersToggleBtn = document.getElementById('filtersToggleBtn');
+    if (filtersToggleBtn) {
+        filtersToggleBtnClosedHtml = filtersToggleBtn.innerHTML;
+        filtersToggleBtnOpenHtml = `${uiIcon('Error.svg', 'btn-icon icon-tint-error', 14)}<span>Закрыть</span>`;
+    }
+    const detailPanel = document.getElementById('detailPanel');
+    if (detailPanel) {
+        emptyDetailHtml = detailPanel.innerHTML;
+    }
+
     loadDataFromAttributes();
 
     if (!loadViolationsData()) {
@@ -153,7 +166,7 @@ function applyFiltersFromMain() {
     applyFilters();
 }
 
-function applyFiltersSync() {
+function recomputeFilteredViolations() {
     activeFilters.status = [];
     activeFilters.blocking = [];
     activeFilters.category = [];
@@ -178,26 +191,44 @@ function applyFiltersSync() {
         activeFilters.category.length === 0
     ) {
         filteredViolations = [];
-    } else {
-        filteredViolations = allViolations.filter(v => {
-            const statusMatch = activeFilters.status.includes(v.status);
-            const blockingMatch = activeFilters.blocking.includes(v.blockingLevel);
-            const categoryMatch = activeFilters.category.includes(v.category || 'other');
-            const searchTerm = activeFilters.search;
-            const searchMatch = !searchTerm || (
-                (v.path && v.path.toLowerCase().includes(searchTerm)) ||
-                (v.extension && v.extension.toLowerCase().includes(searchTerm)) ||
-                (v.language && v.language.toLowerCase().includes(searchTerm)) ||
-                (v.category && v.category.toLowerCase().includes(searchTerm)) ||
-                getFileNameFromPath(v.path).toLowerCase().includes(searchTerm)
-            );
-            return statusMatch && blockingMatch && categoryMatch && searchMatch;
-        });
+        return;
     }
 
-    currentPage = 1;
-    selectedViolations.clear();
-    showEmptyDetail();
+    filteredViolations = allViolations.filter(v => {
+        const statusMatch = activeFilters.status.includes(v.status);
+        const blockingMatch = activeFilters.blocking.includes(v.blockingLevel);
+        const categoryMatch = activeFilters.category.includes(v.category || 'other');
+        const searchTerm = activeFilters.search;
+        const searchMatch = !searchTerm || (
+            (v.path && v.path.toLowerCase().includes(searchTerm)) ||
+            (v.extension && v.extension.toLowerCase().includes(searchTerm)) ||
+            (v.language && v.language.toLowerCase().includes(searchTerm)) ||
+            (v.category && v.category.toLowerCase().includes(searchTerm)) ||
+            getFileNameFromPath(v.path).toLowerCase().includes(searchTerm)
+        );
+        return statusMatch && blockingMatch && categoryMatch && searchMatch;
+    });
+}
+
+function applyFiltersSync(options = {}) {
+    const {
+        resetPage = true,
+        clearSelection = true,
+        clearDetail = true,
+    } = options;
+
+    recomputeFilteredViolations();
+
+    if (resetPage) {
+        currentPage = 1;
+    }
+    if (clearSelection) {
+        selectedViolations.clear();
+    }
+    if (clearDetail) {
+        showEmptyDetail();
+    }
+
     sortViolations();
     updateStats();
     renderTable();
@@ -239,8 +270,8 @@ function renderTable() {
     if (filteredViolations.length === 0) {
         tableContainer.innerHTML = `
             <div class="empty-results">
-                <h3>No violations found</h3>
-                <p>No violations match the current filters.</p>
+                <h3>Нарушения не найдены</h3>
+                <p>Нет файлов, соответствующих текущим фильтрам.</p>
             </div>`;
         return;
     }
@@ -253,11 +284,12 @@ function renderTable() {
         <table class="secrets-table">
             <thead class="table-header">
                 <tr>
-                    <th class="sortable" data-sort="path">📁 Path</th>
-                    <th class="sortable" data-sort="extension">📎 Extension</th>
-                    <th class="sortable" data-sort="category">🏷️ Category</th>
-                    <th class="sortable" data-sort="language">🌐 Language</th>
-                    <th class="sortable" data-sort="status">📊 Status</th>
+                    <th class="sortable" data-sort="path">${uiTh('Files.svg', 'icon-tint-muted', 'Path')}</th>
+                    <th class="sortable" data-sort="extension">${uiTh('Extensions.svg', 'icon-tint-muted', 'Extension')}</th>
+                    <th class="sortable" data-sort="category">${uiTh('ReviewCheckmark.svg', 'icon-tint-muted', 'Category')}</th>
+                    <th class="sortable" data-sort="language">${uiTh('GeoActive.svg', 'icon-tint-muted', 'Language')}</th>
+                    <th class="sortable" data-sort="status">${uiTh('Analysis.svg', 'icon-tint-muted', 'Status')}</th>
+                    <th class="sortable" data-sort="blocking">${uiTh('AlertErrorStroke16.svg', 'icon-tint-muted', 'Level')}</th>
                 </tr>
             </thead>
             <tbody>`;
@@ -270,14 +302,21 @@ function renderTable() {
                     <span class="secret-file path-truncate" title="${escapeHtml(violation.path)}">${escapeHtml(violation.path)}</span>
                 </td>
                 <td>
-                    <span class="secret-type">${escapeHtml(violation.extension || '')}</span>
+                    <span class="secret-type">${escapeHtml(violation.extension || '—')}</span>
                 </td>
                 <td>
-                    <span class="secret-type">${escapeHtml(violation.category || '')}</span>
+                    <span class="secret-type">${escapeHtml(violation.category || '—')}</span>
                 </td>
-                <td>${escapeHtml(violation.language || '')}</td>
+                <td>
+                    <span class="secret-type secret-type-muted">${escapeHtml(violation.language || '—')}</span>
+                </td>
                 <td class="status-cell">
                     <div class="secret-status">${getStatusHTML(violation)}</div>
+                </td>
+                <td class="level-cell">
+                    <div class="secret-severity ${safeHtml(violation.rowSeverity)}">
+                        ${violation.blockingLevel === 'blocking' ? 'Blocking' : 'Non-blocking'}
+                    </div>
                 </td>
             </tr>`;
     });
@@ -290,12 +329,126 @@ function renderTable() {
 
 function getStatusHTML(violation) {
     if (violation.status === 'Confirmed') {
-        return '<span class="status-confirmed">✅ Confirmed</span>';
+        return statusConfirmedHtml('Confirmed');
     }
     if (violation.status === 'Refuted') {
-        return '<span class="status-refuted">❌ Refuted</span>';
+        return statusRefutedHtml('Refuted');
     }
-    return '<span class="status-none">⚪ Без статуса</span>';
+    return statusNoneHtml('Без статуса');
+}
+
+function isViolationOnCurrentPage(violationId) {
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    return filteredViolations.slice(startIndex, endIndex).some(v => v.id === violationId);
+}
+
+function highlightSelectedViolation(violationId) {
+    document.querySelectorAll('.secret-row').forEach(row => {
+        row.classList.remove('selected');
+    });
+    const row = document.querySelector(`tr.secret-row[data-violation-id="${violationId}"]`);
+    if (row) {
+        row.classList.add('selected');
+    }
+}
+
+function refreshViolationRowInTable(violationId) {
+    const violation = allViolations.find(v => v.id === violationId);
+    if (!violation) return;
+
+    const row = document.querySelector(`tr.secret-row[data-violation-id="${violationId}"]`);
+    if (!row) return;
+
+    const statusCell = row.querySelector('.secret-status');
+    if (statusCell) {
+        statusCell.innerHTML = getStatusHTML(violation);
+    }
+
+    const levelCell = row.querySelector('.secret-severity');
+    if (levelCell) {
+        levelCell.className = `secret-severity ${safeHtml(violation.rowSeverity)}`;
+        levelCell.textContent = violation.blockingLevel === 'blocking' ? 'Blocking' : 'Non-blocking';
+    }
+
+    row.className = `secret-row ${safeHtml(violation.rowSeverity)}${row.classList.contains('selected') ? ' selected' : ''}`;
+}
+
+function refreshViolationDetailStatus(violationId) {
+    const violation = allViolations.find(v => v.id === violationId);
+    if (!violation) return;
+
+    const panel = document.getElementById('detailPanel');
+    if (!panel) return;
+
+    const confirmedBtn = panel.querySelector('.status-btn-confirmed');
+    if (!confirmedBtn) {
+        loadViolationDetails(violationId);
+        return;
+    }
+
+    panel.querySelectorAll('.status-btn-confirmed, .status-btn-none, .status-btn-refuted').forEach(btn => {
+        btn.classList.remove('active');
+    });
+
+    if (violation.status === 'Confirmed') {
+        confirmedBtn.classList.add('active');
+    } else if (violation.status === 'Refuted') {
+        panel.querySelector('.status-btn-refuted')?.classList.add('active');
+    } else {
+        panel.querySelector('.status-btn-none')?.classList.add('active');
+    }
+
+    const commentSection = panel.querySelector('.comment-section');
+    if (commentSection) {
+        commentSection.style.display = violation.status === 'Refuted' ? 'block' : 'none';
+    }
+
+    const levelBadge = panel.querySelector('.detail-level-badge');
+    if (levelBadge) {
+        levelBadge.className = `secret-severity detail-level-badge ${violation.rowSeverity}`;
+        levelBadge.textContent = violation.blockingLevel === 'blocking' ? 'Blocking' : 'Non-blocking';
+    }
+}
+
+function refreshAfterViolationChange(violationId) {
+    const previousPage = currentPage;
+
+    recomputeFilteredViolations();
+    sortViolations();
+    updateStats();
+
+    const totalPages = Math.max(1, Math.ceil(filteredViolations.length / pageSize));
+    if (previousPage > totalPages) {
+        currentPage = totalPages;
+    } else {
+        currentPage = previousPage;
+    }
+
+    const stillVisible = filteredViolations.some(v => v.id === violationId);
+    if (!stillVisible) {
+        renderTable();
+        renderPagination();
+        refreshViolationDetailStatus(violationId);
+        return;
+    }
+
+    const activeSortColumn = sortColumns[0]?.column;
+    const canPatchRow = isViolationOnCurrentPage(violationId)
+        && document.querySelector(`tr.secret-row[data-violation-id="${violationId}"]`)
+        && activeSortColumn !== 'status'
+        && activeSortColumn !== 'blocking';
+
+    if (canPatchRow) {
+        refreshViolationRowInTable(violationId);
+        renderPagination();
+    } else {
+        renderTable();
+        renderPagination();
+    }
+
+    refreshViolationDetailStatus(violationId);
+    highlightSelectedViolation(violationId);
 }
 
 function initializeTableEventListeners() {
@@ -393,10 +546,10 @@ function toggleFiltersPanel() {
     isFiltersOpen = !isFiltersOpen;
     if (isFiltersOpen) {
         filtersPanel.classList.add('open');
-        filtersToggleBtn.textContent = '✖️ Закрыть';
+        filtersToggleBtn.innerHTML = filtersToggleBtnOpenHtml;
     } else {
         filtersPanel.classList.remove('open');
-        filtersToggleBtn.textContent = '🔍 Фильтры';
+        filtersToggleBtn.innerHTML = filtersToggleBtnClosedHtml;
     }
 }
 
@@ -486,29 +639,29 @@ function showBulkDetail() {
 
     detailPanel.innerHTML = `
         <div class="bulk-detail-panel">
-            <h3 class="bulk-title">📌 Выбрано файлов: <span class="bulk-count">${selectedViolations.size}</span></h3>
+            <h3 class="bulk-title">${uiIconLabel('AppDashboard.svg', 'icon-tint-muted', 'Выбрано файлов:')} <span class="bulk-count">${selectedViolations.size}</span></h3>
             <div class="bulk-section">
                 <button class="bulk-btn select-all-btn" onclick="selectAllVisibleViolations()">
-                    ✅ Выделить все на странице
+                    ${iconActionBtn('CheckboxCheckedFilled.svg', 'icon-tint-success', 'Выделить все на странице')}
                 </button>
             </div>
             <div class="bulk-section status-panel">
-                <h4>📊 Изменение статуса</h4>
+                ${uiDetailHeading('Analysis.svg', 'icon-tint-muted', 'Изменение статуса')}
                 <div class="bulk-buttons status-buttons">
                     <button class="bulk-btn status-confirmed-btn" onclick="performBulkAction('status', 'Confirmed')">
-                        ✅ Подтвердить
+                        ${iconActionBtn('CheckboxCheckedFilled.svg', 'icon-tint-success', 'Подтвердить')}
                     </button>
                     <button class="bulk-btn status-none-btn" onclick="performBulkAction('status', 'No status')">
-                        ⚪ Без статуса
+                        ${iconActionBtn('NoStatus.svg', 'icon-tint-muted', 'Без статуса')}
                     </button>
                     <button class="bulk-btn status-refuted-btn" onclick="performBulkAction('status', 'Refuted')">
-                        ❌ Опровергнуть
+                        ${iconActionBtn('Error.svg', 'icon-tint-error', 'Опровергнуть')}
                     </button>
                 </div>
             </div>
             <div class="bulk-section">
-                <button class="bulk-btn btn-secondary" onclick="clearMultiSelection(); showEmptyDetail();" style="width: 100%;">
-                    ❌ Отменить выделение
+                <button class="bulk-btn bulk-cancel-btn" onclick="clearMultiSelection(); showEmptyDetail();" style="width: 100%;">
+                    ${iconActionBtn('Error.svg', 'icon-tint-error', 'Отменить выделение')}
                 </button>
             </div>
         </div>`;
@@ -517,18 +670,7 @@ function showBulkDetail() {
 function showEmptyDetail() {
     const detailPanel = document.getElementById('detailPanel');
     if (!detailPanel) return;
-
-    detailPanel.innerHTML = `
-        <div class="detail-empty">
-            <div style="text-align: center; padding: 2rem;">
-                <div style="font-size: 3rem; margin-bottom: 1rem;">👈</div>
-                <h3>Выберите файл, чтобы просмотреть подробную информацию</h3>
-                <p>Нажмите на любой файл из списка, чтобы просмотреть подробную информацию, управлять его статусом и получить доступ к расположению файла.</p>
-                <div style="margin-top: 2rem; padding: 1rem; background: #f0f9ff; border-radius: 8px; border-left: 4px solid #3b82f6;">
-                    <strong>💡 Совет:</strong> Используйте <kbd>Ctrl</kbd> для выделения нескольких файлов или <kbd>Shift</kbd> для выделения диапазона.
-                </div>
-            </div>
-        </div>`;
+    detailPanel.innerHTML = emptyDetailHtml || '';
 }
 
 function selectAllVisibleViolations() {
@@ -604,6 +746,12 @@ function sortViolations() {
                     valueB = statusOrder[b.status] || 0;
                     break;
                 }
+                case 'blocking': {
+                    const blockingOrder = { blocking: 2, 'non-blocking': 1 };
+                    valueA = blockingOrder[a.blockingLevel] || 0;
+                    valueB = blockingOrder[b.blockingLevel] || 0;
+                    break;
+                }
                 default:
                     continue;
             }
@@ -662,89 +810,83 @@ function loadViolationDetails(violationId) {
 
     detailPanel.innerHTML = `
         <div class="detail-content">
-            <h3>Violation Details</h3>
+            <h3>Детали нарушения</h3>
 
             <div class="detail-section">
-                <h4>📁 Path</h4>
-                <a href="${fileUrl}" target="_blank" class="detail-field clickable path-truncate" style="display: block; text-decoration: none; color: inherit;" title="${escapeHtml(violation.path || '')}">
+                ${uiDetailHeading('Files.svg', 'icon-tint-muted', 'Путь до файла')}
+                <a href="${fileUrl}" target="_blank" class="detail-field clickable path-truncate" title="${escapeHtml(violation.path || '')}">
                     ${safePath}
                 </a>
-                <div style="font-size: 0.8rem; color: #666; margin-top: 0.25rem;">
-                    Нажмите чтобы открыть в репозитории
-                </div>
+                <div class="detail-hint">Нажмите, чтобы открыть в репозитории</div>
             </div>
 
             <div class="status-controls">
-                <h4 style="margin-bottom: 8px;">Статус</h4>
+                ${uiDetailHeading('Analysis.svg', 'icon-tint-muted', 'Статус')}
                 <div class="status-buttons">
-                    <button class="status-btn ${violation.status === 'Confirmed' ? 'active' : ''}"
+                    <button class="status-btn status-btn-confirmed ${violation.status === 'Confirmed' ? 'active' : ''}"
                             onclick="updateViolationStatus(${violationId}, 'Confirmed')">
-                        ✅ Подтвердить
+                        ${iconActionBtn('CheckboxCheckedFilled.svg', 'icon-tint-success', 'Подтвердить')}
                     </button>
-                    <button class="status-btn ${violation.status === 'No status' ? 'active' : ''}"
+                    <button class="status-btn status-btn-none ${violation.status === 'No status' ? 'active' : ''}"
                             onclick="updateViolationStatus(${violationId}, 'No status')">
-                        ⚪ Без статуса
+                        ${iconActionBtn('NoStatus.svg', 'icon-tint-muted', 'Без статуса')}
                     </button>
-                    <button class="status-btn ${violation.status === 'Refuted' ? 'active' : ''}"
+                    <button class="status-btn status-btn-refuted ${violation.status === 'Refuted' ? 'active' : ''}"
                             onclick="updateViolationStatus(${violationId}, 'Refuted')">
-                        ❌ Опровергнуть
+                        ${iconActionBtn('Error.svg', 'icon-tint-error', 'Опровергнуть')}
                     </button>
                 </div>
                 <div class="comment-section" style="display: ${violation.status === 'Refuted' ? 'block' : 'none'};">
                     <label for="comment-${violationId}">Комментарий:</label>
-                    <textarea id="comment-${violationId}" placeholder="Explain why this is not a violation...">${safeComment}</textarea>
+                    <textarea id="comment-${violationId}" placeholder="Объясните, почему это не нарушение...">${safeComment}</textarea>
                     <button class="btn btn-primary" style="margin-top: 0.5rem; font-size: 0.8rem;"
                             onclick="updateViolationStatus(${violationId}, 'Refuted')">
-                        💾 Update Comment
+                        ${iconActionBtn('ArrowSync.svg', 'icon-tint-info', 'Обновить комментарий')}
                     </button>
                 </div>
             </div>
 
             <div class="detail-section">
-                <h4>📝 Причины нарушения</h4>
-                <div class="detail-field" style="white-space: pre-wrap;">${reasonsHtml}</div>
+                ${uiDetailHeading('FalsePositive.svg', 'icon-tint-muted', 'Причины нарушения')}
+                <div class="detail-field detail-field-prose">${reasonsHtml}</div>
             </div>
 
             <div class="detail-section">
-                <h4>📦 Размер файла</h4>
+                ${uiDetailHeading('FolderWithFilesLinear.svg', 'icon-tint-muted', 'Размер файла')}
                 <div class="detail-field">${formatFileSize(violation.size)}</div>
             </div>
 
             <div class="detail-section">
-                <h4>🧩 Binary</h4>
+                ${uiDetailHeading('Files.svg', 'icon-tint-muted', 'Binary')}
                 <div class="detail-field">${binaryText}</div>
             </div>
 
             <div class="detail-section">
-                <h4>⚠️ Уровень</h4>
-                <div class="secret-severity ${violation.rowSeverity}">
+                ${uiDetailHeading('AlertErrorStroke16.svg', 'icon-tint-muted', 'Уровень')}
+                <div class="secret-severity detail-level-badge ${violation.rowSeverity}">
                     ${violation.blockingLevel === 'blocking' ? 'Blocking' : 'Non-blocking'}
                 </div>
             </div>
 
             <div class="detail-section">
-                <h4>📎 Extension</h4>
+                ${uiDetailHeading('Extensions.svg', 'icon-tint-muted', 'Extension')}
                 <div class="detail-field">${escapeHtml(violation.extension || '—')}</div>
             </div>
 
             <div class="detail-section">
-                <h4>🏷️ Category</h4>
+                ${uiDetailHeading('ReviewCheckmark.svg', 'icon-tint-muted', 'Category')}
                 <div class="detail-field">${escapeHtml(violation.category || '—')}</div>
             </div>
 
             <div class="detail-section">
-                <h4>🌐 Language</h4>
+                ${uiDetailHeading('GeoActive.svg', 'icon-tint-muted', 'Language')}
                 <div class="detail-field">${escapeHtml(violation.language || '—')}</div>
             </div>
 
             <div class="detail-section">
-                <h4>🔐 CI Hash</h4>
-                <div class="detail-field hash-field" style="font-family: monospace; font-size: 0.75rem; word-break: break-all; user-select: all;">
-                    ${safeHash || '—'}
-                </div>
-                <div style="font-size: 0.8rem; color: #666; margin-top: 0.25rem;">
-                    Хеш для CI (language_search_falses.txt): repo_suffix + relative_path
-                </div>
+                ${uiDetailHeading('ForgotPassword.svg', 'icon-tint-muted', 'CI Hash')}
+                <div class="detail-field hash-field">${safeHash || '—'}</div>
+                <div class="detail-hint">Хеш для CI (language_search_falses.txt): repo_suffix + relative_path</div>
             </div>
         </div>`;
 }
@@ -771,8 +913,7 @@ async function updateViolationStatus(violationId, status) {
             violation.rowSeverity = violation.is_blocking && !violation.is_exception ? 'high' : 'potential';
         }
 
-        applyFiltersSync();
-        loadViolationDetails(violationId);
+        refreshAfterViolationChange(violationId);
     } catch (error) {
         console.error('Error updating status:', error);
         alert('Error updating status');

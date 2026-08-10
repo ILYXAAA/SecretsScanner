@@ -14,7 +14,10 @@
     
     <div class="container">
         <div class="page-header">
-            <h1 class="page-title">🔄 Мультисканирование</h1>
+            <h1 class="page-title">
+                <img src="/secret_scanner/static/icons/new/InterfaceAlignLayers1DesignLayerLayersPileStack.svg" alt="" class="page-title-icon" width="24" height="24">
+                Мультисканирование
+            </h1>
         </div>
         
         <div id="alertContainer"></div>
@@ -54,17 +57,18 @@
                 </div>
                 <div class="form-actions">
                     <button type="submit" class="btn btn-primary">
-                        🚀 Отправить на сканирование
+                        <img src="/secret_scanner/static/icons/new/BxsRocket.svg" alt="" class="btn-icon btn-icon-rocket" width="16" height="16">
+                        Запуск
                     </button>
                 </div>
             </form>
         </div>
         
         <div id="scanResults" style="display: none;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-                <h2 style="color: #333; margin: 0;">📊 Запущенные сканирования</h2>
-                <div style="display: flex; gap: 1rem; align-items: center;">
-                    <div id="refreshStatus" style="font-size: 0.9rem; color: #666;"></div>
+            <div class="scan-results-toolbar">
+                <h2>📊 Запущенные сканирования</h2>
+                <div class="scan-results-actions">
+                    <div id="refreshStatus"></div>
                     <button class="btn btn-secondary" onclick="clearScanResults()">
                         🗑️ Очистить результаты
                     </button>
@@ -72,13 +76,13 @@
             </div>
             <div id="scanList" class="scan-list"></div>
         </div>
-    </div>
 
-    <div id="completedRepos" style="display: none;">
-        <div class="completed-repos">
-            <h3>📋 Просканированные репозитории</h3>
-            <div class="repo-list" id="repoList"></div>
-            <button class="copy-button" onclick="copyRepoList()">📋 Копировать список</button>
+        <div id="completedRepos" style="display: none;">
+            <div class="completed-repos">
+                <h3>📋 Просканированные репозитории</h3>
+                <div class="repo-list" id="repoList"></div>
+                <button class="copy-button" onclick="copyRepoList()">📋 Копировать список</button>
+            </div>
         </div>
     </div>
     

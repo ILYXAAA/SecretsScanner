@@ -16,20 +16,31 @@ router = APIRouter()
 @router.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request, page: int = 1, search: str = "", current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     #start = time.time()
-    per_page = 10
+    per_page = 20
     offset = (page - 1) * per_page
     
-    # Оптимизированный запрос для recent scans - используем денормализованные счетчики
+    # Recent scans with project repo URLs
+    recent_scans = db.query(Scan).order_by(Scan.started_at.desc()).limit(20).all()
+    project_names = list({scan.project_name for scan in recent_scans})
+    projects_by_name = {}
+    if project_names:
+        projects_by_name = {
+            project.name: project
+            for project in db.query(Project).filter(Project.name.in_(project_names)).all()
+        }
+
     recent_scans_data = []
-    recent_scans = db.query(Scan).filter(
-        Scan.completed_at.is_not(None)
-    ).order_by(Scan.started_at.desc()).limit(20).all()
-    
     for scan in recent_scans:
+        project = projects_by_name.get(scan.project_name)
+        scan_type = scan.scan_type or "secrets"
         recent_scans_data.append({
             "scan": scan,
+            "repo_url": project.repo_url if project else "",
             "high_count": scan.high_secrets_count or 0,
-            "potential_count": scan.potential_secrets_count or 0
+            "potential_count": scan.potential_secrets_count or 0,
+            "violations_count": scan.violations_count or 0,
+            "findings_total": (scan.violations_count or 0) if scan_type == "forbidden" else (scan.high_secrets_count or 0) + (scan.potential_secrets_count or 0),
+            "scan_type": scan_type,
         })
     
     # Оптимизированный запрос проектов с пагинацией и поиском
@@ -76,11 +87,25 @@ async def dashboard(request: Request, page: int = 1, search: str = "", current_u
             high_count = 0
             potential_count = 0
         
+        scan_type = None
+        findings_total = None
+        if latest_scan:
+            scan_type = latest_scan.scan_type or "secrets"
+            if latest_scan.status == "completed":
+                findings_total = (
+                    (latest_scan.violations_count or 0)
+                    if scan_type == "forbidden"
+                    else (latest_scan.high_secrets_count or 0) + (latest_scan.potential_secrets_count or 0)
+                )
+
         projects_data.append({
             "project": project,
             "latest_scan": latest_scan,
+            "repo_url": project.repo_url or "",
             "high_count": high_count,
             "potential_count": potential_count,
+            "findings_total": findings_total,
+            "scan_type": scan_type,
             "latest_scan_date": latest_scan.started_at if latest_scan else datetime.min
         })
     

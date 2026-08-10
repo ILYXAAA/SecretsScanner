@@ -1,4 +1,18 @@
-// Получаем оригинальный контент из data-атрибутов
+const SETTINGS_ICON_BASE = '/secret_scanner/static/icons/new/';
+
+function settingsIcon(name, className = 'ui-icon', size = 14) {
+    return `<img src="${SETTINGS_ICON_BASE}${name}" alt="" class="${className}" width="${size}" height="${size}">`;
+}
+
+function settingsEmptyState(message, icon = 'FolderWithFilesLinear.svg', tint = 'icon-tint-warn') {
+    return `
+        <div class="backup-empty">
+            ${settingsIcon(icon, 'ui-icon ' + tint, 24)}
+            <span>${message}</span>
+        </div>
+    `;
+}
+
 function loadOriginalContent() {
     return {
         rules: document.body.dataset.originalRules || '',
@@ -72,6 +86,9 @@ document.addEventListener('DOMContentLoaded', function() {
     initializeChangeTracking();
 });
 
+const changePasswordBtn = document.getElementById('changePasswordBtn');
+const changePasswordBtnDefault = changePasswordBtn ? changePasswordBtn.innerHTML : '';
+
 document.getElementById('passwordChangeForm')?.addEventListener('submit', function(e) {
     const newPassword = document.getElementById('new_password').value;
     const confirmPassword = document.getElementById('confirm_password').value;
@@ -91,12 +108,12 @@ document.getElementById('passwordChangeForm')?.addEventListener('submit', functi
     
     // Show loading state
     btn.disabled = true;
-    btn.innerHTML = '⏳ Изменение пароля...';
+    btn.innerHTML = '<span class="spinner"></span> Изменение пароля...';
     
     // Re-enable button after timeout
     setTimeout(() => {
         btn.disabled = false;
-        btn.innerHTML = '🔐 Изменить пароль';
+        btn.innerHTML = changePasswordBtnDefault;
     }, 30000);
 });
 
@@ -189,11 +206,7 @@ function updateBackupDisplay(data) {
     const backupList = document.getElementById('backup-list');
     
     if (data.backups.length === 0) {
-        backupList.innerHTML = `
-            <div style="padding: 2rem; text-align: center; color: #666;">
-                📂 No backups found
-            </div>
-        `;
+        backupList.innerHTML = settingsEmptyState('No backups found');
         return;
     }
     
@@ -224,8 +237,9 @@ function updateBackupDisplay(data) {
 function showBackupError(message) {
     const backupList = document.getElementById('backup-list');
     backupList.innerHTML = `
-        <div style="padding: 2rem; text-align: center; color: #dc3545;">
-            ❌ ${message}
+        <div class="backup-error">
+            ${settingsIcon('Error.svg', 'ui-icon icon-tint-error', 20)}
+            <span>${message}</span>
         </div>
     `;
 }
@@ -248,12 +262,12 @@ async function createBackup() {
             await loadBackups();
             
             // Show success message
-            showNotification('✅ Backup created successfully!', 'success');
+            showNotification('Backup created successfully!', 'success');
         } else {
-            showNotification('❌ Failed to create backup: ' + (data.message || 'Unknown error'), 'error');
+            showNotification('Failed to create backup: ' + (data.message || 'Unknown error'), 'error');
         }
     } catch (error) {
-        showNotification('❌ Network error: ' + error.message, 'error');
+        showNotification('Network error: ' + error.message, 'error');
     } finally {
         btn.disabled = false;
         btn.innerHTML = originalText;
@@ -271,9 +285,9 @@ async function refreshBackups() {
     
     try {
         await loadBackups();
-        showNotification('✅ Backup list refreshed', 'success');
+        showNotification('Backup list refreshed', 'success');
     } catch (error) {
-        showNotification('❌ Failed to refresh: ' + error.message, 'error');
+        showNotification('Failed to refresh: ' + error.message, 'error');
     } finally {
         btn.disabled = false;
         btn.innerHTML = originalText;
@@ -326,7 +340,7 @@ function openGitPushModal(submitConfig) {
 async function submitRulesForm({ formElement, updateBtn, contentElement, indicatorElement, type }, pushToGit) {
     const originalBtnText = updateBtn.innerHTML;
     updateBtn.disabled = true;
-    updateBtn.innerHTML = pushToGit ? '⏳ Сохранение и push...' : '⏳ Сохранение...';
+    updateBtn.innerHTML = pushToGit ? '<span class="spinner"></span> Сохранение и push...' : '<span class="spinner"></span> Сохранение...';
 
     if (indicatorElement) {
         indicatorElement.style.display = 'none';
@@ -355,9 +369,9 @@ async function submitRulesForm({ formElement, updateBtn, contentElement, indicat
             return ta.value !== originalContent[t];
         });
 
-        showNotification('✅ ' + (data.message || 'Изменения сохранены'), 'success');
+        showNotification(data.message || 'Изменения сохранены', 'success');
     } catch (error) {
-        showNotification('❌ ' + error.message, 'error');
+        showNotification(error.message, 'error');
     } finally {
         updateBtn.disabled = false;
         updateBtn.innerHTML = originalBtnText;
@@ -429,7 +443,8 @@ legacyForms.forEach(({ form, btn, content, indicator }) => {
             }
             
             updateBtn.disabled = true;
-            updateBtn.innerHTML = '⏳ Updating...';
+            const legacyBtnDefault = updateBtn.innerHTML;
+            updateBtn.innerHTML = '<span class="spinner"></span> Сохранение...';
             
             if (indicatorElement) {
                 indicatorElement.style.display = 'none';
@@ -437,7 +452,7 @@ legacyForms.forEach(({ form, btn, content, indicator }) => {
             
             setTimeout(() => {
                 updateBtn.disabled = false;
-                updateBtn.innerHTML = updateBtn.innerHTML.replace('⏳ Updating...', '💾 Update');
+                updateBtn.innerHTML = legacyBtnDefault;
             }, 30000);
         });
     }
@@ -448,6 +463,7 @@ function resetContent(type) {
         'rules': 'rules_content',
         'fp_rules': 'fp_rules_content',
         'extensions': 'excluded_extensions_content',
+        'languages_config': 'languages_config_content',
         'files': 'excluded_files_content'
     };
     
@@ -455,6 +471,7 @@ function resetContent(type) {
         'rules': 'rules-unsaved',
         'fp_rules': 'fp-rules-unsaved',
         'extensions': 'extensions-unsaved',
+        'languages_config': 'languages-config-unsaved',
         'files': 'files-unsaved'
     };
     

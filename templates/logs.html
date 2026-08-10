@@ -3,145 +3,211 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Logs - Secrets Scanner</title>
+    <title>Логи — Secrets Scanner</title>
+    <link rel="stylesheet" href="/secret_scanner/static/css/base_header.css">
     <link rel="stylesheet" href="/secret_scanner/static/css/logs.css">
     <link rel="icon" type="image/x-icon" href="/secret_scanner/favicon.ico">
 </head>
-<body data-api-logs="{{ get_full_url('logging/logs') }}" 
+<body data-api-logs="{{ get_full_url('logging/logs') }}"
       data-api-microservice-logs="{{ get_full_url('logging/microservice-logs') }}"
       data-api-user-actions-logs="{{ get_full_url('logging/user-actions-logs') }}"
       data-api-appsec-tool-logs="{{ get_full_url('logging/appsec-tool-logs') }}">
+    {% from "components/base_header.html" import header %}
+    {% from "components/scan_results_macros.html" import ui_icon %}
+    {{ header('', current_user) }}
+
     <div class="container">
-        <div class="header">
-            <h1>📋 Системные логи</h1>
-        <nav class="nav-links">
-            <a href="/secret_scanner/dashboard">📌 Главная</a>
-            <a href="/secret_scanner/multi-scan">🔄 Мультискан</a>
-            <a href="/secret_scanner/stats-dashboard" class="active">📊 Аналитика</a>
-            {% if is_admin_user(current_user) %}
-                <a href="/secret_scanner/admin">🛡️ Админ панель</a>
-                <a href="/secret_scanner/admin/workers" class="active">🛠️ Сервис</a>
-            {% endif %}
-            <a href="/secret_scanner/settings">⚙️ Настройки</a>
-            <a href="/secret_scanner/logout">🔚 Выйти</a>
-        </nav>
+        <div class="page-header">
+            <h1 class="page-title">
+                {{ ui_icon('ActivityLog.svg', 'page-title-icon icon-tint-info', 24) }}
+                Системные логи
+            </h1>
+            <p class="page-subtitle">Просмотр и фильтрация логов сервисов в реальном времени</p>
         </div>
 
-        <div class="stats">
-            <div class="stat-item">
-                Total Lines: <span class="stat-value" id="totalLines">0</span>
+        <div class="stats-grid">
+            <div class="stat-card">
+                <span class="stat-card-icon badge-blue">
+                    {{ ui_icon('BaselineFormatListNumbered.svg', 'icon-tint-info', 18) }}
+                </span>
+                <div class="stat-card-body">
+                    <span class="stat-card-label">Строк</span>
+                    <span class="stat-card-value" id="totalLines">0</span>
+                </div>
             </div>
-            <div class="stat-item">
-                File Size: <span class="stat-value" id="fileSize">0 KB</span>
+            <div class="stat-card">
+                <span class="stat-card-icon badge-green">
+                    {{ ui_icon('Files.svg', 'icon-tint-success', 18) }}
+                </span>
+                <div class="stat-card-body">
+                    <span class="stat-card-label">Размер файла</span>
+                    <span class="stat-card-value" id="fileSize">0 KB</span>
+                </div>
             </div>
-            <div class="stat-item">
-                Last Updated: <span class="stat-value" id="lastUpdated">-</span>
+            <div class="stat-card">
+                <span class="stat-card-icon badge-amber">
+                    {{ ui_icon('ArrayDateTime.svg', 'icon-tint-warn', 18) }}
+                </span>
+                <div class="stat-card-body">
+                    <span class="stat-card-label">Обновлено</span>
+                    <span class="stat-card-value" id="lastUpdated">—</span>
+                </div>
             </div>
-            <div class="stat-item">
-                Status: <span class="stat-value" id="connectionStatus">Connecting...</span>
+            <div class="stat-card">
+                <span class="stat-card-icon badge-purple">
+                    {{ ui_icon('GeoActive.svg', 'icon-tint-purple', 18) }}
+                </span>
+                <div class="stat-card-body">
+                    <span class="stat-card-label">Статус</span>
+                    <span class="stat-card-value stat-card-value--status" id="connectionStatus">Подключение…</span>
+                </div>
             </div>
         </div>
 
-        <div class="date-range-info" id="dateRangeInfo"></div>
-
-        <div class="controls">
-            <div class="control-group">
-                <label>Auto-refresh:</label>
-                <button class="btn active" id="autoRefreshBtn" onclick="toggleAutoRefresh()">ON</button>
-            </div>
-            
-            <div class="control-group">
-                <label>Auto-scroll:</label>
-                <button class="btn active" id="autoScrollBtn" onclick="toggleAutoScroll()">ON</button>
-            </div>
-            
-            <div class="control-group">
-                <label>Log Level:</label>
-                <select id="logLevelFilter" onchange="filterLogs()">
-                    <option value="">All Levels</option>
-                    <option value="DEBUG">DEBUG</option>
-                    <option value="INFO">INFO</option>
-                    <option value="WARNING">WARNING</option>
-                    <option value="ERROR">ERROR</option>
-                    <option value="CRITICAL">CRITICAL</option>
-                </select>
-            </div>
-            
-            <div class="control-group">
-                <label>Показ строк:</label>
-                <select id="linesLimit" onchange="setLinesLimit()">
-                    <option value="100">Last 100</option>
-                    <option value="500" selected>Last 500</option>
-                    <option value="1000">Last 1000</option>
-                    <option value="all">All</option>
-                </select>
-            </div>
-
-            <div class="control-group">
-                <label>Источник:</label>
-                <select id="logSourceSelect" onchange="changeLogSource()">
-                    <option value="main">Main Service</option>
-                    <option value="microservice">Microservice</option>
-                    <option value="user_actions">User Actions</option>
-                    <option value="appsec_tool">AppSecTool</option>
-                </select>
-            </div>
-            
-            <div class="control-group">
-                <label>Поиск:</label>
-                <input type="text" id="searchInput" placeholder="Поиск в логах..." onkeyup="searchLogs()">
-            </div>
-            
-            <button class="btn date-picker-btn" onclick="showDatePicker()">📅 Выбрать даты</button>
-            <button class="btn download-btn" onclick="downloadLogs()">💾 Скачать</button>
-            <button class="btn" onclick="refreshLogs()">🔄 Обновить</button>
-            <button class="btn" onclick="clearDisplay()">🗑️ Очистить экран</button>
+        <div class="date-range-info" id="dateRangeInfo" hidden>
+            {{ ui_icon('Filter.svg', 'info-banner-icon icon-tint-success', 16) }}
+            <span id="dateRangeText"></span>
         </div>
 
-        <div class="log-container">
+        <div class="toolbar card">
+            <div class="toolbar-row toolbar-row--filters">
+                <div class="control-group">
+                    <label class="control-label">
+                        {{ ui_icon('ArrowSync.svg', 'control-label-icon icon-tint-muted', 14) }}
+                        Авто-обновление
+                    </label>
+                    <button type="button" class="toggle-btn active" id="autoRefreshBtn" aria-pressed="true" onclick="toggleAutoRefresh()">Вкл</button>
+                </div>
+
+                <div class="control-group">
+                    <label class="control-label">
+                        {{ ui_icon('AltArrowDownLineDuotone.svg', 'control-label-icon icon-tint-muted', 14) }}
+                        Авто-прокрутка
+                    </label>
+                    <button type="button" class="toggle-btn active" id="autoScrollBtn" aria-pressed="true" onclick="toggleAutoScroll()">Вкл</button>
+                </div>
+
+                <div class="control-group">
+                    <label class="control-label" for="logLevelFilter">
+                        {{ ui_icon('Filter.svg', 'control-label-icon icon-tint-muted', 14) }}
+                        Уровень
+                    </label>
+                    <select id="logLevelFilter" class="control-select">
+                        <option value="">Все уровни</option>
+                        <option value="DEBUG">DEBUG</option>
+                        <option value="INFO">INFO</option>
+                        <option value="WARNING">WARNING</option>
+                        <option value="ERROR">ERROR</option>
+                        <option value="CRITICAL">CRITICAL</option>
+                    </select>
+                </div>
+
+                <div class="control-group">
+                    <label class="control-label" for="linesLimit">
+                        {{ ui_icon('BaselineFormatListNumbered.svg', 'control-label-icon icon-tint-muted', 14) }}
+                        Показ строк
+                    </label>
+                    <select id="linesLimit" class="control-select">
+                        <option value="100">Последние 100</option>
+                        <option value="500" selected>Последние 500</option>
+                        <option value="1000">Последние 1000</option>
+                        <option value="all">Все</option>
+                    </select>
+                </div>
+
+                <div class="control-group">
+                    <label class="control-label" for="logSourceSelect">
+                        {{ ui_icon('Files.svg', 'control-label-icon icon-tint-muted', 14) }}
+                        Источник
+                    </label>
+                    <select id="logSourceSelect" class="control-select">
+                        <option value="main">Main Service</option>
+                        <option value="microservice">Microservice</option>
+                        <option value="user_actions">User Actions</option>
+                        <option value="appsec_tool">AppSecTool</option>
+                    </select>
+                </div>
+
+                <div class="control-group control-group--search">
+                    <label class="control-label" for="searchInput">
+                        {{ ui_icon('BaselineSearch.svg', 'control-label-icon icon-tint-muted', 14) }}
+                        Поиск
+                    </label>
+                    <div class="search-input-wrap">
+                        {{ ui_icon('BaselineSearch.svg', 'search-input-icon icon-tint-muted', 16) }}
+                        <input type="text" id="searchInput" class="control-input" placeholder="Поиск в логах…">
+                    </div>
+                </div>
+            </div>
+
+            <div class="toolbar-row toolbar-row--actions">
+                <button type="button" class="btn btn-accent" onclick="showDatePicker()">
+                    {{ ui_icon('BaselineCalendarMonth.svg', 'btn-icon-light', 16) }}
+                    Выбрать даты
+                </button>
+                <button type="button" class="btn btn-secondary" onclick="downloadLogs()">
+                    {{ ui_icon('ArrowDownload.svg', 'icon-tint-muted', 16) }}
+                    Скачать
+                </button>
+                <button type="button" class="btn btn-secondary" onclick="refreshLogs()">
+                    {{ ui_icon('ArrowSync.svg', 'icon-tint-muted', 16) }}
+                    Обновить
+                </button>
+                <button type="button" class="btn btn-danger-outline" onclick="clearDisplay()">
+                    {{ ui_icon('FolderTrash.svg', 'icon-tint-error', 16) }}
+                    Очистить экран
+                </button>
+            </div>
+        </div>
+
+        <div class="log-panel card">
             <div class="log-header">
-                <div class="log-info" id="logInfo">
-                    secrets_scanner.log
+                <div class="log-info">
+                    {{ ui_icon('Files.svg', 'log-info-icon icon-tint-muted', 16) }}
+                    <span id="logInfo">secrets_scanner.log</span>
                 </div>
                 <div class="log-header-right">
-                    <div class="loading" id="loadingIndicator">Loading...</div>
+                    <div class="loading" id="loadingIndicator">
+                        {{ ui_icon('ArrowSync.svg', 'loading-icon icon-tint-info', 14) }}
+                        <span>Загрузка…</span>
+                    </div>
                 </div>
             </div>
             <div class="log-content" id="logContent">
-                <div style="color: #6b7280; text-align: center; padding: 40px;">
-                    Connecting to log stream...
-                </div>
+                <div class="log-empty">Подключение к потоку логов…</div>
             </div>
             <div class="auto-scroll-indicator" id="autoScrollIndicator">
-                Auto-scrolling
+                {{ ui_icon('AltArrowDownLineDuotone.svg', 'indicator-icon', 12) }}
+                Авто-прокрутка
             </div>
         </div>
     </div>
 
-    <!-- Date Picker Modal -->
-    <div class="modal" id="datePickerModal">
-        <div class="modal-content">
+    <div class="modal" id="datePickerModal" aria-hidden="true">
+        <div class="modal-content" role="dialog" aria-labelledby="datePickerTitle">
             <div class="modal-header">
-                <h3>Выбор дат</h3>
+                <h3 id="datePickerTitle">
+                    {{ ui_icon('BaselineCalendarMonth.svg', 'modal-title-icon icon-tint-info', 20) }}
+                    Выбор дат
+                </h3>
                 <p>Выберите диапазон дат для фильтрации логов.</p>
             </div>
-            
+
             <div class="date-inputs">
                 <div class="date-input-group">
                     <label for="startDate">Начальная дата</label>
-                    <input type="date" id="startDate">
+                    <input type="date" id="startDate" class="control-input">
                 </div>
-                
                 <div class="date-input-group">
                     <label for="endDate">Конечная дата</label>
-                    <input type="date" id="endDate">
+                    <input type="date" id="endDate" class="control-input">
                 </div>
             </div>
-            
+
             <div class="modal-actions">
-                <button class="btn btn-secondary" onclick="hideDatePicker()">Отмена</button>
-                <button class="btn btn-danger" onclick="clearDateFilter()">Очистить</button>
-                <button class="btn btn-primary" onclick="applyDateFilter()">Применить</button>
+                <button type="button" class="btn btn-secondary" onclick="hideDatePicker()">Отмена</button>
+                <button type="button" class="btn btn-danger-outline" onclick="clearDateFilter()">Очистить</button>
+                <button type="button" class="btn btn-primary" onclick="applyDateFilter()">Применить</button>
             </div>
         </div>
     </div>

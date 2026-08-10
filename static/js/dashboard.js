@@ -1,33 +1,24 @@
 function switchTab(tabName) {
-    // Hide all tab contents
     document.querySelectorAll('.tab-content').forEach(tab => {
         tab.classList.remove('active');
     });
-    
-    // Remove active class from all tabs
+
     document.querySelectorAll('.tab').forEach(tab => {
         tab.classList.remove('active');
     });
-    
-    // Show selected tab content
+
     document.getElementById(tabName).classList.add('active');
-    
-    // Add active class to clicked tab
     event.target.classList.add('active');
-    
-    // Save active tab to localStorage
     localStorage.setItem('activeTab', tabName);
 }
 
 function toggleAddForm() {
     const form = document.getElementById('addProjectForm');
     form.classList.toggle('show');
-    
-    // Сохраняем состояние формы в localStorage
+
     const isVisible = form.classList.contains('show');
     localStorage.setItem('addFormVisible', isVisible);
-    
-    // Если форма открывается, блокируем автообновление
+
     if (isVisible) {
         blockAutoRefresh = true;
         console.log('Auto-refresh blocked: project form opened');
@@ -37,73 +28,169 @@ function toggleAddForm() {
     }
 }
 
-function deleteProject(id) {
-    const confirmed = confirm('Вы уверены, что хотите удалить этот проект и все его сканирования?');
-    if (!confirmed) return;
+let blockAutoRefresh = false;
+let searchDebounceTimer = null;
+let searchFetchController = null;
 
-    fetch(`/secret_scanner/projects/${id}/delete`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-    })
-    .then(response => {
-        if (response.ok) {
-            location.reload();
-        } else {
-            alert('Failed to delete project.');
+async function loadProjectsResults(search, page) {
+    const resultsEl = document.getElementById('projects-results');
+    if (!resultsEl) return;
+
+    const url = new URL('/secret_scanner/dashboard', window.location.origin);
+    if (search) {
+        url.searchParams.set('search', search);
+    }
+    url.searchParams.set('page', String(page || 1));
+
+    if (searchFetchController) {
+        searchFetchController.abort();
+    }
+    searchFetchController = new AbortController();
+
+    blockAutoRefresh = true;
+    resultsEl.classList.add('is-updating');
+
+    try {
+        const response = await fetch(url.toString(), {
+            signal: searchFetchController.signal,
+            credentials: 'same-origin',
+        });
+
+        if (!response.ok) {
+            throw new Error(`Search request failed: ${response.status}`);
         }
-    })
-    .catch(error => {
-        console.error('Error deleting project:', error);
-        alert('Something went wrong.');
-    });
+
+        const html = await response.text();
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        const newResults = doc.getElementById('projects-results');
+
+        if (newResults) {
+            resultsEl.innerHTML = newResults.innerHTML;
+        }
+
+        const nextUrl = url.pathname + url.search;
+        if (window.location.pathname + window.location.search !== nextUrl) {
+            history.replaceState(null, '', nextUrl);
+        }
+    } catch (error) {
+        if (error.name !== 'AbortError') {
+            console.error('Error loading projects:', error);
+        }
+    } finally {
+        resultsEl.classList.remove('is-updating');
+        blockAutoRefresh = false;
+        searchFetchController = null;
+    }
 }
 
-// Auto-submit search form on input (only on projects tab)
-const searchInput = document.querySelector('input[name="search"]');
-if (searchInput) {
+function initProjectSearch() {
+    const searchInput = document.querySelector('input[name="search"]');
+    const searchForm = document.getElementById('projectSearchForm');
+    const resultsEl = document.getElementById('projects-results');
+
+    if (!searchInput || !searchForm || !resultsEl) {
+        return;
+    }
+
+    searchForm.addEventListener('submit', function(event) {
+        event.preventDefault();
+        loadProjectsResults(searchInput.value.trim(), 1);
+    });
+
     searchInput.addEventListener('input', function() {
-        // Check if projects tab is active
         const projectsTab = document.getElementById('projects');
-        if (projectsTab && projectsTab.classList.contains('active')) {
-            // Only submit if there's actual content or if clearing a previous search
-            const currentValue = this.value.trim();
-            const urlParams = new URLSearchParams(window.location.search);
-            const hasExistingSearch = urlParams.has('search') && urlParams.get('search').trim() !== '';
-            
-            if (currentValue !== '' || hasExistingSearch) {
-                setTimeout(() => {
-                    this.closest('form').submit();
-                }, 500);
-            }
+        if (!projectsTab || !projectsTab.classList.contains('active')) {
+            return;
+        }
+
+        clearTimeout(searchDebounceTimer);
+        searchDebounceTimer = setTimeout(() => {
+            loadProjectsResults(searchInput.value.trim(), 1);
+        }, 350);
+    });
+
+    searchInput.addEventListener('focus', () => {
+        blockAutoRefresh = true;
+    });
+
+    searchInput.addEventListener('blur', () => {
+        const addForm = document.getElementById('addProjectForm');
+        if (!resultsEl.classList.contains('is-updating') && !addForm?.classList.contains('show')) {
+            blockAutoRefresh = false;
         }
     });
-    
-    // Focus search input after page load if on projects tab and has search
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.has('search')) {
+
+    resultsEl.addEventListener('click', function(event) {
+        const link = event.target.closest('.pagination a[href]');
+        if (!link || link.classList.contains('current')) {
+            return;
+        }
+
+        event.preventDefault();
+        const linkUrl = new URL(link.href, window.location.origin);
+        const page = parseInt(linkUrl.searchParams.get('page') || '1', 10);
+        const search = linkUrl.searchParams.get('search') || searchInput.value.trim();
+        loadProjectsResults(search, page);
+    });
+
+    if (window.location.search.includes('search=')) {
         setTimeout(() => {
             searchInput.focus();
-            // Set cursor to end of text
             searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);
         }, 100);
     }
 }
 
-// Remember active tab after page reload
+initProjectSearch();
+
+function initSelectableProjectLinks() {
+    const resultsEl = document.getElementById('projects-results');
+    if (!resultsEl) {
+        return;
+    }
+
+    let pointerDown = null;
+
+    resultsEl.addEventListener('mousedown', function(event) {
+        const link = event.target.closest('.scans-project-name--selectable');
+        pointerDown = link
+            ? { link: link, x: event.clientX, y: event.clientY }
+            : null;
+    });
+
+    resultsEl.addEventListener('click', function(event) {
+        const link = event.target.closest('.scans-project-name--selectable');
+        if (!link) {
+            return;
+        }
+
+        const selection = window.getSelection();
+        if (selection && selection.toString().length > 0) {
+            event.preventDefault();
+            return;
+        }
+
+        if (pointerDown && pointerDown.link === link) {
+            const moved = Math.abs(event.clientX - pointerDown.x) > 3
+                || Math.abs(event.clientY - pointerDown.y) > 3;
+            if (moved) {
+                event.preventDefault();
+            }
+        }
+    });
+}
+
+initSelectableProjectLinks();
+
 const urlParams = new URLSearchParams(window.location.search);
 const savedTab = localStorage.getItem('activeTab');
 
 if (urlParams.has('search') && urlParams.get('search').trim() !== '') {
-    // If there's a search parameter, show projects tab
     switchTabSilent('projects');
 } else if (savedTab) {
-    // Restore saved tab
     switchTabSilent(savedTab);
 }
 
-// Восстанавливаем состояние формы добавления проекта
 const addFormVisible = localStorage.getItem('addFormVisible');
 if (addFormVisible === 'true') {
     const form = document.getElementById('addProjectForm');
@@ -115,20 +202,16 @@ if (addFormVisible === 'true') {
 }
 
 function switchTabSilent(tabName) {
-    // Hide all tab contents
     document.querySelectorAll('.tab-content').forEach(tab => {
         tab.classList.remove('active');
     });
-    
-    // Remove active class from all tabs
+
     document.querySelectorAll('.tab').forEach(tab => {
         tab.classList.remove('active');
     });
-    
-    // Show selected tab content
+
     document.getElementById(tabName).classList.add('active');
-    
-    // Add active class to corresponding tab button
+
     const tabs = document.querySelectorAll('.tab');
     if (tabName === 'projects') {
         tabs[1].classList.add('active');
@@ -137,11 +220,7 @@ function switchTabSilent(tabName) {
     }
 }
 
-let blockAutoRefresh = false;
-
-
-// Auto-refresh if there are running scans
-const runningScans = document.querySelectorAll('.scan-status.running');
+const runningScans = document.querySelectorAll('.scan-status.running, .scan-status.pending');
 if (runningScans.length > 0) {
     setTimeout(() => {
         if (!blockAutoRefresh) {
@@ -149,40 +228,35 @@ if (runningScans.length > 0) {
             window.location.reload();
         } else {
             console.log('Auto-refresh skipped: blocked by user interaction');
-            // Повторная проверка через 10 секунд
             setTimeout(() => {
                 if (!blockAutoRefresh) {
                     window.location.reload();
                 }
             }, 10000);
         }
-    }, 10000); // Refresh every 10 seconds
+    }, 10000);
 }
 
 const projectForm = document.getElementById('addProjectForm');
 if (projectForm) {
-    // Блокируем автообновление при фокусе на полях формы
     const formInputs = projectForm.querySelectorAll('input, textarea');
     formInputs.forEach(input => {
         input.addEventListener('focus', () => {
             blockAutoRefresh = true;
             console.log('Auto-refresh blocked: user focused on form input');
         });
-        
+
         input.addEventListener('blur', () => {
-            // Разблокируем только если форма закрыта
             if (!projectForm.classList.contains('show')) {
                 blockAutoRefresh = false;
                 console.log('Auto-refresh unblocked: user left form input and form is closed');
             }
         });
     });
-    
-    // Обработчик отправки формы
+
     const form = projectForm.querySelector('form');
     if (form) {
         form.addEventListener('submit', () => {
-            // Очищаем состояние формы при отправке
             localStorage.removeItem('addFormVisible');
             blockAutoRefresh = false;
         });

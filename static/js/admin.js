@@ -1,3 +1,37 @@
+const ADMIN_ICON_BASE = '/secret_scanner/static/icons/new/';
+
+function adminIcon(name, className = 'ui-icon', size = 14) {
+    return `<img src="${ADMIN_ICON_BASE}${name}" alt="" class="${className}" width="${size}" height="${size}">`;
+}
+
+function adminInlineLabel(iconName, tintClass, text) {
+    return `<span class="inline-label">${adminIcon(iconName, 'ui-icon ' + tintClass, 12)}<span>${text}</span></span>`;
+}
+
+function adminStatusBadge(type, text) {
+    const cls = type === 'success' ? 'status-pill status-pill-success'
+        : type === 'error' ? 'status-pill status-pill-error'
+        : 'status-pill status-pill-warn';
+    const icon = type === 'success' ? 'CheckboxCheckedFilled.svg'
+        : type === 'error' ? 'Error.svg'
+        : 'AlertErrorStroke16.svg';
+    const tint = type === 'success' ? 'icon-tint-success'
+        : type === 'error' ? 'icon-tint-error'
+        : 'icon-tint-warn';
+    return `<span class="${cls}">${adminIcon(icon, 'ui-icon ' + tint, 12)}${text}</span>`;
+}
+
+function adminTypeLabel(hasModel, hasDataset) {
+    const modelLabel = adminInlineLabel('FolderWithFilesLinear.svg', 'icon-tint-warn', 'Модель');
+    const datasetLabel = adminInlineLabel('Analysis.svg', 'icon-tint-info', 'Датасет');
+    if (hasModel && hasDataset) {
+        return `<div class="type-cell-stack">${modelLabel}<span class="type-cell-sub">${datasetLabel}</span></div>`;
+    }
+    if (hasModel) return modelLabel;
+    if (hasDataset) return datasetLabel;
+    return '';
+}
+
 let currentPage = 1;
 let totalPages = 1;
 let currentTokensPage = 1;
@@ -1161,7 +1195,7 @@ async function switchModelVersion() {
         
         if (response.ok && data.status === 'success') {
             const message = data.message || `Версия модели изменена на ${data.current_version}`;
-            const fullMessage = `${message}\n\n⚠️ ВАЖНО: Необходимо вручную перезапустить воркеры на странице "Сервис" для применения новой версии модели.`;
+            const fullMessage = `${message}\n\nВАЖНО: Необходимо вручную перезапустить воркеры на странице "Сервис" для применения новой версии модели.`;
             alert(fullMessage);
             versionSelect.value = '';
             // Reload models info to update current version
@@ -1224,7 +1258,7 @@ async function trainModels() {
                 // Display trained versions
                 const trainedEl = document.getElementById('trainModelsTrained');
                 if (trainedEl && data.trained && data.trained.length > 0) {
-                    trainedEl.innerHTML = `<strong>✅ Обучено:</strong> ${data.trained.join(', ')}`;
+                    trainedEl.innerHTML = `${adminInlineLabel('CheckboxCheckedFilled.svg', 'icon-tint-success', 'Обучено:')} ${data.trained.join(', ')}`;
                     trainedEl.style.color = '#155724';
                 } else if (trainedEl) {
                     trainedEl.innerHTML = '';
@@ -1233,7 +1267,7 @@ async function trainModels() {
                 // Display failed versions
                 const failedEl = document.getElementById('trainModelsFailed');
                 if (failedEl && data.failed && data.failed.length > 0) {
-                    let failedHtml = `<strong>❌ Ошибки:</strong> ${data.failed.join(', ')}`;
+                    let failedHtml = `${adminInlineLabel('Error.svg', 'icon-tint-error', 'Ошибки:')} ${data.failed.join(', ')}`;
                     if (data.errors && data.errors.length > 0) {
                         failedHtml += '<ul style="margin-top: 0.5rem; margin-left: 1.5rem;">';
                         data.errors.forEach(err => {
@@ -1482,26 +1516,20 @@ function displayModelsInfo(data) {
             
             // Type
             let typeCell = '<td style="vertical-align: middle;">';
-            if (dataset && model) {
-                typeCell += '<div style="line-height: 1.4;">📦 Модель<br><span style="font-size: 0.85rem; color: #666;">📊 Датасет</span></div>';
-            } else if (model) {
-                typeCell += '📦 Модель';
-            } else if (dataset) {
-                typeCell += '📊 Датасет';
-            }
+            typeCell += adminTypeLabel(!!model, !!dataset);
             typeCell += '</td>';
             
             // Status
             let statusCell = '<td style="vertical-align: middle;">';
             if (model) {
                 if (model.date) {
-                    statusCell += '<span style="background: #28a745; color: white; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem; display: inline-block; white-space: nowrap;">✅ Обучена</span>';
+                    statusCell += adminStatusBadge('success', 'Обучена');
                 } else if (model.status) {
-                    statusCell += `<span style="background: #ffc107; color: #333; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem; display: inline-block; white-space: nowrap;">⚠️ ${model.status}</span>`;
+                    statusCell += adminStatusBadge('warn', model.status);
                 } else if (model.error) {
-                    statusCell += `<span style="background: #dc3545; color: white; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem; display: inline-block; white-space: nowrap;">❌ Ошибка</span>`;
+                    statusCell += adminStatusBadge('error', 'Ошибка');
                 } else if (model.note) {
-                    statusCell += `<span style="background: #ffc107; color: #333; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem; display: inline-block; white-space: nowrap;">⚠️ ${model.note}</span>`;
+                    statusCell += adminStatusBadge('warn', model.note);
                 }
             } else {
                 statusCell += '<span style="color: #666; font-size: 0.85rem;">Нет модели</span>';

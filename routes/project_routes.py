@@ -256,18 +256,22 @@ async def project_page(request: Request, project_name: str, current_user: str = 
                 ForbiddenViolation.scan_id == scan.id,
                 ForbiddenViolation.is_exception == False,
             ).count()
+            findings_total = violations_count if scan.status == "completed" else 0
             forbidden_scan_stats.append({
                 "scan": scan,
                 "violations_count": violations_count,
+                "findings_total": findings_total,
             })
         else:
             confirmed_count = db.query(Secret).filter(
                 Secret.scan_id == scan.id,
                 Secret.is_exception == False
             ).count()
+            findings_total = (scan.high_secrets_count or 0) + (scan.potential_secrets_count or 0) if scan.status == "completed" else 0
             secrets_scan_stats.append({
                 "scan": scan,
-                "confirmed_count": confirmed_count
+                "confirmed_count": confirmed_count,
+                "findings_total": findings_total,
             })
     
     # Get all projects for merge functionality
@@ -287,6 +291,7 @@ async def project_page(request: Request, project_name: str, current_user: str = 
         "forbidden_scan_stats": forbidden_scan_stats,
         "scan_stats": secrets_scan_stats,
         "all_projects": all_projects,
+        "total_scans_count": len(scans),
         "HUB_TYPE": HUB_TYPE,
         "current_user": current_user
     })

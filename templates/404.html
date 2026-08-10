@@ -3,29 +3,42 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>404 - Страница не найдена | Secrets Scanner</title>
+    <title>404 — Страница не найдена | Secrets Scanner</title>
     <link rel="stylesheet" href="/secret_scanner/static/css/base_header.css">
     <link rel="stylesheet" href="/secret_scanner/static/css/404.css">
     <link rel="icon" type="image/x-icon" href="/secret_scanner/favicon.ico">
 </head>
 <body>
     {% from "components/base_header.html" import header %}
+    {% from "components/scan_results_macros.html" import ui_icon %}
     {{ header('', current_user) }}
-    
-    <div class="error-container">
-        <div class="error-content">
-            <div class="error-icon">🔍</div>
-            <h1 class="error-code">404</h1>
-            <h2 class="error-title">Страница не найдена</h2>
-            <p class="error-description">
-                Запрашиваемая страница не существует или была перемещена.
-            </p>
-            <div class="error-actions">
-                <a href="/secret_scanner/dashboard" class="btn btn-primary">📌 Вернуться на главную</a>
-                <button onclick="history.back()" class="btn btn-secondary">← Назад</button>
+
+    <div class="container">
+        <div class="error-card card">
+            <div class="error-content">
+                <div class="error-hero">
+                    <span class="error-hero-badge">
+                        {{ ui_icon('Error.svg', 'error-hero-icon icon-tint-error', 32) }}
+                    </span>
+                    <p class="error-code">404</p>
+                    <h1 class="error-title">Страница не найдена</h1>
+                    <p class="error-description">
+                        Запрашиваемая страница не существует или была перемещена.
+                    </p>
+                </div>
+
+                <div class="error-actions">
+                    <a href="/secret_scanner/dashboard" class="btn btn-primary">
+                        {{ ui_icon('AppDashboard.svg', 'btn-icon-light', 16) }}
+                        Вернуться на главную
+                    </a>
+                    <button type="button" onclick="history.back()" class="btn btn-secondary">
+                        {{ ui_icon('ArrowBack.svg', 'icon-tint-muted', 16) }}
+                        Назад
+                    </button>
+                </div>
             </div>
         </div>
     </div>
 </body>
 </html>
-

@@ -10,6 +10,7 @@ from config import get_auth_headers
 from services.auth import get_current_user
 from services.database import get_db
 from services.templates import templates
+from services.forbidden_scan_processing import normalize_scan_type
 
 logger = logging.getLogger("main")
 user_logger = logging.getLogger("user_actions")
@@ -93,6 +94,7 @@ async def scan_status_page(
             "request": request,
             "current_user": current_user,
             "scan": scan,
+            "scan_type": normalize_scan_type(scan.scan_type),
             "callback_url": callback_url
         })
         

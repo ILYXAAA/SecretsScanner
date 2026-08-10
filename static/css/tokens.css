@@ -1,0 +1,17 @@
+:root {
+    --main-bg: #e8ecf0;
+    --subtle-bg: #f0f3f6;
+    --surface: #ffffff;
+    --text-primary: #1f2328;
+    --text-secondary: #656d76;
+    --text-muted: #8b949e;
+    --border: #d0d7de;
+    --border-focus: #0969da;
+    --focus-ring: rgba(9, 105, 218, 0.25);
+    --accent: #238636;
+    --accent-hover: #2ea043;
+    --accent-subtle: rgba(35, 134, 54, 0.1);
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+}

@@ -10,11 +10,90 @@
 </head>
 <body>
     {% from "components/base_header.html" import header %}
+
+    {% macro scan_status_badge(status) %}
+    <span class="scan-status {{ status }}">
+        {% if status == 'completed' %}
+        <img src="/secret_scanner/static/icons/new/CheckboxCheckedFilled.svg" alt="" class="status-icon icon-tint-success" width="14" height="14">
+        Completed
+        {% elif status == 'running' %}
+        <img src="/secret_scanner/static/icons/new/ArrayDateTime.svg" alt="" class="status-icon" width="14" height="14">
+        In progress
+        {% elif status == 'pending' %}
+        <img src="/secret_scanner/static/icons/new/QueryQueue.svg" alt="" class="status-icon" width="14" height="14">
+        В очереди
+        {% elif status == 'failed' %}
+        <img src="/secret_scanner/static/icons/new/Error.svg" alt="" class="status-icon" width="14" height="14">
+        Error
+        {% elif status == 'timeout' %}
+        <img src="/secret_scanner/static/icons/new/Timeout.svg" alt="" class="status-icon" width="14" height="14">
+        Таймаут
+        {% else %}
+        <img src="/secret_scanner/static/icons/new/AlertErrorStroke16.svg" alt="" class="status-icon" width="14" height="14">
+        {{ status }}
+        {% endif %}
+    </span>
+    {% endmacro %}
+
+    {% macro scan_type_label(scan_type) %}
+        {% if scan_type == 'forbidden' %}Extensions{% else %}Secrets{% endif %}
+    {% endmacro %}
+
+    {% macro scan_ref_value(scan) %}
+        {% if scan.ref_type == 'Commit' %}
+            {% set commit_ref = scan.repo_commit or scan.ref %}
+            {% if commit_ref %}
+            <code class="scans-ref-value">{{ commit_ref[:7] if commit_ref|length > 7 else commit_ref }}</code>
+            {% else %}
+            <span class="scans-empty">—</span>
+            {% endif %}
+        {% elif scan.ref %}
+        <code class="scans-ref-value" title="{{ scan.ref }}">{{ scan.ref }}</code>
+        {% elif scan.repo_commit %}
+        <code class="scans-ref-value">{{ scan.repo_commit[:7] if scan.repo_commit|length > 7 else scan.repo_commit }}</code>
+        {% else %}
+        <span class="scans-empty">—</span>
+        {% endif %}
+    {% endmacro %}
+
+    {% macro scan_row_href(scan) -%}
+        {%- if scan.status == 'completed' -%}
+            {%- if scan.scan_type == 'forbidden' -%}
+                /secret_scanner/scan/{{ scan.id }}/forbidden-results
+            {%- else -%}
+                /secret_scanner/scan/{{ scan.id }}/results
+            {%- endif -%}
+        {%- else -%}
+            /secret_scanner/scan/{{ scan.id }}
+        {%- endif -%}
+    {%- endmacro %}
+
+    {% macro th_with_icon(icon, tint, label, rowspan=none) %}
+    <th scope="col"{% if rowspan %} rowspan="{{ rowspan }}"{% endif %}>
+        <span class="th-with-icon">
+            <img src="/secret_scanner/static/icons/new/{{ icon }}" alt="" class="ui-icon {{ tint }}" width="14" height="14">
+            <span>{{ label }}</span>
+        </span>
+    </th>
+    {% endmacro %}
+
+    {% macro projects_col_th(icon, tint, label, group, edge=none) %}
+    <th scope="col" class="projects-table-col-header projects-table-col-header--{{ group }}{% if edge %} projects-table-col-header--{{ edge }}{% endif %}">
+        <span class="th-with-icon">
+            <img src="/secret_scanner/static/icons/new/{{ icon }}" alt="" class="ui-icon {{ tint }}" width="14" height="14">
+            <span>{{ label }}</span>
+        </span>
+    </th>
+    {% endmacro %}
+
     {{ header('dashboard', current_user) }}
     
     <div class="container">
         <div class="page-header">
-            <h1 class="page-title">📌 Главная</h1>
+            <h1 class="page-title">
+                <img src="/secret_scanner/static/icons/new/AppDashboard.svg" alt="" class="page-title-icon" width="24" height="24">
+                Главная
+            </h1>
         </div>
         
         {% if request.url.query %}
@@ -40,72 +119,94 @@
         {% endif %}
         
         <div class="tabs">
-            <button class="tab active" onclick="switchTab('recent-scans')">⏳ Последние сканирования</button>
-            <button class="tab" onclick="switchTab('projects')">🗂️ Проекты</button>
+            <button class="tab active" onclick="switchTab('recent-scans')">
+                <img src="/secret_scanner/static/icons/new/BaselineHistory.svg" alt="" class="tab-icon" width="18" height="18">
+                Последние сканирования
+            </button>
+            <button class="tab" onclick="switchTab('projects')">
+                <img src="/secret_scanner/static/icons/new/FolderWithFilesLinear.svg" alt="" class="tab-icon icon-tint-warn" width="18" height="18">
+                Проекты
+            </button>
         </div>
         
         <!-- Recent Scans Tab -->
         <div id="recent-scans" class="tab-content active">
             {% if recent_scans %}
-            <div class="scan-list">
-                {% for scan_data in recent_scans %}
-                <a href="{% if scan_data.scan.status == 'completed' %}{% if scan_data.scan.scan_type == 'forbidden' %}/secret_scanner/scan/{{ scan_data.scan.id }}/forbidden-results{% else %}/secret_scanner/scan/{{ scan_data.scan.id }}/results{% endif %}{% elif scan_data.scan.status == 'running' %}/secret_scanner/scan/{{ scan_data.scan.id }}{% else %}/secret_scanner/project/{{ scan_data.scan.project_name }}{% endif %}" class="scan-item{% if scan_data.scan.status == 'failed' %} scan-failed{% elif scan_data.scan.status == 'timeout' %} scan-timeout{% endif %}">
-                    <div class="scan-main">
-                        <div class="scan-project">{{ scan_data.scan.project_name }}</div>
-                        <div class="scan-meta">
-                            <span class="scan-status {{ scan_data.scan.status }}">
-                                {% if scan_data.scan.status == 'running' %}⏳ Выполняется
-                                {% elif scan_data.scan.status == 'completed' %}✅ Завершено
-                                {% elif scan_data.scan.status == 'failed' %}❌ Ошибка
-                                {% else %}⏸️ Таймаут
-                                {% endif %}
-                            </span>
-                        </div>
-                        <div class="scan-meta">
-                            {% if scan_data.scan.started_by %}
-                            <span style="color: #3b82f6;">👮 {{ scan_data.scan.started_by }}</span>
-                            {% endif %}
-                        </div>
-                        <div class="scan-meta">
-                            🕒 Создан : {{ scan_data.scan.started_at.strftime('%d.%m.%Y %H:%M') }}
-                        </div>
-                        <div class="scan-meta">
-                            {% if scan_data.scan.repo_commit %}
-                            ⚙️ Commit: {{ scan_data.scan.repo_commit }}
-                            {% endif %}
-                        </div>
-                    </div>
-                    {% if scan_data.scan.status == 'completed' %}
-                    <div class="scan-stats">
-                        <div class="secrets-summary">
-                            <div class="secret-count high">
-                                <div class="number">{{ scan_data.high_count }}</div>
-                                <div class="label">High</div>
-                            </div>
-                            <div class="secret-count potential">
-                                <div class="number">{{ scan_data.potential_count }}</div>
-                                <div class="label">Potential</div>
-                            </div>
-                        </div>
-                        {% if scan_data.scan.files_scanned %}
-                        <div style="font-size: 0.8rem; color: #666; margin-top: 0.5rem;">
-                            📁 {{ scan_data.scan.files_scanned }} файлов
-                        </div>
-                        {% endif %}
-                    </div>
-                    {% elif scan_data.scan.status == 'running' and scan_data.scan.files_scanned %}
-                    <div class="scan-stats">
-                        <div style="font-size: 0.9rem; color: #666;">
-                            📁 {{ scan_data.scan.files_scanned }} файлов
-                        </div>
-                    </div>
-                    {% endif %}
-                </a>
-                {% endfor %}
+            <div class="scans-table-card">
+                <div class="scans-table-wrap">
+                    <table class="scans-table">
+                        <thead>
+                            <tr class="scans-table-header">
+                                {{ th_with_icon('ArrayDateTime.svg', 'icon-tint-muted', 'Started') }}
+                                {{ th_with_icon('FolderWithFilesLinear.svg', 'icon-tint-warn', 'Project') }}
+                                {{ th_with_icon('BarcodeScanDuotone.svg', 'icon-tint-info', 'Type') }}
+                                {{ th_with_icon('repository.svg', 'icon-tint-info', 'Repo') }}
+                                {{ th_with_icon('Branch.svg', 'icon-tint-commit', 'Ref') }}
+                                {{ th_with_icon('ForgotPassword.svg', 'icon-tint-purple', 'Findings') }}
+                                {{ th_with_icon('GeoActive.svg', 'icon-tint-muted', 'Status') }}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for scan_data in recent_scans %}
+                            {% set scan = scan_data.scan %}
+                            {% set row_href = scan_row_href(scan) %}
+                            <tr class="scans-table-row scans-table-row--{{ scan.status }}">
+                                <td class="scans-cell scans-cell-date">
+                                    <a href="{{ row_href }}" class="scans-cell-link">
+                                        <time datetime="{{ scan.started_at.strftime('%Y-%m-%dT%H:%M') }}">{{ scan.started_at.strftime('%H:%M') }}</time>
+                                    </a>
+                                </td>
+                                <td class="scans-cell scans-cell-project">
+                                    <a href="{{ row_href }}" class="scans-cell-link scans-project-name">{{ scan.project_name }}</a>
+                                </td>
+                                <td class="scans-cell scans-cell-type">
+                                    <a href="{{ row_href }}" class="scans-cell-link">
+                                        <span class="scans-type-label scans-type-label--{{ scan_data.scan_type }}">
+                                            {% if scan_data.scan_type == 'forbidden' %}
+                                            <img src="/secret_scanner/static/icons/new/Extensions.svg" alt="" class="cell-icon icon-tint-purple" width="14" height="14">
+                                            {% else %}
+                                            <img src="/secret_scanner/static/icons/new/LockPassword.svg" alt="" class="cell-icon icon-tint-success" width="14" height="14">
+                                            {% endif %}
+                                            <span>{{ scan_type_label(scan_data.scan_type) }}</span>
+                                        </span>
+                                    </a>
+                                </td>
+                                <td class="scans-cell scans-cell-repo">
+                                    {% if scan_data.repo_url %}
+                                    <a href="{{ scan_data.repo_url }}" class="scans-repo-link" target="_blank" rel="noopener noreferrer" title="{{ scan_data.repo_url }}">{{ scan_data.repo_url }}</a>
+                                    {% else %}
+                                    <span class="scans-empty">—</span>
+                                    {% endif %}
+                                </td>
+                                <td class="scans-cell scans-cell-ref">
+                                    <a href="{{ row_href }}" class="scans-cell-link">
+                                        {{ scan_ref_value(scan) }}
+                                    </a>
+                                </td>
+                                <td class="scans-cell scans-cell-findings">
+                                    <a href="{{ row_href }}" class="scans-cell-link">
+                                        {% if scan.status == 'completed' %}
+                                        <span class="findings-total {% if scan_data.findings_total > 0 %}findings-total--has{% else %}findings-total--none{% endif %}">{{ scan_data.findings_total }}</span>
+                                        {% else %}
+                                        <span class="scans-empty">—</span>
+                                        {% endif %}
+                                    </a>
+                                </td>
+                                <td class="scans-cell scans-cell-status">
+                                    <a href="{{ row_href }}" class="scans-cell-link">
+                                        {{ scan_status_badge(scan.status) }}
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
             </div>
             {% else %}
             <div class="empty-state">
-                <h3>🤷‍♂️ Нет сканирований</h3>
+                <img src="/secret_scanner/static/icons/new/CreditCardNotFound.svg" alt="" class="empty-state-icon" width="48" height="48">
+                <h3>Нет сканирований</h3>
                 <p>Запустите свое первое сканирование, создав проект и запустив анализ.</p>
             </div>
             {% endif %}
@@ -113,15 +214,19 @@
         
         <!-- Projects Tab -->
         <div id="projects" class="tab-content">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+            <div class="projects-toolbar">
                 <div class="search-bar">
-                    <form method="get">
-                        <input type="text" name="search" placeholder="Поиск проектов..." value="{{ search }}">
+                    <form method="get" id="projectSearchForm">
+                        <div class="search-input-wrap">
+                            <img src="/secret_scanner/static/icons/new/BaselineSearch.svg" alt="" class="search-icon" width="16" height="16">
+                            <input type="text" name="search" placeholder="Поиск проектов..." value="{{ search }}">
+                        </div>
                         <input type="hidden" name="page" value="1">
                     </form>
                 </div>
                 <button class="btn btn-primary" onclick="toggleAddForm()">
-                    📑 Новый проект
+                    <img src="/secret_scanner/static/icons/new/AddFolderBroken.svg" alt="" class="btn-icon" width="16" height="16">
+                    Новый проект
                 </button>
             </div>
             
@@ -130,41 +235,50 @@
                 <form method="post" action="/secret_scanner/projects/add">
                     <div class="form-group">
                         <label for="project_name">Название проекта</label>
-                        <input type="text" id="project_name" name="project_name" placeholder="Project_Repository" required 
-                               pattern="[a-zA-Z0-9._\-\s]+" 
-                               title="Допустимы буквы, цифры, точки, дефисы, подчеркивания и пробелы">
+                        <div class="input-with-icon">
+                            <img src="/secret_scanner/static/icons/new/FolderWithFilesLinear.svg" alt="" class="input-icon icon-tint-warn" width="16" height="16">
+                            <input type="text" id="project_name" name="project_name" placeholder="Project_Repository" required 
+                                   pattern="[a-zA-Z0-9._\-\s]+" 
+                                   title="Допустимы буквы, цифры, точки, дефисы, подчеркивания и пробелы">
+                        </div>
                     </div>
                     <div class="form-group">
                         <label for="repo_url">Ссылка на репозиторий</label>
                         {% if HUB_TYPE == "Azure" %}
-                        <input type="text" id="repo_url" name="repo_url" 
-                               placeholder="https://server/Collection/Project/_git/Repository" required>
-                        <small style="color: #444; font-size: 0.85rem;">
-                        <div style="display: flex; align-items: center; gap: 6px; font-weight: bold; color: #e09122; margin-bottom: 4px;">
-                            <span style="font-size: 1rem;">⚠️</span>
-                            <span style="font-size: 0.95rem;">Важно</span>
+                        <div class="input-with-icon">
+                            <img src="/secret_scanner/static/icons/new/repository.svg" alt="" class="input-icon icon-tint-commit" width="16" height="16">
+                            <input type="text" id="repo_url" name="repo_url" 
+                                   placeholder="https://server/Collection/Project/_git/Repository" required>
+                        </div>
+                        <small class="form-hint form-hint-azure">
+                        <div class="form-hint-warning">
+                            <img src="/secret_scanner/static/icons/new/AlertErrorStroke16.svg" alt="" class="meta-icon" width="16" height="16">
+                            <span>Важно</span>
                         </div>
 
                         <b>Рекомендуемое имя проекта</b>
-                        <span style="color: #28a745;">(auto)</span>:<br>
+                        <span class="hint-auto">(auto)</span>:<br>
                         • https://../TFS/../Project1/_git/Repo1 ┈➤ <b>Repo1</b><br>
                         • https://../TFS/../Project1/_git/my-app.git ┈➤ <b>my_app</b><br><br>
 
                         <b>Формат ссылок для Azure DevOps</b> 
-                        <span style="color: #dc3545;">(required)</span>:<br>
-                        • https://server/collection/project/<span style="color: #dc3545;">_git</span>/repository <b>(full format)</b><br>
-                        • https://server/collection/<span style="color: #dc3545;">_git</span>/repository <b>(short format)</b><br><br>
+                        <span class="hint-required">(required)</span>:<br>
+                        • https://server/collection/project/<span class="hint-required">_git</span>/repository <b>(full format)</b><br>
+                        • https://server/collection/<span class="hint-required">_git</span>/repository <b>(short format)</b><br><br>
 
                         <b>Формат ссылок для DevZone</b> 
-                        <span style="color: #17a2b8;">(поддерживается)</span>:<br>
+                        <span class="hint-info">(поддерживается)</span>:<br>
                         • git@git.devzone.local:devzone/project/repo.git<br>
                         • https://git.devzone.local/devzone/project/repo<br>
-                        <span style="color: #28a745; font-weight: bold;">✅ DevZone поддерживает онлайн сканирование по коммиту, тегу или ветке</span>
+                        <span class="hint-success">DevZone поддерживает онлайн сканирование по коммиту, тегу или ветке</span>
                         </small>
                         {% else %}
-                        <input type="text" id="repo_url" name="repo_url" 
-                               placeholder="https://github.com/user/repo" required>
-                        <small style="color: #666; font-size: 0.85rem;">
+                        <div class="input-with-icon">
+                            <img src="/secret_scanner/static/icons/new/repository.svg" alt="" class="input-icon icon-tint-commit" width="16" height="16">
+                            <input type="text" id="repo_url" name="repo_url" 
+                                   placeholder="https://github.com/user/repo" required>
+                        </div>
+                        <small class="form-hint">
                             Поддерживаются GitHub, Azure и DevZone
                         </small>
                         {% endif %}
@@ -176,61 +290,87 @@
                 </form>
             </div>
             
+            <div id="projects-results">
             {% if projects %}
-            <div class="projects-list">
-                {% for project_data in projects %}
-                <a href="/secret_scanner/project/{{ project_data.project.name }}" class="project-card">
-                    <div class="project-main">
-                        <div class="project-name">
-                            <span class="project-icon">📁</span>
-                            {{ project_data.project.name }}
-                        </div>
-                        <div class="project-url">🔗 {{ project_data.project.repo_url }}</div>
-                        <div class="project-meta">
-                            🕒 Создан: {{ project_data.project.created_at.strftime('%d.%m.%Y %H:%M') }}
-                        </div>
-                        <div class="project-meta">
-                            {% if project_data.project.created_by %}
-                            <span style="color: #3b82f6;">👮 {{ project_data.project.created_by }}</span>
-                            {% endif %}
-                        </div>
-
-                    </div>
-                    {% if project_data.latest_scan %}
-                    <div class="project-scan-info">
-                        <div class="last-scan-date">{{ project_data.latest_scan.started_at.strftime('%d.%m.%Y %H:%M') }}</div>
-                        {% if project_data.latest_scan.repo_commit %}
-                        <div class="last-scan-commit">{{ project_data.latest_scan.repo_commit[:7] }}</div>
-                        {% endif %}
-                        {% if project_data.latest_scan.status == 'completed' %}
-                        <div class="secrets-summary">
-                            <div class="secret-count high">
-                                <div class="number">{{ project_data.high_count or 0 }}</div>
-                                <div class="label">High</div>
-                            </div>
-                            <div class="secret-count potential">
-                                <div class="number">{{ project_data.potential_count or 0 }}</div>
-                                <div class="label">Potential</div>
-                            </div>
-                        </div>
-                        {% else %}
-                        <div class="scan-status {{ project_data.latest_scan.status }}">
-                            {% if project_data.latest_scan.status == 'running' %}⏳ Выполняется
-                            {% elif project_data.latest_scan.status == 'failed' %}❌ Ошибка
-                            {% else %}⏸️ Таймаут
-                            {% endif %}
-                        </div>
-                        {% endif %}
-                    </div>
-                    {% endif %}
-                    <div class="project-actions" onclick="event.preventDefault(); event.stopPropagation();">
-                        <button class="btn btn-danger btn-sm btn-icon" title="Delete"
-                                onclick="deleteProject({{ project_data.project.id }})">
-                            🗑️
-                        </button>
-                    </div>
-                </a>
-                {% endfor %}
+            <div class="scans-table-card">
+                <div class="scans-table-wrap">
+                    <table class="scans-table projects-table">
+                        <thead>
+                            <tr class="scans-table-header scans-table-header-groups">
+                                <th colspan="3" scope="colgroup" class="projects-table-group-header projects-table-group-header--info">
+                                    <div class="projects-table-group-title">
+                                        <img src="/secret_scanner/static/icons/new/FolderWithFilesLinear.svg" alt="" class="ui-icon icon-tint-warn" width="14" height="14">
+                                        <span>Project Info</span>
+                                    </div>
+                                </th>
+                                <th colspan="3" scope="colgroup" class="projects-table-group-header projects-table-group-header--scan">
+                                    <div class="projects-table-group-title">
+                                        <img src="/secret_scanner/static/icons/new/BaselineHistory.svg" alt="" class="ui-icon icon-tint-info" width="14" height="14">
+                                        <span>Last scan</span>
+                                    </div>
+                                </th>
+                            </tr>
+                            <tr class="scans-table-header scans-table-header-cols">
+                                {{ projects_col_th('FolderWithFilesLinear.svg', 'icon-tint-warn', 'Project', 'info', 'start') }}
+                                {{ projects_col_th('repository.svg', 'icon-tint-info', 'Repo', 'info') }}
+                                {{ projects_col_th('BaselineCalendarMonth.svg', 'icon-tint-muted', 'Created', 'info', 'end') }}
+                                {{ projects_col_th('ArrayDateTime.svg', 'icon-tint-muted', 'Date', 'scan', 'start') }}
+                                {{ projects_col_th('ForgotPassword.svg', 'icon-tint-purple', 'Findings', 'scan') }}
+                                {{ projects_col_th('GeoActive.svg', 'icon-tint-muted', 'Status', 'scan', 'end') }}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for project_data in projects %}
+                            {% set project = project_data.project %}
+                            {% set latest_scan = project_data.latest_scan %}
+                            {% set project_href = '/secret_scanner/project/' ~ project.name %}
+                            <tr class="scans-table-row{% if latest_scan %} scans-table-row--{{ latest_scan.status }}{% endif %}">
+                                <td class="scans-cell scans-cell-project projects-table-group-cell projects-table-group-cell--info projects-table-group-cell--start">
+                                    <a href="{{ project_href }}" class="scans-cell-link scans-project-name scans-project-name--selectable">{{ project.name }}</a>
+                                </td>
+                                <td class="scans-cell scans-cell-repo projects-table-group-cell projects-table-group-cell--info">
+                                    {% if project_data.repo_url %}
+                                    <a href="{{ project_data.repo_url }}" class="scans-repo-link" target="_blank" rel="noopener noreferrer" title="{{ project_data.repo_url }}">{{ project_data.repo_url }}</a>
+                                    {% else %}
+                                    <span class="scans-empty">—</span>
+                                    {% endif %}
+                                </td>
+                                <td class="scans-cell scans-cell-created projects-table-group-cell projects-table-group-cell--info projects-table-group-cell--end">
+                                    <a href="{{ project_href }}" class="scans-cell-link">
+                                        <time datetime="{{ project.created_at.strftime('%Y-%m-%dT%H:%M') }}">{{ project.created_at.strftime('%d.%m.%Y') }}</time>
+                                    </a>
+                                </td>
+                                {% if latest_scan %}
+                                {% set last_scan_href = scan_row_href(latest_scan) %}
+                                <td class="scans-cell scans-cell-last-scan projects-table-group-cell projects-table-group-cell--scan projects-table-group-cell--start">
+                                    <a href="{{ last_scan_href }}" class="scans-cell-link">
+                                        <time datetime="{{ latest_scan.started_at.strftime('%Y-%m-%dT%H:%M') }}">{{ latest_scan.started_at.strftime('%d.%m.%Y %H:%M') }}</time>
+                                    </a>
+                                </td>
+                                <td class="scans-cell scans-cell-findings projects-table-group-cell projects-table-group-cell--scan">
+                                    <a href="{{ last_scan_href }}" class="scans-cell-link">
+                                        {% if latest_scan.status == 'completed' %}
+                                        <span class="findings-total {% if project_data.findings_total > 0 %}findings-total--has{% else %}findings-total--none{% endif %}">{{ project_data.findings_total }}</span>
+                                        {% else %}
+                                        <span class="scans-empty">—</span>
+                                        {% endif %}
+                                    </a>
+                                </td>
+                                <td class="scans-cell scans-cell-status projects-table-group-cell projects-table-group-cell--scan projects-table-group-cell--end">
+                                    <a href="{{ last_scan_href }}" class="scans-cell-link">
+                                        {{ scan_status_badge(latest_scan.status) }}
+                                    </a>
+                                </td>
+                                {% else %}
+                                <td colspan="3" class="scans-cell projects-table-group-cell projects-table-group-cell--scan projects-table-group-cell--empty">
+                                    <span class="scans-empty">No scans</span>
+                                </td>
+                                {% endif %}
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
             </div>
             
             {% if total_pages > 1 %}
@@ -259,10 +399,12 @@
             
             {% else %}
             <div class="empty-state">
-                <h3>🤷‍♂️ Ничего не найдено</h3>
+                <img src="/secret_scanner/static/icons/new/CreditCardNotFound.svg" alt="" class="empty-state-icon" width="48" height="48">
+                <h3>Ничего не найдено</h3>
                 <p>{% if search %}Ни один проект не соответствует вашим критериям поиска.{% else %}Начните с добавления первого проекта.{% endif %}</p>
             </div>
             {% endif %}
+            </div>
         </div>
     </div>
     <script src="/secret_scanner/static/js/dashboard.js"></script>

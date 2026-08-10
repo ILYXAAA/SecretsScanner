@@ -1,0 +1,24 @@
+{% macro ui_icon(name, class='', size=18) %}
+<img src="/secret_scanner/static/icons/new/{{ name }}" alt="" class="ui-icon{% if class %} {{ class }}{% endif %}" width="{{ size }}" height="{{ size }}">
+{% endmacro %}
+
+{% macro meta_line(icon, tint, label, value) %}
+<div class="commit-info meta-line">
+    {{ ui_icon(icon, 'meta-icon ' ~ tint, 14) }}
+    <span>{{ label }}: <strong class="meta-value">{{ value }}</strong></span>
+</div>
+{% endmacro %}
+
+{% macro filter_group_title(icon, tint, title) %}
+<h4 class="filter-group-title">
+    {{ ui_icon(icon, 'filter-group-icon ' ~ tint, 16) }}
+    <span>{{ title }}</span>
+</h4>
+{% endmacro %}
+
+{% macro filter_label(icon, tint, text, for_id) %}
+<label for="{{ for_id }}" class="filter-label-with-icon">
+    {{ ui_icon(icon, 'filter-label-icon ' ~ tint, 14) }}
+    <span>{{ text }}</span>
+</label>
+{% endmacro %}

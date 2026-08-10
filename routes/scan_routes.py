@@ -399,12 +399,15 @@ async def scan_status(request: Request, scan_id: str, current_user: str = Depend
     scan = db.query(Scan).filter(Scan.id == scan_id).first()
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
+
+    callback_url = f"http://{APP_HOST}:{APP_PORT}/get_results/{scan.project_name}/{scan_id}"
     
     return templates.TemplateResponse("scan_status.html", {
         "request": request,
         "scan": scan,
         "current_user": current_user,
         "scan_type": normalize_scan_type(scan.scan_type),
+        "callback_url": callback_url,
     })
 
 @router.get("/api/scan/{scan_id}/status")
@@ -513,6 +516,8 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
             error_message = data.get("Message", "Unknown error occurred during scanning")
             logger.error(f"💥 Скан '{scan_id}' завершился с ошибкой: {error_message}")
             scan.error_message = error_message
+            if data.get("RepoCommit"):
+                scan.repo_commit = data.get("RepoCommit")
             db_session.commit()
             
             #processing_time = (datetime.now() - start_time).total_seconds()

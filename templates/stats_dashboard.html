@@ -10,18 +10,32 @@
 </head>
 <body>
     {% from "components/base_header.html" import header %}
+    {% macro section_heading(icon, badge_class, tint_class, title) %}
+    <h2 class="section-title">
+        <span class="section-icon-badge {{ badge_class }}">
+            <img src="/secret_scanner/static/icons/new/{{ icon }}" alt="" class="section-title-icon {{ tint_class }}" width="18" height="18">
+        </span>
+        <span class="section-title-text">{{ title }}</span>
+    </h2>
+    {% endmacro %}
+
     {{ header('stats-dashboard', current_user) }}
 
     <div class="container">
         <div class="page-header">
-            <h1 class="page-title">📊 Статистика секретов</h1>
+            <h1 class="page-title">
+                <img src="/secret_scanner/static/icons/new/Analysis.svg" alt="" class="page-title-icon icon-tint-info" width="24" height="24">
+                Статистика секретов
+            </h1>
             <div class="page-subtitle">Аналитика и метрики по подтвержденным секретам</div>
         </div>
 
         <!-- KPI Cards -->
         <div class="kpi-grid" id="kpiGrid">
             <div class="kpi-card kpi-primary">
-                <div class="kpi-icon">🟢</div>
+                <div class="kpi-icon">
+                    <img src="/secret_scanner/static/icons/new/GeoActive.svg" alt="" class="kpi-icon-img icon-tint-success" width="22" height="22">
+                </div>
                 <div class="kpi-content">
                     <div class="kpi-value" id="kpiActiveConfirmed">-</div>
                     <div class="kpi-label">Активные подтвержденные секреты</div>
@@ -30,7 +44,9 @@
             </div>
 
             <div class="kpi-card kpi-warning">
-                <div class="kpi-icon">📅</div>
+                <div class="kpi-icon">
+                    <img src="/secret_scanner/static/icons/new/Calendar.svg" alt="" class="kpi-icon-img icon-tint-warn" width="22" height="22">
+                </div>
                 <div class="kpi-content">
                     <div class="kpi-value" id="kpiNew24h">-</div>
                     <div class="kpi-label">Новые подтвержденные (24ч)</div>
@@ -39,7 +55,9 @@
             </div>
 
             <div class="kpi-card kpi-info">
-                <div class="kpi-icon">📅</div>
+                <div class="kpi-icon">
+                    <img src="/secret_scanner/static/icons/new/Calendar_2.svg" alt="" class="kpi-icon-img icon-tint-info" width="22" height="22">
+                </div>
                 <div class="kpi-content">
                     <div class="kpi-value" id="kpiNew7d">-</div>
                     <div class="kpi-label">Новые подтвержденные (7д)</div>
@@ -47,8 +65,10 @@
                 </div>
             </div>
 
-            <div class="kpi-card kpi-success">
-                <div class="kpi-icon">🛡️</div>
+            <div class="kpi-card kpi-alert">
+                <div class="kpi-icon">
+                    <img src="/secret_scanner/static/icons/new/AddShieldHalf.svg" alt="" class="kpi-icon-img icon-tint-orange" width="22" height="22">
+                </div>
                 <div class="kpi-content">
                     <div class="kpi-value" id="kpiNoStatus">-</div>
                     <div class="kpi-label">Требуют разметки</div>
@@ -60,16 +80,20 @@
         <!-- Stats Tabs -->
         <div class="stats-tabs">
             <button class="stats-tab active" data-tab="overview">
-                📊 Обзор
+                <img src="/secret_scanner/static/icons/new/ReviewCheckmark.svg" alt="" class="tab-icon icon-tint-success" width="16" height="16">
+                Обзор
             </button>
             <button class="stats-tab" data-tab="secrets">
-                🔐 Секреты
+                <img src="/secret_scanner/static/icons/new/ForgotPassword.svg" alt="" class="tab-icon icon-tint-purple" width="16" height="16">
+                Секреты
             </button>
             <button class="stats-tab" data-tab="scans">
-                🔄 Сканирования
+                <img src="/secret_scanner/static/icons/new/BarcodeScanDuotone.svg" alt="" class="tab-icon icon-tint-info" width="16" height="16">
+                Сканирования
             </button>
             <button class="stats-tab" data-tab="analytics">
-                🤖 ML-классификатор
+                <img src="/secret_scanner/static/icons/new/Robot.svg" alt="" class="tab-icon icon-tint-purple" width="16" height="16">
+                ML-классификатор
             </button>
         </div>
 
@@ -79,7 +103,7 @@
                 <!-- Trends Chart -->
                 <div class="chart-section">
                     <div class="section-header">
-                        <h2 class="section-title">📈 Тренд подтвержденных секретов</h2>
+                        {{ section_heading('InterfaceContentChartProductDataAnalysisAnalyticsGraphLineBusinessBoardChart.svg', 'badge-blue', 'icon-tint-info', 'Тренд подтвержденных секретов') }}
                         <div class="period-selector">
                             <button class="period-btn active" data-period="30">30 дней</button>
                             <button class="period-btn" data-period="90">90 дней</button>
@@ -103,7 +127,7 @@
                 <!-- Status Distribution Pie Chart -->
                 <div class="chart-section">
                     <div class="section-header">
-                        <h2 class="section-title">📊 Соотношение статусов секретов</h2>
+                        {{ section_heading('MoneyGraphBarProductDataBarsAnalysisAnalyticsGraphBusinessChart.svg', 'badge-purple', 'icon-tint-purple', 'Соотношение статусов секретов') }}
                     </div>
                     <div class="two-column-grid">
                         <div class="chart-container-medium">
@@ -155,7 +179,7 @@
                     <!-- Top Projects Table -->
                     <div class="chart-section">
                         <div class="section-header">
-                            <h2 class="section-title">🚨 Топ-5 проектов</h2>
+                            {{ section_heading('FeedTrophy16.svg', 'badge-amber', 'icon-tint-warn', 'Топ-5 проектов') }}
                         </div>
                         <div class="table-container">
                             <table class="top-projects-table" id="topProjectsTable">
@@ -178,7 +202,7 @@
                     <!-- Secret Types Donut Chart -->
                     <div class="chart-section">
                         <div class="section-header">
-                            <h2 class="section-title">🔐 Типы секретов</h2>
+                            {{ section_heading('InterfaceUnlockCombinationComboKeyKeyholeLockSecureSecuritySquareUnlockUnlocked.svg', 'badge-teal', 'icon-tint-teal', 'Типы секретов') }}
                         </div>
                         <div class="chart-container-small">
                             <canvas id="secretTypesChart"></canvas>
@@ -192,7 +216,7 @@
                 <!-- Top File Extensions Chart -->
                 <div class="chart-section">
                     <div class="section-header">
-                        <h2 class="section-title">📁 Топ расширений файлов</h2>
+                        {{ section_heading('Files.svg', 'badge-amber', 'icon-tint-warn', 'Топ расширений файлов') }}
                     </div>
                     <div class="chart-container">
                         <canvas id="fileExtensionsChart"></canvas>
@@ -208,7 +232,7 @@
                 <!-- Scan Activity Chart -->
                 <div class="chart-section">
                     <div class="section-header">
-                        <h2 class="section-title">📊 Активность сканирований</h2>
+                        {{ section_heading('AppWindowPieChart.svg', 'badge-green', 'icon-tint-success', 'Активность сканирований') }}
                         <div class="period-selector">
                             <button class="period-btn active" data-period-scan="30">30 дней</button>
                             <button class="period-btn" data-period-scan="90">90 дней</button>
@@ -261,7 +285,8 @@
                     </div>
                     <div class="form-actions">
                         <button type="button" class="btn btn-primary" onclick="applyAnalyticsFilters()">
-                            🔄 Применить фильтры
+                            <img src="/secret_scanner/static/icons/new/BarChartVerticalFilter.svg" alt="" class="btn-icon" width="16" height="16">
+                            Применить фильтры
                         </button>
                     </div>
                 </div>
@@ -269,7 +294,7 @@
                 <!-- Confidence Accuracy Chart -->
                 <div class="chart-section">
                     <div class="section-header">
-                        <h2 class="section-title">🎯 Точность модели по confidence</h2>
+                        {{ section_heading('BusinessTarget.svg', 'badge-red', 'icon-tint-error', 'Точность модели по confidence') }}
                     </div>
                     <div class="chart-container">
                         <canvas id="confidenceChart"></canvas>
@@ -289,16 +314,18 @@
                 <!-- Secrets Lists with Tabs -->
                 <div class="chart-section">
                     <div class="section-header">
-                        <h2 class="section-title">📶 Анализ точности модели</h2>
+                        {{ section_heading('DataAnalysis.svg', 'badge-blue', 'icon-tint-info', 'Анализ точности модели') }}
                     </div>
                     
                     <!-- Internal Tabs -->
                     <div class="stats-tabs-internal">
                         <button class="stats-tab-internal active" data-tab-internal="low-confidence">
-                            📉 Низкий confidence, но подтверждено
+                            <img src="/secret_scanner/static/icons/new/ArrowTrendingDown20Regular.svg" alt="" class="tab-icon icon-tint-warn" width="16" height="16">
+                            Низкий confidence, но подтверждено
                         </button>
                         <button class="stats-tab-internal" data-tab-internal="high-confidence">
-                            📈 Высокий confidence, но опровергнуто
+                            <img src="/secret_scanner/static/icons/new/ArrowTrending20Regular.svg" alt="" class="tab-icon icon-tint-error" width="16" height="16">
+                            Высокий confidence, но опровергнуто
                         </button>
                     </div>
                     

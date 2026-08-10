@@ -4,74 +4,142 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Техническое обслуживание | Secrets Scanner</title>
+    <link rel="preload" href="/secret_scanner/static/fonts/orbitron-800.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="/secret_scanner/static/fonts/orbitron-700.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="stylesheet" href="/secret_scanner/static/css/maintenance.css">
     <link rel="icon" type="image/x-icon" href="/secret_scanner/favicon.ico">
+    <script>
+        (function () {
+            var root = document.documentElement;
+
+            function revealBrandText() {
+                root.classList.add('fonts-ready');
+            }
+
+            if (!document.fonts || !document.fonts.load) {
+                revealBrandText();
+                return;
+            }
+
+            Promise.all([
+                document.fonts.load('800 1em Orbitron'),
+                document.fonts.load('700 0.8125em Orbitron')
+            ]).then(revealBrandText).catch(revealBrandText);
+
+            setTimeout(revealBrandText, 2000);
+        })();
+    </script>
 </head>
 <body>
-    <div class="maintenance-container">
-        <div class="maintenance-content">
-            <div class="maintenance-icon">
-                <div class="gear gear-1">⚙️</div>
-                <div class="gear gear-2">⚙️</div>
-            </div>
-            <h1 class="maintenance-title">Технические работы</h1>
-            <p class="maintenance-description">
-                В настоящее время на сервисе проводятся технические работы.
-                <br>Пожалуйста ожидайте.
-            </p>
-            <div class="maintenance-info">
-                <p class="info-text">
-                    🚧 Проводится обновление и тестирование системы
-                    {% if end_time %}
-                    <br><span style="margin-top: 0.5rem; display: inline-block;">Примерное время возобновления работы сервиса в {{ end_time }}</span>
-                    {% endif %}
-                </p>
-            </div>
-            
-            <div class="admin-login-section">
-                <div class="admin-login-divider">
-                    <span>Для администратора</span>
+    {% from "components/scan_results_macros.html" import ui_icon %}
+
+    <div class="maintenance-page">
+        <aside class="maintenance-brand" aria-hidden="true">
+            <div class="brand-grid"></div>
+            <div class="brand-glow"></div>
+            <div class="brand-content">
+                <img
+                    src="/secret_scanner/favicon.ico"
+                    alt=""
+                    class="brand-mark"
+                    width="160"
+                    height="160"
+                >
+                <div class="brand-title" aria-hidden="true">
+                    <span class="brand-title-line brand-title-secrets">SECRETS</span>
+                    <span class="brand-title-line brand-title-scanner">SCANNER</span>
                 </div>
-                {% if error %}
-                <div class="error-message">{{ error }}</div>
-                {% endif %}
-                <form method="post" action="/secret_scanner/maintenance/login" class="admin-login-form" id="maintenanceLoginForm">
-                    <div class="form-group">
-                        <label for="username">Имя пользователя</label>
-                        <input type="text" id="username" name="username" required autocomplete="username">
-                    </div>
-                    <div class="form-group">
-                        <label for="password">Пароль</label>
-                        <input type="password" id="password" name="password" required autocomplete="current-password">
-                    </div>
-                    <button type="submit" class="btn-login" id="loginBtn">Войти как администратор</button>
-                </form>
             </div>
-            
-            <div class="maintenance-footer">
-                <p>Спасибо за понимание</p>
+        </aside>
+
+        <main class="maintenance-main">
+            <div class="maintenance-wrapper">
+                <header class="maintenance-header">
+                    <span class="maintenance-hero-badge">
+                        {{ ui_icon('ArrowTrendingWrench24Filled.svg', 'maintenance-hero-icon icon-tint-warn', 32) }}
+                    </span>
+                    <h1>Технические работы</h1>
+                    <p class="maintenance-description">
+                        В настоящее время на сервисе проводятся технические работы.
+                        Пожалуйста, ожидайте.
+                    </p>
+                </header>
+
+                <div class="maintenance-info">
+                    <p class="info-text">
+                        {{ ui_icon('CloudAlerting.svg', 'info-icon icon-tint-warn', 16) }}
+                        <span>Проводится обновление и тестирование системы</span>
+                    </p>
+                    {% if end_time %}
+                    <p class="info-text info-text--time">
+                        {{ ui_icon('BaselineCalendarMonth.svg', 'info-icon icon-tint-info', 16) }}
+                        <span>Примерное время возобновления работы сервиса — <strong>{{ end_time }}</strong></span>
+                    </p>
+                    {% endif %}
+                </div>
+
+                <section class="admin-login-section" aria-labelledby="admin-login-heading">
+                    <div class="admin-login-divider">
+                        {{ ui_icon('Admin.svg', 'divider-icon icon-tint-muted', 16) }}
+                        <span id="admin-login-heading">Для администратора</span>
+                    </div>
+
+                    {% if error %}
+                    <div class="error-message" role="alert">
+                        {{ ui_icon('AlertErrorStroke16.svg', 'error-icon icon-tint-error', 16) }}
+                        <span>{{ error }}</span>
+                    </div>
+                    {% endif %}
+
+                    <form method="post" action="/secret_scanner/maintenance/login" class="admin-login-form" id="maintenanceLoginForm">
+                        <div class="form-group">
+                            <label for="username">Имя пользователя</label>
+                            <div class="input-with-icon">
+                                {{ ui_icon('Account.svg', 'input-icon', 18) }}
+                                <input type="text" id="username" name="username" required autocomplete="username">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="password">Пароль</label>
+                            <div class="input-with-icon">
+                                {{ ui_icon('LockPassword.svg', 'input-icon', 18) }}
+                                <input type="password" id="password" name="password" required autocomplete="current-password">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn-primary" id="loginBtn">
+                            {{ ui_icon('BaselineLogin.svg', 'btn-icon', 18) }}
+                            <span class="btn-label">Войти как администратор</span>
+                        </button>
+                    </form>
+                </section>
+
+                <footer class="maintenance-footer">
+                    <p>Спасибо за понимание</p>
+                </footer>
             </div>
-        </div>
+        </main>
     </div>
+
     <script>
-        // Handle form submission
-        const form = document.getElementById('maintenanceLoginForm');
-        const loginBtn = document.getElementById('loginBtn');
-        
-        if (form && loginBtn) {
-            form.addEventListener('submit', function(e) {
-                // Show loading state
+        (function () {
+            var form = document.getElementById('maintenanceLoginForm');
+            var loginBtn = document.getElementById('loginBtn');
+            var btnLabel = loginBtn && loginBtn.querySelector('.btn-label');
+
+            if (!form || !loginBtn || !btnLabel) {
+                return;
+            }
+
+            form.addEventListener('submit', function () {
                 loginBtn.disabled = true;
-                loginBtn.textContent = '⏳ Вход...';
-                
-                // Re-enable button after timeout in case of error
-                setTimeout(() => {
+                btnLabel.textContent = 'Вход…';
+
+                setTimeout(function () {
                     loginBtn.disabled = false;
-                    loginBtn.textContent = 'Войти как администратор';
+                    btnLabel.textContent = 'Войти как администратор';
                 }, 10000);
             });
-        }
+        })();
     </script>
 </body>
 </html>
-

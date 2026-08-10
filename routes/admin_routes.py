@@ -15,6 +15,7 @@ import re
 from services.auth import ADMIN_ROLE, USER_ROLE, VALID_ROLES, get_admin_user, get_user_db, get_password_hash
 from services.falses_export_service import refresh_falses_file, FALSES_FILE_PATH
 from services.falses_git_push_service import is_falses_git_push_configured
+from services.backup_service import create_database_backup, get_backup_status
 from models import User, Secret, Scan, Project, Settings
 from services.templates import templates
 from services.database import get_db

@@ -8,6 +8,9 @@ let filteredSecrets = [];
 let currentPage = 1;
 let pageSize = 2000;
 let isFiltersOpen = false;
+let filtersToggleBtnClosedHtml = '';
+let filtersToggleBtnOpenHtml = '';
+let emptyDetailHtml = '';
 let activeFilters = {
     status: [],
     severity: [],
@@ -190,6 +193,12 @@ function getGroupConfidenceLabel(members) {
     return `${Math.round(min * 100)}–${Math.round(max * 100)}%`;
 }
 
+function getConfidenceClass(confidence) {
+    if (confidence >= 0.8) return 'confidence-high';
+    if (confidence >= 0.5) return 'confidence-medium';
+    return 'confidence-low';
+}
+
 function getDisplayRowByIndex(index) {
     return displayRows[index] || null;
 }
@@ -253,8 +262,8 @@ function renderGroupModalPage(page) {
         const secretType = safeHtml(member.type || '');
         const isConfirmed = normalizeSecretStatus(member.status) === 'Confirmed';
         const actionCell = isConfirmed
-            ? '<span class="secrets-details-added-label">✅ Подтверждён</span>'
-            : `<button type="button" class="secrets-details-add-btn" onclick="confirmGroupMember(${member.id})" title="Подтвердить секрет">✅</button>`;
+            ? `<span class="secrets-details-added-label">${uiIcon('CheckboxCheckedFilled.svg', 'icon-tint-success', 14)}<span>Подтверждён</span></span>`
+            : `<button type="button" class="secrets-details-add-btn" onclick="confirmGroupMember(${member.id})" title="Подтвердить секрет">${uiIcon('CheckboxCheckedFilled.svg', 'icon-tint-success', 14)}</button>`;
 
         return `<tr data-secret-id="${member.id}">
             <td class="col-line">${line}</td>
@@ -311,7 +320,7 @@ async function confirmGroupMember(secretId) {
             alert('Ошибка при подтверждении секрета');
             if (btn) {
                 btn.disabled = false;
-                btn.textContent = '✅';
+                btn.innerHTML = uiIcon('CheckboxCheckedFilled.svg', 'icon-tint-success', 14);
             }
             return;
         }
@@ -343,7 +352,7 @@ async function confirmGroupMember(secretId) {
         alert('Ошибка при подтверждении секрета');
         if (btn) {
             btn.disabled = false;
-            btn.textContent = '✅';
+            btn.innerHTML = uiIcon('CheckboxCheckedFilled.svg', 'icon-tint-success', 14);
         }
     }
 }
@@ -566,6 +575,16 @@ function loadSecretsData() {
 
 // Initialize when page loads
 document.addEventListener('DOMContentLoaded', function() {
+    const filtersToggleBtn = document.getElementById('filtersToggleBtn');
+    if (filtersToggleBtn) {
+        filtersToggleBtnClosedHtml = filtersToggleBtn.innerHTML;
+        filtersToggleBtnOpenHtml = `${uiIcon('Error.svg', 'btn-icon icon-tint-error', 14)}<span>Закрыть</span>`;
+    }
+    const detailPanel = document.getElementById('detailPanel');
+    if (detailPanel) {
+        emptyDetailHtml = detailPanel.innerHTML;
+    }
+
     // console.log('Page loading...');
     
     // Загружаем данные из атрибутов
@@ -757,9 +776,7 @@ function applyFiltersFromMain() {
     applyFilters();
 }
 
-// Сохранить текущую сортировку перед применением фильтров
-function applyFiltersSync() {
-    // Update active filters from checkboxes
+function syncActiveFiltersFromDOM() {
     activeFilters.status = [];
     activeFilters.severity = [];
     activeFilters.type = [];
@@ -767,7 +784,6 @@ function applyFiltersSync() {
     const panelInput = document.getElementById('secretValueFilter');
     activeFilters.secretValue = (mainInput?.value || panelInput?.value || '');
 
-    // Синхронизировать оба поля
     if (mainInput && panelInput) {
         if (mainInput.value !== panelInput.value) {
             if (mainInput.value) {
@@ -777,8 +793,7 @@ function applyFiltersSync() {
             }
         }
     }
-    
-    // Get status filters
+
     document.querySelectorAll('#filtersPanel input[type="checkbox"]:checked').forEach(cb => {
         const value = cb.value;
         if (['Confirmed', 'No status', 'Refuted'].includes(value)) {
@@ -787,50 +802,68 @@ function applyFiltersSync() {
             activeFilters.severity.push(value);
         }
     });
-    
-    // Get type filters
+
     document.querySelectorAll('#typeFilters input[type="checkbox"]:checked').forEach(cb => {
         activeFilters.type.push(cb.value);
     });
+}
 
-    // Filter logic
+function recomputeSecretsData() {
+    syncActiveFiltersFromDOM();
+
     if (activeFilters.status.length === 0 || activeFilters.severity.length === 0 || activeFilters.type.length === 0) {
         filteredSecrets = [];
     } else {
         filteredSecrets = allSecrets.filter(secret => {
-            // Normalize status
             let secretStatus = secret.status;
             if (!secretStatus || secretStatus === '' || secretStatus === null) {
                 secretStatus = 'No status';
             }
-            
-            // ALL conditions must be true
+
             const statusMatch = activeFilters.status.includes(secretStatus);
             const severityMatch = activeFilters.severity.includes(secret.severity);
             const typeMatch = activeFilters.type.includes(secret.type);
-            
-            // Secret / file name filter
             const searchTerm = activeFilters.secretValue.toLowerCase();
             const secretValueMatch = !searchTerm || (
                 (secret.secret && secret.secret.toLowerCase().includes(searchTerm)) ||
                 getFileNameFromPath(secret.path).toLowerCase().includes(searchTerm)
             );
-            
+
             return statusMatch && severityMatch && typeMatch && secretValueMatch;
         });
     }
 
-    // Reset to first page and clear selections
-    currentPage = 1;
-    selectedSecrets.clear();
-    showEmptyDetail();
-
-    // Apply sorting to filtered results, then build display rows
     sortSecrets();
     displayRows = buildDisplayRows(filteredSecrets);
     sortDisplayRows();
+}
 
-    // Update URL, stats, and render
+function isSecretOnCurrentPage(secretId) {
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    return displayRows.slice(startIndex, endIndex).some(row => !row.isGroup && row.id === secretId);
+}
+
+// Сохранить текущую сортировку перед применением фильтров
+function applyFiltersSync(options = {}) {
+    const {
+        resetPage = true,
+        clearSelection = true,
+        clearDetail = true,
+    } = options;
+
+    recomputeSecretsData();
+
+    if (resetPage) {
+        currentPage = 1;
+    }
+    if (clearSelection) {
+        selectedSecrets.clear();
+    }
+    if (clearDetail) {
+        showEmptyDetail();
+    }
+
     updateURL();
     updateStats();
     renderTable();
@@ -910,12 +943,12 @@ function renderTable() {
         <table class="secrets-table">
             <thead class="table-header">
                 <tr>
-                    <th class="sortable" data-sort="secret">🔑 Secret</th>
-                    <th class="sortable" data-sort="file">📁 File</th>
-                    <th class="sortable" data-sort="type">🏷️ Type</th>
-                    <th class="sortable" data-sort="status">📊 Status</th>
-                    <th class="sortable" data-sort="confidence">🎯</th>
-                    <th class="sortable" data-sort="severity">⚠️ Level</th>
+                    <th class="sortable" data-sort="secret">${uiTh('LockPassword.svg', 'icon-tint-muted', 'Secret')}</th>
+                    <th class="sortable file-col" data-sort="file">${uiTh('Files.svg', 'icon-tint-muted', 'File')}</th>
+                    <th class="sortable" data-sort="type">${uiTh('ReviewCheckmark.svg', 'icon-tint-muted', 'Type')}</th>
+                    <th class="sortable" data-sort="status">${uiTh('Analysis.svg', 'icon-tint-muted', 'Status')}</th>
+                    <th class="sortable" data-sort="confidence">${uiTh('BusinessTarget.svg', 'icon-tint-muted', '')}</th>
+                    <th class="sortable" data-sort="severity">${uiTh('AlertErrorStroke16.svg', 'icon-tint-muted', 'Level')}</th>
                 </tr>
             </thead>
             <tbody>
@@ -926,13 +959,14 @@ function renderTable() {
         if (row.isGroup) {
             const severityLabel = getGroupSeverityLabel(row.members);
             const severityClass = severityLabel.toLowerCase() === 'mixed' ? 'potential' : severityLabel.toLowerCase();
+            const groupConfidenceLabel = getGroupConfidenceLabel(row.members);
             tableHTML += `
             <tr class="secret-row group-row ${severityClass}" data-is-group="true" data-group-key="${encodeURIComponent(row.groupKey)}" data-row-index="${globalIndex}">
                 <td>
                     <div class="secret-value">${row.count} секретов в файле</div>
                 </td>
-                <td>
-                    <span class="secret-file">${escapeHtml((row.path || '').split('/').pop())}</span>
+                <td class="file-cell">
+                    <span class="secret-file path-truncate" title="${escapeHtml((row.path || '').split('/').pop())}">${escapeHtml((row.path || '').split('/').pop())}</span>
                 </td>
                 <td>
                     <span class="secret-type">${escapeHtml(getGroupTypeLabel(row.members))}</span>
@@ -942,9 +976,9 @@ function renderTable() {
                         ${getStatusHTML({ status: row.status })}
                     </div>
                 </td>
-                <td>
-                    <div class="secret-confidence" style="font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace; font-weight: 600; color: #6b7280; text-align: center;">
-                        ${escapeHtml(getGroupConfidenceLabel(row.members))}
+                <td class="confidence-cell">
+                    <div class="secret-confidence confidence-neutral" title="${escapeHtml(groupConfidenceLabel)}">
+                        ${escapeHtml(groupConfidenceLabel)}
                     </div>
                 </td>
                 <td>
@@ -958,8 +992,8 @@ function renderTable() {
                 <td>
                     <div class="secret-value">${safeHtml(row.secret)}</div>
                 </td>
-                <td>
-                    <span class="secret-file">${escapeHtml((row.path || '').split('/').pop())}</span>
+                <td class="file-cell">
+                    <span class="secret-file path-truncate" title="${escapeHtml((row.path || '').split('/').pop())}">${escapeHtml((row.path || '').split('/').pop())}</span>
                 </td>
                 <td>
                     <span class="secret-type">${escapeHtml(row.type)}</span>
@@ -969,8 +1003,8 @@ function renderTable() {
                         ${getStatusHTML(row)}
                     </div>
                 </td>
-                <td>
-                    <div class="secret-confidence" style="font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace; font-weight: 600; color: ${row.confidence >= 0.8 ? '#059669' : row.confidence >= 0.5 ? '#d97706' : '#dc2626'}; text-align: center;">
+                <td class="confidence-cell">
+                    <div class="secret-confidence ${getConfidenceClass(row.confidence)}" title="${(row.confidence * 100).toFixed(0)}%">
                         ${(row.confidence * 100).toFixed(0)}%
                     </div>
                 </td>
@@ -989,16 +1023,145 @@ function renderTable() {
 
 function getStatusHTML(secret) {
     if (secret.status === 'Confirmed') {
-        return '<span class="status-confirmed">✅ Confirmed</span>';
+        return statusConfirmedHtml('Confirmed');
     } else if (secret.status === 'Refuted') {
-        let html = '<span class="status-refuted">❌ Refuted</span>';
+        let html = statusRefutedHtml('Refuted');
         if (secret.refuted_at) {
             html += `<div class="refuted-date">${escapeHtml(secret.refuted_at)}</div>`;
         }
         return html;
-    } else {
-        return '<span class="status-none">⚪ Без статуса</span>';
     }
+    return statusNoneHtml('Без статуса');
+}
+
+function highlightSelectedRow(secretId) {
+    document.querySelectorAll('.secret-row').forEach(row => {
+        row.classList.remove('selected');
+        row.classList.remove('multi-selected');
+    });
+    const row = document.querySelector(`tr.secret-row[data-secret-id="${secretId}"]`);
+    if (row) {
+        row.classList.add('selected');
+    }
+}
+
+function refreshSecretRowInTable(secretId) {
+    const secret = allSecrets.find(s => s.id === secretId);
+    if (!secret) return;
+
+    const row = document.querySelector(`tr.secret-row[data-secret-id="${secretId}"]`);
+    if (!row) return;
+
+    const statusCell = row.querySelector('.secret-status');
+    if (statusCell) {
+        statusCell.innerHTML = getStatusHTML(secret);
+    }
+
+    const severityCell = row.querySelector('.secret-severity');
+    if (severityCell) {
+        severityCell.className = `secret-severity ${safeHtml(secret.severity).toLowerCase()}`;
+        severityCell.textContent = secret.severity;
+    }
+
+    row.className = `secret-row ${safeHtml(secret.severity).toLowerCase()}${row.classList.contains('selected') ? ' selected' : ''}`;
+}
+
+function refreshSecretDetailStatus(secretId) {
+    const secret = allSecrets.find(s => s.id === secretId);
+    if (!secret) return;
+
+    const panel = document.getElementById('detailPanel');
+    if (!panel) return;
+
+    const confirmedBtn = panel.querySelector('.status-btn-confirmed');
+    if (!confirmedBtn) {
+        loadSecretDetails(secretId);
+        return;
+    }
+
+    panel.querySelectorAll('.status-btn-confirmed, .status-btn-none, .status-btn-refuted').forEach(btn => {
+        btn.classList.remove('active');
+    });
+
+    if (secret.status === 'Confirmed') {
+        confirmedBtn.classList.add('active');
+    } else if (secret.status === 'Refuted') {
+        panel.querySelector('.status-btn-refuted')?.classList.add('active');
+    } else {
+        panel.querySelector('.status-btn-none')?.classList.add('active');
+    }
+
+    const commentSection = panel.querySelector('.comment-section');
+    if (commentSection) {
+        commentSection.style.display = secret.status === 'Refuted' ? 'block' : 'none';
+    }
+}
+
+function refreshSecretDetailSeverity(secretId) {
+    const secret = allSecrets.find(s => s.id === secretId);
+    if (!secret) return;
+
+    const panel = document.getElementById('detailPanel');
+    if (!panel) return;
+
+    const buttons = panel.querySelectorAll('.detail-section .status-btn');
+    if (buttons.length < 2) {
+        loadSecretDetails(secretId);
+        return;
+    }
+
+    const [highBtn, potentialBtn] = buttons;
+    const isHigh = secret.severity === 'High';
+
+    highBtn.classList.toggle('active', isHigh);
+    highBtn.style.background = isHigh ? '#dc2626' : '#fff';
+    highBtn.style.color = isHigh ? '#fff' : '#dc2626';
+
+    potentialBtn.classList.toggle('active', !isHigh);
+    potentialBtn.style.background = !isHigh ? '#6b7280' : '#fff';
+    potentialBtn.style.color = !isHigh ? '#fff' : '#6b7280';
+}
+
+function refreshAfterSecretChange(secretId) {
+    const previousPage = currentPage;
+
+    recomputeSecretsData();
+    updateStats();
+    updateURL();
+
+    const totalPages = Math.max(1, Math.ceil(displayRows.length / pageSize));
+    if (previousPage > totalPages) {
+        currentPage = totalPages;
+    } else {
+        currentPage = previousPage;
+    }
+
+    const stillVisible = filteredSecrets.some(s => s.id === secretId);
+    if (!stillVisible) {
+        renderTable();
+        renderPagination();
+        refreshSecretDetailStatus(secretId);
+        refreshSecretDetailSeverity(secretId);
+        return;
+    }
+
+    const activeSortColumn = sortColumns[0]?.column;
+    const canPatchRow = isSecretOnCurrentPage(secretId)
+        && document.querySelector(`tr.secret-row[data-secret-id="${secretId}"]`)
+        && activeSortColumn !== 'status'
+        && activeSortColumn !== 'severity';
+
+    if (canPatchRow) {
+        refreshSecretRowInTable(secretId);
+        renderPagination();
+    } else {
+        renderTable();
+        renderPagination();
+    }
+
+    refreshSecretDetailStatus(secretId);
+    refreshSecretDetailSeverity(secretId);
+    highlightSelectedRow(secretId);
 }
 
 function initializeTableEventListeners() {
@@ -1128,10 +1291,10 @@ function toggleFiltersPanel() {
     
     if (isFiltersOpen) {
         filtersPanel.classList.add('open');
-        filtersToggleBtn.textContent = '✖️ Закрыть';
+        filtersToggleBtn.innerHTML = filtersToggleBtnOpenHtml;
     } else {
         filtersPanel.classList.remove('open');
-        filtersToggleBtn.textContent = '🔍 Фильтры';
+        filtersToggleBtn.innerHTML = filtersToggleBtnClosedHtml;
     }
 }
 
@@ -1258,44 +1421,44 @@ function showBulkDetail() {
     
     detailPanel.innerHTML = `
         <div class="bulk-detail-panel">
-            <h3 class="bulk-title">📌 Выбрано секретов: <span class="bulk-count">${selectedSecrets.size}</span></h3>
+            <h3 class="bulk-title">${uiIconLabel('AppDashboard.svg', 'icon-tint-info', 'Выбрано секретов:')} <span class="bulk-count">${selectedSecrets.size}</span></h3>
             
             <div class="bulk-section">
                 <button class="bulk-btn select-all-btn" onclick="selectAllVisibleSecrets()">
-                    ✅ Выделить все на странице
+                    ${iconActionBtn('CheckboxCheckedFilled.svg', 'icon-tint-success', 'Выделить все на странице')}
                 </button>
             </div>
             
             <div class="bulk-section status-panel">
-                <h4>📊 Изменение статуса</h4>
+                ${uiDetailHeading('Analysis.svg', 'icon-tint-info', 'Изменение статуса')}
                 <div class="bulk-buttons status-buttons">
                     <button class="bulk-btn status-confirmed-btn" onclick="performBulkAction('status', 'Confirmed')">
-                        ✅ Подтвердить
+                        ${iconActionBtn('CheckboxCheckedFilled.svg', 'icon-tint-success', 'Подтвердить')}
                     </button>
                     <button class="bulk-btn status-none-btn" onclick="performBulkAction('status', 'No status')">
-                        ⚪ Без статуса
+                        ${iconActionBtn('NoStatus.svg', 'icon-tint-muted', 'Без статуса')}
                     </button>
                     <button class="bulk-btn status-refuted-btn" onclick="performBulkAction('status', 'Refuted')">
-                        ❌ Опровергнуть
+                        ${iconActionBtn('Error.svg', 'icon-tint-error', 'Опровергнуть')}
                     </button>
                 </div>
             </div>
             
             <div class="bulk-section severity-panel">
-                <h4>⚠️ Изменение Severity-уровня</h4>
+                ${uiDetailHeading('AlertErrorStroke16.svg', 'icon-tint-warn', 'Изменение Severity-уровня')}
                 <div class="bulk-buttons severity-buttons">
                     <button class="bulk-btn severity-high-btn" onclick="performBulkAction('severity', 'High')">
-                        🛑 High
+                        ${iconActionBtn('AlertErrorStroke16.svg', 'icon-tint-error', 'High')}
                     </button>
                     <button class="bulk-btn severity-potential-btn" onclick="performBulkAction('severity', 'Potential')">
-                        🔘 Potential
+                        ${iconActionBtn('BarChartVerticalFilter.svg', 'icon-tint-muted', 'Potential')}
                     </button>
                 </div>
             </div>
             
             <div class="bulk-section">
-                <button class="bulk-btn btn-secondary" onclick="clearMultiSelection(); showEmptyDetail();" style="width: 100%;">
-                    ❌ Отменить выделение
+                <button class="bulk-btn bulk-cancel-btn" onclick="clearMultiSelection(); showEmptyDetail();" style="width: 100%;">
+                    ${iconActionBtn('Error.svg', 'icon-tint-error', 'Отменить выделение')}
                 </button>
             </div>
         </div>
@@ -1305,19 +1468,7 @@ function showBulkDetail() {
 function showEmptyDetail() {
     const detailPanel = document.getElementById('detailPanel');
     if (!detailPanel) return;
-    
-    detailPanel.innerHTML = `
-        <div class="detail-empty">
-            <div style="text-align: center; padding: 2rem;">
-                <div style="font-size: 3rem; margin-bottom: 1rem;">👈</div>
-                <h3>Выберите секрет, чтобы просмотреть подробную информацию</h3>
-                <p>Нажмите на любой секрет из списка, чтобы просмотреть подробную информацию, управлять его статусом и получить доступ к расположению файла.</p>
-                <div style="margin-top: 2rem; padding: 1rem; background: #f0f9ff; border-radius: 8px; border-left: 4px solid #3b82f6;">
-                    <strong>💡 Совет:</strong> Используйте <kbd>Ctrl</kbd> для выделения нескольких секретов или <kbd>Shift</kbd> для выделения диапазона.
-                </div>
-            </div>
-        </div>
-    `;
+    detailPanel.innerHTML = emptyDetailHtml || '';
 }
 
 function selectAllVisibleSecrets() {
@@ -1527,34 +1678,34 @@ function loadGroupDetails(groupRow) {
             <h3>Группа секретов</h3>
 
             <div class="detail-section">
-                <h4>📁 Путь до файла</h4>
+                ${uiDetailHeading('Files.svg', 'icon-tint-info', 'Путь до файла')}
                 <div class="detail-field">${safePath}</div>
             </div>
 
             <div class="detail-section">
-                <h4>📦 Количество секретов</h4>
+                ${uiDetailHeading('FolderWithFilesLinear.svg', 'icon-tint-warn', 'Количество секретов')}
                 <div class="detail-field">${count}</div>
             </div>
 
             <div class="detail-section">
-                <h4>📊 Статус группы</h4>
+                ${uiDetailHeading('Analysis.svg', 'icon-tint-info', 'Статус группы')}
                 <div class="detail-field">${safeStatus}</div>
             </div>
 
             <div class="status-controls">
                 <h4 style="margin-bottom: 8px;">Статус для всей группы</h4>
                 <div class="status-buttons">
-                    <button class="status-btn ${groupRow.status === 'Confirmed' ? 'active' : ''}"
+                    <button class="status-btn status-btn-confirmed ${groupRow.status === 'Confirmed' ? 'active' : ''}"
                             onclick="updateGroupStatus('Confirmed')">
-                        ✅ Подтвердить все
+                        ${iconActionBtn('CheckboxCheckedFilled.svg', 'icon-tint-success', 'Подтвердить все')}
                     </button>
-                    <button class="status-btn ${groupRow.status === 'No status' ? 'active' : ''}"
+                    <button class="status-btn status-btn-none ${groupRow.status === 'No status' ? 'active' : ''}"
                             onclick="updateGroupStatus('No status')">
-                        ⚪ Без статуса
+                        ${iconActionBtn('NoStatus.svg', 'icon-tint-muted', 'Без статуса')}
                     </button>
-                    <button class="status-btn ${groupRow.status === 'Refuted' ? 'active' : ''}"
+                    <button class="status-btn status-btn-refuted ${groupRow.status === 'Refuted' ? 'active' : ''}"
                             onclick="updateGroupStatus('Refuted')">
-                        ❌ Опровергнуть все
+                        ${iconActionBtn('Error.svg', 'icon-tint-error', 'Опровергнуть все')}
                     </button>
                 </div>
             </div>
@@ -1636,10 +1787,10 @@ function loadSecretDetails(secretId) {
         (secretData.refuted_by && secretData.refuted_by.trim() !== '')) {
         userInfoHtml = `
             <div class="detail-section">
-                <h4>👮 Информация об изменениях</h4>
+                ${uiDetailHeading('Employee.svg', 'icon-tint-info', 'Информация об изменениях')}
                 <div class="detail-field" style="background: #f0f9ff; border-left: 3px solid #3b82f6;">
-                    ${secretData.confirmed_by ? `✅ Подтвержден пользователем: <strong>${escapeHtml(secretData.confirmed_by)}</strong>` : ''}
-                    ${secretData.refuted_by ? `❌ Опровергнут пользователем: <strong>${escapeHtml(secretData.refuted_by)}</strong>` : ''}
+                    ${secretData.confirmed_by ? `${statusConfirmedHtml('Подтвержден пользователем')}: <strong>${escapeHtml(secretData.confirmed_by)}</strong>` : ''}
+                    ${secretData.refuted_by ? `${statusRefutedHtml('Опровергнут пользователем')}: <strong>${escapeHtml(secretData.refuted_by)}</strong>` : ''}
                     ${secretData.refuted_at ? `<br><small>Дата: ${escapeHtml(secretData.refuted_at)}</small>` : ''}
                 </div>
             </div>
@@ -1652,21 +1803,18 @@ function loadSecretDetails(secretId) {
         let severityPart = '';
         
         if (secretData.previous_status) {
-            const statusIcon = secretData.previous_status === 'Confirmed' ? '✅' : '❌';
-            const statusClass = secretData.previous_status === 'Confirmed' ? 'status-confirmed' : 'status-refuted';
-            statusPart = `Статус: <span class="${statusClass}">${statusIcon} ${safeHtml(secretData.previous_status)}</span>`;
+            statusPart = `Статус: ${secretData.previous_status === 'Confirmed' ? statusConfirmedHtml(secretData.previous_status) : statusRefutedHtml(secretData.previous_status)}`;
         }
         
         if (secretData.previous_severity && secretData.previous_severity !== secretData.severity) {
-            const severityIcon = secretData.previous_severity === 'High' ? '🔴' : '🟡';
-            severityPart = `Уровень: <span style="color: ${secretData.previous_severity === 'High' ? '#dc2626' : '#6b7280'};">${severityIcon} ${safeHtml(secretData.previous_severity)}</span> → <span style="color: ${secretData.severity === 'High' ? '#dc2626' : '#6b7280'};">${secretData.severity === 'High' ? '🔴' : '🟡'} ${safeHtml(secretData.severity)}</span>`;
+            severityPart = `Уровень: <span class="inline-icon-label">${uiIcon('AlertErrorStroke16.svg', 'icon-tint-error', 12)}<span>${safeHtml(secretData.previous_severity)}</span></span> → <span class="inline-icon-label">${uiIcon(secretData.severity === 'High' ? 'AlertErrorStroke16.svg' : 'BarChartVerticalFilter.svg', secretData.severity === 'High' ? 'icon-tint-error' : 'icon-tint-muted', 12)}<span>${safeHtml(secretData.severity)}</span></span>`;
         }
         
         let content = [statusPart, severityPart].filter(p => p).join('<br>');
         
         previousStatusHtml = `
             <div class="detail-section">
-                <h4>📊 Предыдущие изменения</h4>
+                ${uiDetailHeading('BaselineHistory.svg', 'icon-tint-warn', 'Предыдущие изменения')}
                 <div class="detail-field" style="background: #fef3c7; border-left: 3px solid #f59e0b;">
                     ${content}<br>
                     <small style="color: #666;">Изменено ${safeHtml(secretData.previous_scan_date || '')}</small>
@@ -1682,9 +1830,9 @@ function loadSecretDetails(secretId) {
     if (secretData.status === 'Refuted') {
         restoreHtml = `
             <div class="detail-section">
-                <h4>🔄 Quick Restore</h4>
+                ${uiDetailHeading('ArrowSync.svg', 'icon-tint-info', 'Quick Restore')}
                 <button class="btn btn-warning" onclick="restoreSingleSecret(${secretId})" style="width: 100%;">
-                    🔄 Restore This Secret
+                    ${iconActionBtn('ArrowSync.svg', 'icon-tint-warn', 'Restore This Secret')}
                 </button>
                 <div style="font-size: 0.8rem; color: #666; margin-top: 0.25rem;">
                     Это изменит статус с "Опровергнуто" на "Нет статуса", чтобы он отображался в основном отчете.
@@ -1701,7 +1849,7 @@ function loadSecretDetails(secretId) {
             <h3>Secret Details</h3>
             
             <div class="detail-section">
-                <h4>🔑 Значение секрета</h4>
+                ${uiDetailHeading('LockPassword.svg', 'icon-tint-warn', 'Значение секрета')}
                 <div class="detail-field" style="background: #fef3c7; border: 1px solid #f59e0b; color: #92400e; font-weight: 600;">
                     ${safeSecret}
                 </div>
@@ -1710,17 +1858,17 @@ function loadSecretDetails(secretId) {
             <div class="status-controls">
                 <h4 style="margin-bottom: 8px;">Статус</h4>
                 <div class="status-buttons">
-                    <button class="status-btn ${secretData.status === 'Confirmed' ? 'active' : ''}" 
+                    <button class="status-btn status-btn-confirmed ${secretData.status === 'Confirmed' ? 'active' : ''}" 
                             onclick="updateSecretStatus(${secretId}, 'Confirmed')">
-                        ✅ Подтвердить
+                        ${iconActionBtn('CheckboxCheckedFilled.svg', 'icon-tint-success', 'Подтвердить')}
                     </button>
-                    <button class="status-btn ${secretData.status === 'No status' ? 'active' : ''}" 
+                    <button class="status-btn status-btn-none ${secretData.status === 'No status' ? 'active' : ''}" 
                             onclick="updateSecretStatus(${secretId}, 'No status')">
-                        ⚪ Без статуса
+                        ${iconActionBtn('NoStatus.svg', 'icon-tint-muted', 'Без статуса')}
                     </button>
-                    <button class="status-btn ${secretData.status === 'Refuted' ? 'active' : ''}" 
+                    <button class="status-btn status-btn-refuted ${secretData.status === 'Refuted' ? 'active' : ''}" 
                             onclick="updateSecretStatus(${secretId}, 'Refuted')">
-                        ❌ Опровергнуть
+                        ${iconActionBtn('Error.svg', 'icon-tint-error', 'Опровергнуть')}
                     </button>
                 </div>
                 <div class="comment-section" style="display: ${secretData.status === 'Refuted' ? 'block' : 'none'};">
@@ -1728,31 +1876,31 @@ function loadSecretDetails(secretId) {
                     <textarea id="comment-${secretId}" placeholder="Explain why this is not a real secret...">${safeComment}</textarea>
                     <button class="btn btn-primary" style="margin-top: 0.5rem; font-size: 0.8rem;" 
                             onclick="updateSecretStatus(${secretId}, 'Refuted')">
-                        💾 Update Comment
+                        ${iconActionBtn('ArrowSync.svg', 'icon-tint-info', 'Update Comment')}
                     </button>
                 </div>
             </div>
 
             <div class="detail-section">
-                <h4>⚠️ Severity Уровень</h4>
+                ${uiDetailHeading('AlertErrorStroke16.svg', 'icon-tint-warn', 'Severity Уровень')}
                 <div style="display: flex; gap: 0.5rem;">
                     <button class="status-btn ${secretData.severity === 'High' ? 'active' : ''}" 
                             onclick="updateSecretSeverity(${secretId}, 'High')"
                             style="background: ${secretData.severity === 'High' ? '#dc2626' : '#fff'}; 
                                 color: ${secretData.severity === 'High' ? '#fff' : '#dc2626'};">
-                        🛑 High
+                        ${iconActionBtn('AlertErrorStroke16.svg', secretData.severity === 'High' ? 'icon-tint-success' : 'icon-tint-error', 'High')}
                     </button>
                     <button class="status-btn ${secretData.severity === 'Potential' ? 'active' : ''}" 
                             onclick="updateSecretSeverity(${secretId}, 'Potential')"
                             style="background: ${secretData.severity === 'Potential' ? '#6b7280' : '#fff'}; 
                                 color: ${secretData.severity === 'Potential' ? '#fff' : '#6b7280'};">
-                        🔘 Potential
+                        ${iconActionBtn('BarChartVerticalFilter.svg', secretData.severity === 'Potential' ? 'icon-tint-success' : 'icon-tint-muted', 'Potential')}
                     </button>
                 </div>
             </div>
             
             <div class="detail-section">
-                <h4>📁 Путь до файла</h4>
+                ${uiDetailHeading('Files.svg', 'icon-tint-info', 'Путь до файла')}
                 <a href="${fileUrl}" target="_blank" class="detail-field clickable" style="display: block; text-decoration: none; color: inherit;">
                     ${safePath}
                 </a>
@@ -1762,12 +1910,12 @@ function loadSecretDetails(secretId) {
             </div>
             
             <div class="detail-section">
-                <h4>📍 Номер строки</h4>
+                ${uiDetailHeading('BaselineFormatListNumbered.svg', 'icon-tint-info', 'Номер строки')}
                 <div class="detail-field">${secretData.line || 0}</div>
             </div>
 
             <div class="detail-section">
-                <h4>🔐 CI Hash</h4>
+                ${uiDetailHeading('ForgotPassword.svg', 'icon-tint-purple', 'CI Hash')}
                 <div class="detail-field hash-field" style="font-family: monospace; font-size: 0.75rem; word-break: break-all; user-select: all;">
                     ${safeHash || '—'}
                 </div>
@@ -1777,7 +1925,7 @@ function loadSecretDetails(secretId) {
             </div>
             
             <div class="detail-section">
-                <h4>📝 Контекст</h4>
+                ${uiDetailHeading('Files.svg', 'icon-tint-info', 'Контекст')}
                 <div class="detail-field context-preview" style="white-space: pre-wrap; overflow-x: auto;">
                     ${contextDisplayHtml}
                 </div>
@@ -1785,7 +1933,7 @@ function loadSecretDetails(secretId) {
             </div>
             
             <div class="detail-section">
-                <h4>🏷️ Тип</h4>
+                ${uiDetailHeading('ReviewCheckmark.svg', 'icon-tint-success', 'Тип')}
                 <div class="detail-field">${safeType}</div>
             </div>
 
@@ -1796,11 +1944,13 @@ function loadSecretDetails(secretId) {
                 <button 
                     class="btn btn-danger" 
                     onclick="deleteSecret(${secretId})"
-                    style="width: 100%; background: #dc2626; color: white; font-weight: bold; display: flex; align-items: center; justify-content: center;">
-                    🗑️ Удалить секрет из БД
+                    style="width: 100%; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
+                    ${uiIcon('FolderTrash.svg', 'btn-icon btn-icon-light', 16)}
+                    Удалить секрет из БД
                 </button>
-                <div style="font-size: 0.8rem; color: #666; margin-top: 0.5rem; text-align: center;">
-                    ⚠️ Это действие нельзя будет отменить
+                <div style="font-size: 0.8rem; color: #666; margin-top: 0.5rem; text-align: center; display: flex; align-items: center; justify-content: center; gap: 0.375rem;">
+                    ${uiIcon('AlertErrorStroke16.svg', 'icon-tint-warn', 14)}
+                    <span>Это действие нельзя будет отменить</span>
                 </div>
             </div>
         </div>
@@ -1892,9 +2042,7 @@ async function updateSecretStatus(secretId, status) {
                 }
             }
             
-            // Reapply filters and reload details (с сохранением сортировки)
-            applyFiltersSync();
-            loadSecretDetails(secretId);
+            refreshAfterSecretChange(secretId);
         }
     } catch (error) {
         console.error('Error updating status:', error);
@@ -1921,9 +2069,7 @@ async function updateSecretSeverity(secretId, severity) {
                 secret.severity = severity;
             }
             
-            // Reapply filters and reload details (с сохранением сортировки)
-            applyFiltersSync();
-            loadSecretDetails(secretId);
+            refreshAfterSecretChange(secretId);
         }
     } catch (error) {
         console.error('Error updating severity:', error);

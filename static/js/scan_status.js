@@ -1,9 +1,8 @@
 // Global variables
 let refreshInterval;
 let taskStatusData = null;
-let lastUpdateTime = null;
+let elapsedInterval = null;
 
-// Получаем данные из data-атрибутов
 function getScanData() {
     return {
         status: document.body.dataset.scanStatus,
@@ -12,7 +11,7 @@ function getScanData() {
         projectName: document.body.dataset.projectName,
         callbackUrl: document.body.dataset.callbackUrl,
         startedAt: document.body.dataset.scanStartedAt,
-        startedAtDisplay: document.body.dataset.scanStartedAtDisplay
+        startedAtDisplay: document.body.dataset.scanStartedAtDisplay,
     };
 }
 
@@ -23,42 +22,60 @@ function getResultsUrl(scanId, scanType) {
     return `/secret_scanner/scan/${scanId}/results`;
 }
 
-// Получить статус задачи через новый эндпоинт
+function setVisible(element, visible) {
+    if (!element) return;
+    if (visible) {
+        element.removeAttribute('hidden');
+    } else {
+        element.setAttribute('hidden', '');
+    }
+}
+
+function buildStatusHero(icon, tint, badgeClass, title, desc, showSpinner) {
+    return `
+        ${showSpinner ? '<div class="loading-spinner"></div>' : ''}
+        <div class="status-hero">
+            <span class="status-hero-badge ${badgeClass}">
+                ${uiIcon(icon, `status-hero-icon ${tint}`, 32)}
+            </span>
+            <h1 class="status-title">${title}</h1>
+            <p class="status-description">${desc}</p>
+        </div>
+    `;
+}
+
+function buildButtonLabel(icon, tint, text) {
+    return `${uiIcon(icon, `btn-icon ${tint}`, 14)}<span>${text}</span>`;
+}
+
 async function fetchTaskStatus() {
     const scanData = getScanData();
-    
-    // Если callback URL недоступен, пытаемся получить статус через альтернативный эндпоинт
+
     if (!scanData.callbackUrl) {
-        console.warn('Callback URL not available, trying alternative endpoint');
-        return await fetchTaskStatusAlternative();
+        return fetchTaskStatusAlternative();
     }
 
     try {
         const response = await fetch(`/secret_scanner/task-status?callback_url=${encodeURIComponent(scanData.callbackUrl)}`);
-        
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
-        
+
         const data = await response.json();
-        
         if (data.status === 'success') {
             return data;
-        } else {
-            console.error('Task status error:', data.message);
-            return null;
         }
+
+        console.error('Task status error:', data.message);
+        return null;
     } catch (error) {
         console.error('Error fetching task status:', error);
-        // Fallback к альтернативному методу
-        return await fetchTaskStatusAlternative();
+        return fetchTaskStatusAlternative();
     }
 }
 
-// Альтернативный метод получения статуса через scan ID
 async function fetchTaskStatusAlternative() {
     const scanData = getScanData();
-    
     if (!scanData.id) {
         console.error('Scan ID not available');
         return null;
@@ -66,26 +83,23 @@ async function fetchTaskStatusAlternative() {
 
     try {
         const response = await fetch(`/secret_scanner/scan/${scanData.id}/task-status`);
-        
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
-        
+
         const data = await response.json();
-        
         if (data.status === 'success') {
             return data;
-        } else {
-            console.error('Alternative task status error:', data.message);
-            return null;
         }
+
+        console.error('Alternative task status error:', data.message);
+        return null;
     } catch (error) {
         console.error('Error fetching alternative task status:', error);
         return null;
     }
 }
 
-// Обновить отображение статуса
 function updateStatusDisplay(statusData) {
     if (!statusData) {
         displayError('Не удалось получить статус задачи');
@@ -93,7 +107,6 @@ function updateStatusDisplay(statusData) {
     }
 
     taskStatusData = statusData;
-    lastUpdateTime = new Date();
 
     const currentStatus = statusData.current_status;
     const progress = statusData.progress || 0;
@@ -101,95 +114,107 @@ function updateStatusDisplay(statusData) {
     const statusDescription = statusData.status_description || currentStatus;
     const progressFormatted = statusData.progress_formatted || statusDescription;
 
-    // Обновляем основное содержимое статуса
-    updateMainStatus(currentStatus, statusDescription, progressFormatted);
-    
-    // Обновляем прогресс (если есть)
-    updateProgressSection(currentStatus, progress, progressDetail, progressFormatted);
-    
-    // Обновляем временные метки
-    updateTimestamps(statusData);
-    
-    // Обновляем кнопки действий
-    updateActionButtons(currentStatus, statusData);
-    
-    // Показываем дополнительную информацию для завершенных/провалившихся задач
-    updateAdditionalInfo(currentStatus, statusData);
+    const statusCard = document.getElementById('scanStatusCard');
+    if (statusCard) {
+        statusCard.dataset.status = currentStatus;
+    }
 
-    console.log('Status updated:', currentStatus, progress);
+    updateMainStatus(currentStatus, statusDescription, progressFormatted);
+    updateProgressSection(currentStatus, progress, progressDetail, progressFormatted);
+    updateTimestamps(statusData);
+    updateActionButtons(currentStatus, statusData);
+    updateAdditionalInfo(currentStatus, statusData);
 }
 
-// Обновить основной статус
 function updateMainStatus(status, description, progressFormatted) {
     const statusContent = document.getElementById('status-content');
-    
+
     const statusConfig = {
-        'pending': {
-            icon: '⌛',
+        pending: {
+            icon: 'QueryQueue.svg',
+            tint: 'icon-tint-warn',
+            badge: 'badge-amber',
             title: 'Задача в очереди',
             desc: 'Ожидает освобождения воркера для обработки...',
-            showSpinner: false
+            showSpinner: false,
         },
-        'downloading': {
-            icon: '⬇️',
+        downloading: {
+            icon: 'ArrowDownload.svg',
+            tint: 'icon-tint-info',
+            badge: 'badge-blue',
             title: 'Загрузка репозитория',
             desc: 'Скачивание исходного кода из репозитория...',
-            showSpinner: true
+            showSpinner: true,
         },
-        'unpacking': {
-            icon: '📦',
+        unpacking: {
+            icon: 'Files.svg',
+            tint: 'icon-tint-warn',
+            badge: 'badge-amber',
             title: 'Распаковка архива',
             desc: progressFormatted,
-            showSpinner: true
+            showSpinner: true,
         },
-        'scanning': {
-            icon: '🔍',
+        scanning: {
+            icon: 'BarcodeScanDuotone.svg',
+            tint: 'icon-tint-info',
+            badge: 'badge-blue',
             title: 'Сканирование файлов',
             desc: progressFormatted,
-            showSpinner: true
+            showSpinner: true,
         },
-        'ml_validation': {
-            icon: '🤖',
+        ml_validation: {
+            icon: 'Robot.svg',
+            tint: 'icon-tint-purple',
+            badge: 'badge-purple',
             title: 'ML валидация результатов',
             desc: progressFormatted,
-            showSpinner: true
+            showSpinner: true,
         },
-        'analyzing': {
-            icon: '🔎',
+        analyzing: {
+            icon: 'Extensions.svg',
+            tint: 'icon-tint-purple',
+            badge: 'badge-purple',
             title: 'Анализ языков и расширений',
             desc: progressFormatted || 'Анализ языков и расширений',
-            showSpinner: true
+            showSpinner: true,
         },
-        'completed': {
-            icon: '✅',
+        completed: {
+            icon: 'CheckboxCheckedFilled.svg',
+            tint: 'icon-tint-success',
+            badge: 'badge-green',
             title: 'Сканирование завершено',
             desc: 'Сканирование репозитория успешно завершено.',
-            showSpinner: false
+            showSpinner: false,
         },
-        'failed': {
-            icon: '❌',
+        failed: {
+            icon: 'Error.svg',
+            tint: 'icon-tint-error',
+            badge: 'badge-red',
             title: 'Сканирование провалено',
             desc: 'Произошла ошибка во время сканирования.',
-            showSpinner: false
-        }
+            showSpinner: false,
+        },
     };
 
     const config = statusConfig[status] || {
-        icon: '❓',
+        icon: 'AlertErrorStroke16.svg',
+        tint: 'icon-tint-muted',
+        badge: 'badge-blue',
         title: 'Неизвестный статус',
         desc: description,
-        showSpinner: false
+        showSpinner: false,
     };
 
-    statusContent.innerHTML = `
-        ${config.showSpinner ? '<div class="loading-spinner"></div>' : ''}
-        <div class="status-icon">${config.icon}</div>
-        <h1 class="status-title">${config.title}</h1>
-        <p class="status-description">${config.desc}</p>
-    `;
+    statusContent.innerHTML = buildStatusHero(
+        config.icon,
+        config.tint,
+        config.badge,
+        config.title,
+        config.desc,
+        config.showSpinner
+    );
 }
 
-// Обновить секцию прогресса
 function updateProgressSection(status, progress, progressDetail, progressFormatted) {
     const progressSection = document.getElementById('progress-section');
     const progressFill = document.getElementById('progress-fill');
@@ -197,27 +222,25 @@ function updateProgressSection(status, progress, progressDetail, progressFormatt
     const progressDetailElement = document.getElementById('progress-detail');
     const progressStatusText = document.getElementById('progress-status-text');
 
-    // Показываем прогресс только для активных статусов с числовым прогрессом
     if (['unpacking', 'scanning', 'ml_validation', 'analyzing'].includes(status) && progress > 0) {
-        progressSection.style.display = 'block';
-        
+        setVisible(progressSection, true);
+
         const progressPercent = Math.max(0, Math.min(100, progress));
         progressFill.style.width = `${progressPercent}%`;
         progressPercentage.textContent = `${Math.round(progressPercent)}%`;
         progressStatusText.textContent = progressFormatted;
-        
+
         if (progressDetail) {
             progressDetailElement.textContent = progressDetail;
-            progressDetailElement.style.display = 'block';
+            setVisible(progressDetailElement, true);
         } else {
-            progressDetailElement.style.display = 'none';
+            setVisible(progressDetailElement, false);
         }
     } else {
-        progressSection.style.display = 'none';
+        setVisible(progressSection, false);
     }
 }
 
-// Обновить временные метки
 function updateTimestamps(statusData) {
     const startedAtDetail = document.getElementById('started-at-detail');
     const completedAtDetail = document.getElementById('completed-at-detail');
@@ -225,68 +248,64 @@ function updateTimestamps(statusData) {
     const executionTimeDetail = document.getElementById('execution-time-detail');
     const executionTimeValue = document.getElementById('execution-time-value');
 
-    // Обновляем время запуска
-    if (statusData.started_at) {
+    if (statusData.started_at && startedAtDetail) {
         const startedDate = new Date(statusData.started_at * 1000);
-        startedAtDetail.querySelector('.scan-detail-value').textContent = 
+        startedAtDetail.querySelector('.scan-detail-value').textContent =
             startedDate.toLocaleString('ru-RU');
     }
 
-    // Показываем время завершения для завершенных задач
     if (statusData.completed_at) {
         const completedDate = new Date(statusData.completed_at * 1000);
         completedAtValue.textContent = completedDate.toLocaleString('ru-RU');
-        completedAtDetail.style.display = 'flex';
+        setVisible(completedAtDetail, true);
 
-        // Показываем время выполнения
         if (statusData.execution_time_seconds) {
             executionTimeValue.textContent = formatDuration(statusData.execution_time_seconds);
-            executionTimeDetail.style.display = 'flex';
+            setVisible(executionTimeDetail, true);
+        } else {
+            setVisible(executionTimeDetail, false);
         }
     } else {
-        completedAtDetail.style.display = 'none';
-        executionTimeDetail.style.display = 'none';
+        setVisible(completedAtDetail, false);
+        setVisible(executionTimeDetail, false);
     }
 }
 
-// Обновить кнопки действий
 function updateActionButtons(status, statusData) {
     const dynamicButtons = document.getElementById('dynamic-buttons');
     const refreshBtn = document.getElementById('refresh-btn');
-    
+
     dynamicButtons.innerHTML = '';
 
     if (status === 'completed') {
-        // Кнопка просмотра результатов
         const scanData = getScanData();
         const resultsBtn = document.createElement('a');
         resultsBtn.href = getResultsUrl(scanData.id, scanData.scanType);
-        resultsBtn.className = 'btn btn-primary';
-        resultsBtn.innerHTML = '📊 Посмотреть результаты';
+        resultsBtn.className = 'btn btn-success';
+        resultsBtn.innerHTML = buildButtonLabel('BarcodeScanDuotone.svg', 'btn-icon-light', 'Посмотреть результаты');
         dynamicButtons.appendChild(resultsBtn);
-
-        // Скрываем кнопку обновления для завершенных задач
-        refreshBtn.style.display = 'none';
-
+        setVisible(refreshBtn, false);
     } else if (status === 'failed') {
-        // Кнопка удаления для провалившихся задач
         const deleteBtn = document.createElement('button');
+        deleteBtn.type = 'button';
         deleteBtn.className = 'btn btn-danger';
-        deleteBtn.innerHTML = '🗑️ Удалить скан';
+        deleteBtn.innerHTML = buildButtonLabel('FolderTrash.svg', 'btn-icon-light', 'Удалить скан');
         deleteBtn.onclick = () => deleteScan();
         dynamicButtons.appendChild(deleteBtn);
-
+        setVisible(refreshBtn, true);
     } else if (['pending', 'downloading', 'unpacking', 'scanning', 'ml_validation', 'analyzing'].includes(status)) {
-        // Кнопка отмены для активных задач
         const cancelBtn = document.createElement('button');
+        cancelBtn.type = 'button';
         cancelBtn.className = 'btn btn-danger';
-        cancelBtn.innerHTML = '⏹️ Отменить скан';
+        cancelBtn.innerHTML = buildButtonLabel('Error.svg', 'btn-icon-light', 'Отменить скан');
         cancelBtn.onclick = () => deleteScan();
         dynamicButtons.appendChild(cancelBtn);
+        setVisible(refreshBtn, true);
+    } else {
+        setVisible(refreshBtn, true);
     }
 }
 
-// Обновить дополнительную информацию
 function updateAdditionalInfo(status, statusData) {
     const resultsSection = document.getElementById('results-section');
     const errorSection = document.getElementById('error-section');
@@ -294,69 +313,65 @@ function updateAdditionalInfo(status, statusData) {
     const logsInfo = document.getElementById('logs-info');
     const logsInfoText = document.getElementById('logs-info-text');
 
-    // Скрываем все секции по умолчанию
-    resultsSection.style.display = 'none';
-    errorSection.style.display = 'none';
-    elapsedTime.style.display = 'none';
-    logsInfo.style.display = 'none';
+    setVisible(resultsSection, false);
+    setVisible(errorSection, false);
+    setVisible(elapsedTime, false);
+    setVisible(logsInfo, false);
+
+    if (elapsedInterval) {
+        clearInterval(elapsedInterval);
+        elapsedInterval = null;
+    }
 
     if (status === 'completed') {
-        // Показываем информацию о результатах
         const resultsInfo = document.getElementById('results-info');
-        let resultsText = '📊 Сканирование завершено успешно';
-        
-        if (statusData.results_count !== undefined) {
-            resultsText = `📊 Найдено результатов: ${statusData.results_count}`;
-        }
-        
-        resultsInfo.textContent = resultsText;
-        resultsSection.style.display = 'block';
+        let resultsText = 'Сканирование завершено успешно';
 
+        if (statusData.results_count !== undefined) {
+            resultsText = `Найдено результатов: ${statusData.results_count}`;
+        }
+
+        resultsInfo.innerHTML = `${uiIcon('CheckboxCheckedFilled.svg', 'banner-icon icon-tint-success', 18)}<span>${resultsText}</span>`;
+        setVisible(resultsSection, true);
     } else if (status === 'failed') {
-        // Показываем информацию об ошибке
         const errorMessage = document.getElementById('error-message');
         errorMessage.textContent = statusData.error || 'Неизвестная ошибка';
-        errorSection.style.display = 'block';
-        
-        // Показываем логи для диагностики
+        setVisible(errorSection, true);
+
         logsInfoText.innerHTML = `
             Произошла ошибка во время сканирования. Детальную информацию об ошибке можно найти в логах сервиса.<br><br>
-            <strong>ID сканирования для поиска в логах сервиса:</strong> 
-            <br><strong><code style="background: #f8f9fa; padding: 2px 6px; border-radius: 4px; color: #dc3545;">${statusData.task_id}</code></strong><br><br>
-            <strong>Имя проекта для поиска в логах микросервиса:</strong> 
-            <br><strong><code style="background: #f8f9fa; padding: 2px 6px; border-radius: 4px; color: #dc3545;">${statusData.project_name}</code></strong>
+            <strong>ID сканирования для поиска в логах сервиса:</strong><br>
+            <code>${statusData.task_id || getScanData().id}</code><br><br>
+            <strong>Имя проекта для поиска в логах микросервиса:</strong><br>
+            <code>${statusData.project_name || getScanData().projectName}</code>
         `;
-        logsInfo.style.display = 'block';
-
+        setVisible(logsInfo, true);
     } else if (['pending', 'downloading', 'unpacking', 'scanning', 'ml_validation', 'analyzing'].includes(status)) {
-        // Показываем время выполнения для активных задач
         if (statusData.started_at) {
-            elapsedTime.style.display = 'block';
-            updateElapsedTime(statusData.started_at);
+            setVisible(elapsedTime, true);
+            elapsedInterval = updateElapsedTime(statusData.started_at);
         }
-        
-        // Показываем логи для долго выполняющихся задач
+
         if (['downloading', 'unpacking', 'scanning', 'ml_validation', 'analyzing'].includes(status)) {
             logsInfoText.textContent = 'Если скан завис или работает слишком долго, вы можете посмотреть логи сервиса для диагностики проблемы.';
-            logsInfo.style.display = 'block';
+            setVisible(logsInfo, true);
         }
     }
 }
 
-// Обновить время выполнения
 function updateElapsedTime(startedAtTimestamp) {
     const elapsedTimeElement = document.getElementById('elapsedTime');
     const scanData = getScanData();
-    
+
     function updateTime() {
         const startTime = new Date(startedAtTimestamp * 1000);
         const now = new Date();
-        const elapsed = Math.floor((now - startTime) / 1000);
-        
+        const elapsed = Math.max(0, Math.floor((now - startTime) / 1000));
+
         const hours = Math.floor(elapsed / 3600);
         const minutes = Math.floor((elapsed % 3600) / 60);
         const seconds = elapsed % 60;
-        
+
         let timeStr = '';
         if (hours > 0) {
             timeStr = `${hours}ч ${minutes}м ${seconds}с`;
@@ -365,10 +380,10 @@ function updateElapsedTime(startedAtTimestamp) {
         } else {
             timeStr = `${seconds}с`;
         }
-        
+
         elapsedTimeElement.innerHTML = `
             Запущен: ${scanData.startedAtDisplay}<br>
-            Прошло времени: ${timeStr}
+            Прошло времени: <strong>${timeStr}</strong>
         `;
     }
 
@@ -376,62 +391,57 @@ function updateElapsedTime(startedAtTimestamp) {
     return setInterval(updateTime, 1000);
 }
 
-// Отобразить ошибку
 function displayError(message) {
     const statusContent = document.getElementById('status-content');
-    statusContent.innerHTML = `
-        <div class="status-icon">⚠️</div>
-        <h1 class="status-title">Ошибка получения статуса</h1>
-        <p class="status-description">${message}</p>
-    `;
+    statusContent.innerHTML = buildStatusHero(
+        'AlertErrorStroke16.svg',
+        'icon-tint-warn',
+        'badge-amber',
+        'Ошибка получения статуса',
+        message,
+        false
+    );
 }
 
-// Обновить статус вручную
 async function refreshStatus() {
     const refreshBtn = document.getElementById('refresh-btn');
-    const originalText = refreshBtn.innerHTML;
-    
-    refreshBtn.innerHTML = '🔄 Обновление...';
+    const originalHtml = refreshBtn.innerHTML;
+
+    refreshBtn.innerHTML = buildButtonLabel('ArrowSync.svg', 'icon-tint-info', 'Обновление...');
     refreshBtn.disabled = true;
-    
+
     const statusData = await fetchTaskStatus();
     updateStatusDisplay(statusData);
-    
-    refreshBtn.innerHTML = originalText;
+
+    refreshBtn.innerHTML = originalHtml;
     refreshBtn.disabled = false;
 }
 
-// Удалить скан
 function deleteScan() {
     const scanData = getScanData();
-    
+
     if (confirm('Вы уверены, что хотите удалить это сканирование?')) {
         const form = document.createElement('form');
         form.method = 'POST';
         form.action = `/secret_scanner/scan/${scanData.id}/delete`;
-        
         document.body.appendChild(form);
         form.submit();
     }
 }
 
-// Запустить автообновление
 function startAutoRefresh() {
     if (refreshInterval) {
         clearInterval(refreshInterval);
     }
-    
-    // Обновляем каждые 3 секунды для активных задач
+
     refreshInterval = setInterval(async () => {
         if (!taskStatusData) return;
-        
+
         const currentStatus = taskStatusData.current_status;
-        
-        // Прекращаем автообновление для финальных статусов
+
         if (['completed', 'failed'].includes(currentStatus)) {
             stopAutoRefresh();
-            
-            // Автоперенаправление на результаты через 2 секунды для завершенных задач
+
             if (currentStatus === 'completed') {
                 const scanData = getScanData();
                 setTimeout(() => {
@@ -440,8 +450,7 @@ function startAutoRefresh() {
             }
             return;
         }
-        
-        // Обновляем статус для активных задач
+
         const statusData = await fetchTaskStatus();
         if (statusData) {
             updateStatusDisplay(statusData);
@@ -449,7 +458,6 @@ function startAutoRefresh() {
     }, 3000);
 }
 
-// Остановить автообновление
 function stopAutoRefresh() {
     if (refreshInterval) {
         clearInterval(refreshInterval);
@@ -457,39 +465,30 @@ function stopAutoRefresh() {
     }
 }
 
-// Форматирование длительности
 function formatDuration(seconds) {
-    if (!seconds || seconds < 0) return '-';
-    
+    if (!seconds || seconds < 0) return '—';
+
     if (seconds < 60) {
         return `${seconds.toFixed(1)}с`;
-    } else if (seconds < 3600) {
-        return `${Math.floor(seconds / 60)}м ${(seconds % 60).toFixed(0)}с`;
-    } else {
-        return `${Math.floor(seconds / 3600)}ч ${Math.floor((seconds % 3600) / 60)}м`;
     }
+    if (seconds < 3600) {
+        return `${Math.floor(seconds / 60)}м ${(seconds % 60).toFixed(0)}с`;
+    }
+    return `${Math.floor(seconds / 3600)}ч ${Math.floor((seconds % 3600) / 60)}м`;
 }
 
-// Обновить страницу (fallback)
-function refreshPage() {
-    window.location.reload();
-}
-
-// Инициализация при загрузке страницы
-document.addEventListener('DOMContentLoaded', async function() {
-    console.log('Initializing scan status page...');
-    
-    // Получаем первоначальный статус
+document.addEventListener('DOMContentLoaded', async () => {
     const statusData = await fetchTaskStatus();
     updateStatusDisplay(statusData);
-    
-    // Запускаем автообновление только для активных задач
+
     if (statusData && !['completed', 'failed'].includes(statusData.current_status)) {
         startAutoRefresh();
     }
 });
 
-// Очистка при закрытии страницы
-window.addEventListener('beforeunload', function() {
+window.addEventListener('beforeunload', () => {
     stopAutoRefresh();
+    if (elapsedInterval) {
+        clearInterval(elapsedInterval);
+    }
 });

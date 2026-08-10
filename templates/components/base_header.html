@@ -1,19 +1,48 @@
 {% macro header(active_page='', current_user='') %}
 <header class="header">
+    <div class="header-grid" aria-hidden="true"></div>
+    <div class="header-glow" aria-hidden="true"></div>
     <a href="/secret_scanner/dashboard" class="logo">
-        🔍 Secrets Scanner
+        <img
+            src="/secret_scanner/favicon.ico"
+            alt=""
+            class="logo-mark"
+            width="32"
+            height="32"
+        >
+        <span class="logo-text">Secrets Scanner</span>
     </a>
     <nav class="nav-links">
-        <a href="/secret_scanner/dashboard" {% if active_page == 'dashboard' %}class="active"{% endif %}>📌 Главная</a>
-        <a href="/secret_scanner/multi-scan" {% if active_page == 'multi-scan' %}class="active"{% endif %}>🔄 Мультискан</a>
-        <a href="/secret_scanner/stats-dashboard" {% if active_page == 'stats-dashboard' %}class="active"{% endif %}>📊 Аналитика</a>
+        <a href="/secret_scanner/dashboard" {% if active_page == 'dashboard' %}class="active"{% endif %}>
+            <img src="/secret_scanner/static/icons/new/AppDashboard.svg" alt="" class="nav-icon" width="16" height="16">
+            Главная
+        </a>
+        <a href="/secret_scanner/multi-scan" {% if active_page == 'multi-scan' %}class="active"{% endif %}>
+            <img src="/secret_scanner/static/icons/new/InterfaceAlignLayers1DesignLayerLayersPileStack.svg" alt="" class="nav-icon" width="16" height="16">
+            Мультискан
+        </a>
+        <a href="/secret_scanner/stats-dashboard" {% if active_page == 'stats-dashboard' %}class="active"{% endif %}>
+            <img src="/secret_scanner/static/icons/new/Analysis.svg" alt="" class="nav-icon" width="16" height="16">
+            Аналитика
+        </a>
         {% if is_admin_user(current_user) %}
-            <a href="/secret_scanner/admin" {% if active_page == 'admin' %}class="active"{% endif %}>🛡️ Админ панель</a>
-            <a href="/secret_scanner/admin/workers" {% if active_page == 'admin/workers' %}class="active"{% endif %}>🛠️ Сервис</a>
+            <a href="/secret_scanner/admin" {% if active_page == 'admin' %}class="active"{% endif %}>
+                <img src="/secret_scanner/static/icons/new/Admin.svg" alt="" class="nav-icon" width="16" height="16">
+                Админ панель
+            </a>
+            <a href="/secret_scanner/admin/workers" {% if active_page == 'admin/workers' %}class="active"{% endif %}>
+                <img src="/secret_scanner/static/icons/new/ArrowTrendingWrench24Filled.svg" alt="" class="nav-icon" width="16" height="16">
+                Сервис
+            </a>
         {% endif %}
-        <a href="/secret_scanner/settings" {% if active_page == 'settings' %}class="active"{% endif %}>⚙️ Настройки</a>
-        <a href="/secret_scanner/logout">🔚 Выйти</a>
+        <a href="/secret_scanner/settings" {% if active_page == 'settings' %}class="active"{% endif %}>
+            <img src="/secret_scanner/static/icons/new/BaselineSettings.svg" alt="" class="nav-icon" width="16" height="16">
+            Настройки
+        </a>
+        <a href="/secret_scanner/logout" class="nav-logout">
+            <img src="/secret_scanner/static/icons/new/BaselineLogout.svg" alt="" class="nav-icon" width="16" height="16">
+            Выйти
+        </a>
     </nav>
 </header>
 {% endmacro %}
-

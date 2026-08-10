@@ -4,36 +4,149 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Secrets Scanner - Login</title>
+    <link rel="preload" href="/secret_scanner/static/fonts/orbitron-800.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="/secret_scanner/static/fonts/orbitron-700.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="stylesheet" href="/secret_scanner/static/css/login.css">
     <link rel="icon" type="image/x-icon" href="/secret_scanner/favicon.ico">
+    <script>
+        (function () {
+            var root = document.documentElement;
+
+            function revealBrandText() {
+                root.classList.add('fonts-ready');
+            }
+
+            if (!document.fonts || !document.fonts.load) {
+                revealBrandText();
+                return;
+            }
+
+            Promise.all([
+                document.fonts.load('800 1em Orbitron'),
+                document.fonts.load('700 0.8125em Orbitron')
+            ]).then(revealBrandText).catch(revealBrandText);
+
+            setTimeout(revealBrandText, 2000);
+        })();
+    </script>
 </head>
 <body>
-    <div class="login-container">
-        <div class="logo">
-            <h1>🔐 Secrets Scanner</h1>
-            <p>Repository Security Scanner</p>
-        </div>
-        
-        {% if error %}
-        <div class="error">{{ error }}</div>
-        {% endif %}
-        
-        <form method="post" action="/secret_scanner/login">
-            {% if next %}
-            <input type="hidden" name="next" value="{{ next }}">
-            {% endif %}
-            <div class="form-group">
-                <label for="username">Username</label>
-                <input type="text" id="username" name="username" required>
-            </div>
-            
-            <div class="form-group">
-                <label for="password">Password</label>
-                <input type="password" id="password" name="password" required>
-            </div>
-            
-            <button type="submit" class="btn-primary">Sign In</button>
-        </form>
+    {% if error %}
+    <div class="login-toast" role="alert">
+        <p class="login-toast-message">{{ error }}</p>
+        <button type="button" class="login-toast-close" aria-label="Dismiss notification">&times;</button>
     </div>
+    {% endif %}
+
+    <div class="login-page">
+        <aside class="login-brand" aria-hidden="true">
+            <div class="brand-grid"></div>
+            <div class="brand-glow"></div>
+            <div class="brand-content">
+                <img
+                    src="/secret_scanner/favicon.ico"
+                    alt=""
+                    class="brand-mark"
+                    width="160"
+                    height="160"
+                >
+                <div class="brand-title" aria-hidden="true">
+                    <span class="brand-title-line brand-title-secrets">SECRETS</span>
+                    <span class="brand-title-line brand-title-scanner">SCANNER</span>
+                </div>
+                <p class="brand-tagline" aria-hidden="true">
+                    SCAN YOUR <span class="brand-tagline-git">.GIT</span> REPOS FOR <span class="brand-tagline-accent">SECRETS</span>
+                </p>
+            </div>
+        </aside>
+
+        <main class="login-main">
+            <div class="login-form-wrapper">
+                <header class="form-header">
+                    <h1>Log in</h1>
+                    <p>Continue to your workspace</p>
+                </header>
+
+                <form method="post" action="/secret_scanner/login" class="login-form">
+                    {% if next %}
+                    <input type="hidden" name="next" value="{{ next }}">
+                    {% endif %}
+
+                    <div class="form-group">
+                        <label for="username">Username</label>
+                        <div class="input-with-icon">
+                            <img src="/secret_scanner/static/icons/new/Account.svg" alt="" class="input-icon" width="18" height="18">
+                            <input type="text" id="username" name="username" placeholder="ivanov.va" required autofocus>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="password">Password</label>
+                        <div class="input-with-icon input-with-toggle">
+                            <img src="/secret_scanner/static/icons/new/LockPassword.svg" alt="" class="input-icon" width="18" height="18">
+                            <input type="password" id="password" name="password" placeholder="∗∗∗∗∗∗∗∗∗" required>
+                            <button type="button" class="password-toggle" aria-label="Show password" aria-pressed="false" aria-controls="password">
+                                <img
+                                    src="/secret_scanner/static/icons/new/EyeShowLine.svg"
+                                    alt=""
+                                    class="password-toggle-icon"
+                                    width="18"
+                                    height="18"
+                                    data-icon-show="/secret_scanner/static/icons/new/EyeShowLine.svg"
+                                    data-icon-hide="/secret_scanner/static/icons/new/EyeHideLine.svg"
+                                >
+                            </button>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn-primary">
+                        <img src="/secret_scanner/static/icons/new/BaselineLogin.svg" alt="" class="btn-icon" width="18" height="18">
+                        Sign In
+                    </button>
+                </form>
+            </div>
+        </main>
+    </div>
+    <script>
+        (function () {
+            var toast = document.querySelector('.login-toast');
+
+            if (toast) {
+                var dismissTimer;
+
+                function dismissToast() {
+                    toast.classList.add('login-toast--dismissed');
+
+                    window.setTimeout(function () {
+                        toast.remove();
+                    }, 280);
+                }
+
+                toast.querySelector('.login-toast-close').addEventListener('click', function () {
+                    window.clearTimeout(dismissTimer);
+                    dismissToast();
+                });
+
+                dismissTimer = window.setTimeout(dismissToast, 5000);
+            }
+
+            var passwordInput = document.getElementById('password');
+            var toggleButton = document.querySelector('.password-toggle');
+            var toggleIcon = document.querySelector('.password-toggle-icon');
+
+            if (!passwordInput || !toggleButton || !toggleIcon) {
+                return;
+            }
+
+            toggleButton.addEventListener('click', function () {
+                var isHidden = passwordInput.type === 'password';
+
+                passwordInput.type = isHidden ? 'text' : 'password';
+                toggleIcon.src = isHidden ? toggleIcon.dataset.iconHide : toggleIcon.dataset.iconShow;
+                toggleButton.setAttribute('aria-label', isHidden ? 'Hide password' : 'Show password');
+                toggleButton.setAttribute('aria-pressed', isHidden ? 'true' : 'false');
+            });
+        })();
+    </script>
 </body>
 </html>

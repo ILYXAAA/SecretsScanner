@@ -16,9 +16,17 @@ let selectedEndDate = '';
 // Initialize
 document.addEventListener('DOMContentLoaded', function() {
     initializeDatePickers();
+    bindControlEvents();
     startAutoRefresh();
     refreshLogs();
 });
+
+function bindControlEvents() {
+    document.getElementById('logLevelFilter').addEventListener('change', filterLogsByLevel);
+    document.getElementById('linesLimit').addEventListener('change', setLinesLimit);
+    document.getElementById('logSourceSelect').addEventListener('change', changeLogSource);
+    document.getElementById('searchInput').addEventListener('input', searchLogs);
+}
 
 function initializeDatePickers() {
     const startDateInput = document.getElementById('startDate');
@@ -70,15 +78,17 @@ function toggleAutoRefresh() {
     const btn = document.getElementById('autoRefreshBtn');
     
     if (autoRefreshEnabled) {
-        btn.textContent = 'ON';
+        btn.textContent = 'Вкл';
         btn.classList.add('active');
+        btn.setAttribute('aria-pressed', 'true');
         startAutoRefresh();
-        updateStatus('Auto-refresh enabled');
+        updateStatus('Авто-обновление включено');
     } else {
-        btn.textContent = 'OFF';
+        btn.textContent = 'Выкл';
         btn.classList.remove('active');
+        btn.setAttribute('aria-pressed', 'false');
         clearInterval(refreshInterval);
-        updateStatus('Auto-refresh disabled');
+        updateStatus('Авто-обновление выключено');
     }
 }
 
@@ -88,15 +98,17 @@ function toggleAutoScroll() {
     const indicator = document.getElementById('autoScrollIndicator');
     
     if (autoScrollEnabled) {
-        btn.textContent = 'ON';
+        btn.textContent = 'Вкл';
         btn.classList.add('active');
+        btn.setAttribute('aria-pressed', 'true');
         scrollToBottom();
-        updateStatus('Auto-scroll enabled');
+        updateStatus('Авто-прокрутка включена');
     } else {
-        btn.textContent = 'OFF';
+        btn.textContent = 'Выкл';
         btn.classList.remove('active');
+        btn.setAttribute('aria-pressed', 'false');
         indicator.classList.remove('visible');
-        updateStatus('Auto-scroll disabled');
+        updateStatus('Авто-прокрутка выключена');
     }
 }
 
@@ -109,11 +121,13 @@ function setLinesLimit() {
 function showDatePicker() {
     const modal = document.getElementById('datePickerModal');
     modal.classList.add('visible');
+    modal.setAttribute('aria-hidden', 'false');
 }
 
 function hideDatePicker() {
     const modal = document.getElementById('datePickerModal');
     modal.classList.remove('visible');
+    modal.setAttribute('aria-hidden', 'true');
 }
 
 function applyDateFilter() {
@@ -162,6 +176,7 @@ function clearDateFilter() {
 
 function updateDateDisplays() {
     const dateRangeInfo = document.getElementById('dateRangeInfo');
+    const dateRangeText = document.getElementById('dateRangeText');
 
     function formatDate(dateStr) {
         if (!dateStr) return '';
@@ -178,10 +193,11 @@ function updateDateDisplays() {
         } else if (selectedEndDate) {
             rangeText += 'до ' + formatDate(selectedEndDate);
         }
-        dateRangeInfo.textContent = rangeText;
-        dateRangeInfo.style.display = 'block';
+        dateRangeText.textContent = rangeText;
+        dateRangeInfo.hidden = false;
     } else {
-        dateRangeInfo.style.display = 'none';
+        dateRangeText.textContent = '';
+        dateRangeInfo.hidden = true;
     }
 }
 
@@ -216,7 +232,7 @@ function downloadLogs() {
     const downloadUrl = params.toString() ? baseEndpoint + '?' + params : baseEndpoint;
     
     // Show loading indicator
-    updateStatus('Preparing download...');
+    updateStatus('Подготовка загрузки…');
     
     // Create temporary link to trigger download
     const link = document.createElement('a');
@@ -228,7 +244,7 @@ function downloadLogs() {
     
     // Update status
     setTimeout(function() {
-        updateStatus('Download initiated');
+        updateStatus('Загрузка начата');
     }, 1000);
 }
 
@@ -312,16 +328,16 @@ async function refreshLogs() {
                 }
                 
                 lastDisplayedLines = [...newFilteredLines];
-                updateStatus('Connected');
+                updateStatus('Подключено');
             } else {
-                updateStatus('Up to date');
+                updateStatus('Актуально');
             }
         } else {
-            updateStatus('Error: ' + data.message);
+            updateStatus('Ошибка: ' + data.message);
         }
     } catch (error) {
         console.error('Error refreshing logs:', error);
-        updateStatus('Connection error');
+        updateStatus('Ошибка подключения');
     } finally {
         showLoading(false);
     }
@@ -464,7 +480,7 @@ function displayLogs(lines, preserveScroll) {
     const scrollTop = preserveScroll ? container.scrollTop : 0;
     
     if (lines.length === 0) {
-        container.innerHTML = '<div style="color: #6b7280; text-align: center; padding: 40px;">No logs match the current filters</div>';
+        container.innerHTML = '<div class="log-empty">Нет записей, соответствующих фильтрам</div>';
         return;
     }
     
@@ -553,10 +569,8 @@ function filterLogsByLevel() {
     filterLogs();
 }
 
-document.getElementById('logLevelFilter').addEventListener('change', filterLogsByLevel);
-
 function clearDisplay() {
-    document.getElementById('logContent').innerHTML = '<div style="color: #6b7280; text-align: center; padding: 40px;">Display cleared. Refresh to reload logs.</div>';
+    document.getElementById('logContent').innerHTML = '<div class="log-empty">Экран очищен. Нажмите «Обновить» для загрузки логов.</div>';
     currentLogLines = [];
     lastDisplayedLines = [];
     lastLogHash = '';

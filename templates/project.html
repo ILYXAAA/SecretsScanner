@@ -8,196 +8,482 @@
     <link rel="stylesheet" href="/secret_scanner/static/css/project.css">
     <link rel="icon" type="image/x-icon" href="/secret_scanner/favicon.ico">
 </head>
-<body data-language-stats='{{ language_stats | tojson if language_stats else "[]" }}' 
-      data-project-repo-url="{{ project.repo_url }}" 
-      data-latest-scan-commit="{{ latest_scan.repo_commit if latest_scan and latest_scan.repo_commit else 'main' }}" 
-      data-hub-type="{{ HUB_TYPE }}" 
+<body data-language-stats='{{ language_stats | tojson if language_stats else "[]" }}'
+      data-project-id="{{ project.id }}"
+      data-project-repo-url="{{ project.repo_url }}"
+      data-latest-scan-commit="{{ latest_scan.repo_commit if latest_scan and latest_scan.repo_commit else 'main' }}"
+      data-hub-type="{{ HUB_TYPE }}"
       data-latest-scan-status="{{ latest_scan.status if latest_scan else '' }}"
       data-current-project-name="{{ project.name }}">
     {% from "components/base_header.html" import header %}
+
+    {% macro ui_icon(name, class='', size=18) %}
+    <img src="/secret_scanner/static/icons/new/{{ name }}" alt="" class="ui-icon{% if class %} {{ class }}{% endif %}" width="{{ size }}" height="{{ size }}">
+    {% endmacro %}
+
+    {% macro section_heading(icon, badge, tint, title) %}
+    <h2 class="section-title">
+        <span class="section-icon-badge {{ badge }}">
+            {{ ui_icon(icon, 'section-title-icon ' ~ tint, 18) }}
+        </span>
+        <span class="section-title-text">{{ title }}</span>
+    </h2>
+    {% endmacro %}
+
+    {% macro scan_status_badge(status) %}
+    <span class="scan-status {{ status }}">
+        {% if status == 'running' %}
+        {{ ui_icon('ArrayDateTime.svg', 'status-icon', 14) }}
+        In progress
+        {% elif status == 'completed' %}
+        {{ ui_icon('CheckboxCheckedFilled.svg', 'status-icon icon-tint-success', 14) }}
+        Completed
+        {% elif status == 'timeout' %}
+        {{ ui_icon('Timeout.svg', 'status-icon', 14) }}
+        Timeout
+        {% elif status == 'failed' %}
+        {{ ui_icon('Error.svg', 'status-icon', 14) }}
+        Error
+        {% else %}
+        {{ ui_icon('AlertErrorStroke16.svg', 'status-icon', 14) }}
+        Неизвестно
+        {% endif %}
+    </span>
+    {% endmacro %}
+
+    {% macro scan_ref_value(scan) %}
+        {% if scan.ref_type == 'Commit' %}
+            {% set commit_ref = scan.repo_commit or scan.ref %}
+            {% if commit_ref %}
+            <code class="scans-ref-value">{{ commit_ref }}</code>
+            {% else %}
+            <span class="scans-empty">—</span>
+            {% endif %}
+        {% elif scan.ref %}
+        <code class="scans-ref-value">{{ scan.ref }}</code>
+        {% elif scan.repo_commit %}
+        <code class="scans-ref-value">{{ scan.repo_commit }}</code>
+        {% else %}
+        <span class="scans-empty">—</span>
+        {% endif %}
+    {% endmacro %}
+
+    {% macro scan_row_href(scan) -%}
+        {%- if scan.status == 'completed' -%}
+            {%- if scan.scan_type == 'forbidden' -%}
+                /secret_scanner/scan/{{ scan.id }}/forbidden-results
+            {%- else -%}
+                /secret_scanner/scan/{{ scan.id }}/results
+            {%- endif -%}
+        {%- else -%}
+            /secret_scanner/scan/{{ scan.id }}
+        {%- endif -%}
+    {%- endmacro %}
+
+    {% macro history_th(icon, tint, label, col_class=none) %}
+    <th scope="col"{% if col_class %} class="{{ col_class }}"{% endif %}>
+        <span class="th-with-icon">
+            {{ ui_icon(icon, 'ui-icon ' ~ tint, 14) }}
+            <span>{{ label }}</span>
+        </span>
+    </th>
+    {% endmacro %}
+
+    {% macro scan_history_table(scan_stats) %}
+    <div class="scans-table-card">
+        <div class="scans-table-wrap">
+            <table class="scans-table scan-history-table">
+                <colgroup>
+                    <col class="scans-col-date">
+                    <col class="scans-col-ref">
+                    <col class="scans-col-author">
+                    <col class="scans-col-files">
+                    <col class="scans-col-findings">
+                    <col class="scans-col-status">
+                    <col class="scans-col-actions">
+                </colgroup>
+                <thead>
+                    <tr class="scans-table-header">
+                        {{ history_th('ArrayDateTime.svg', 'icon-tint-muted', 'Date', 'scans-col-date') }}
+                        {{ history_th('Branch.svg', 'icon-tint-commit', 'Ref', 'scans-col-ref') }}
+                        {{ history_th('Employee.svg', 'icon-tint-muted', 'Author', 'scans-col-author') }}
+                        {{ history_th('Files.svg', 'icon-tint-muted', 'Files', 'scans-col-files') }}
+                        {{ history_th('ForgotPassword.svg', 'icon-tint-purple', 'Findings', 'scans-col-findings') }}
+                        {{ history_th('GeoActive.svg', 'icon-tint-muted', 'Status', 'scans-col-status') }}
+                        <th scope="col" class="scans-col-actions"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for stat in scan_stats %}
+                    {% set scan = stat.scan %}
+                    {% set row_href = scan_row_href(scan) %}
+                    <tr class="scans-table-row scans-table-row--{{ scan.status }}">
+                        <td class="scans-cell scans-cell-date">
+                            <a href="{{ row_href }}" class="scans-cell-link">
+                                <time datetime="{{ scan.started_at.strftime('%Y-%m-%dT%H:%M') }}">{{ scan.started_at.strftime('%d.%m.%Y %H:%M') }}</time>
+                            </a>
+                        </td>
+                        <td class="scans-cell scans-cell-ref">
+                            <a href="{{ row_href }}" class="scans-cell-link">
+                                {{ scan_ref_value(scan) }}
+                            </a>
+                        </td>
+                        <td class="scans-cell scans-cell-author">
+                            <a href="{{ row_href }}" class="scans-cell-link">
+                                {% if scan.started_by %}
+                                <span class="meta-user">{{ scan.started_by }}</span>
+                                {% else %}
+                                <span class="scans-empty">—</span>
+                                {% endif %}
+                            </a>
+                        </td>
+                        <td class="scans-cell scans-cell-files">
+                            <a href="{{ row_href }}" class="scans-cell-link">
+                                {% if scan.files_scanned is not none %}
+                                {{ scan.files_scanned }}
+                                {% else %}
+                                <span class="scans-empty">—</span>
+                                {% endif %}
+                            </a>
+                        </td>
+                        <td class="scans-cell scans-cell-findings">
+                            <a href="{{ row_href }}" class="scans-cell-link">
+                                {% if scan.status == 'completed' %}
+                                <span class="findings-total {% if stat.findings_total > 0 %}findings-total--has{% else %}findings-total--none{% endif %}">{{ stat.findings_total }}</span>
+                                {% else %}
+                                <span class="scans-empty">—</span>
+                                {% endif %}
+                            </a>
+                        </td>
+                        <td class="scans-cell scans-cell-status">
+                            <a href="{{ row_href }}" class="scans-cell-link">
+                                {{ scan_status_badge(scan.status) }}
+                            </a>
+                        </td>
+                        <td class="scans-cell scans-cell-actions">
+                            <form method="post" action="/secret_scanner/scan/{{ scan.id }}/delete"
+                                  onsubmit="return confirm('Are you sure you want to delete this scan?')">
+                                <button type="submit" class="btn btn-danger btn-sm btn-icon" title="Delete">
+                                    {{ ui_icon('FolderTrash.svg', 'btn-icon btn-icon-light', 16) }}
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endmacro %}
+
     {{ header('', current_user) }}
-    
+
     <div class="container">
-        <div class="project-header">
-            <h1 class="project-title">
-                <span class="project-icon">📁</span>
-                {{ project.name }}
-            </h1>
-            <div class="project-url">
-                <a href="{{ project.repo_url }}" target="_blank">🔗 {{ project.repo_url }}</a>
-                {% if project.created_by %}
-                <div style="font-size: 0.85rem; color: #666; margin-top: 0.25rem;">
-                    👮 Создан пользователем: <b><span style="color: #28a745;">{{ project.created_by }}</span></b>
+        <div class="project-hero card">
+            <a href="/secret_scanner/dashboard" class="back-link">
+                {{ ui_icon('ArrowBack.svg', '', 16) }}
+                Назад к главной
+            </a>
+
+            <div class="project-hero-layout">
+                <div class="project-hero-identity">
+                    <div class="project-hero-icon-wrap">
+                        <img
+                            src="/secret_scanner/favicon.ico"
+                            alt=""
+                            class="project-hero-icon"
+                            width="80"
+                            height="80"
+                        >
+                    </div>
+                    <h1 class="project-hero-name" style="--name-chars: {{ project.name|length }};">{{ project.name }}</h1>
                 </div>
-                {% endif %}
-            </div>
-            <div class="project-actions">
-                <button class="btn btn-success" onclick="toggleScanForm()">
-                    Запустить сканирование
-                </button>
-                <button class="btn btn-zip-scan" onclick="toggleLocalScanForm()">
-                    🗂️ Сканирование ZIP
-                </button>
-                <button class="btn btn-warning" onclick="toggleEditForm()">✏️ Редактировать</button>
-                <button class="btn btn-danger" onclick="deleteProject({{ project.id }})">🗑️ Удалить проект</button>
-                <button class="btn btn-merge" onclick="toggleMergeForm()">🔗 Объединить</button>
+
+                <div class="project-hero-details">
+                    <div class="project-meta-lines">
+                        <div class="project-meta-line">
+                            {{ ui_icon('repository.svg', 'meta-icon icon-tint-info', 14) }}
+                            <a href="{{ project.repo_url }}" target="_blank" rel="noopener noreferrer">{{ project.repo_url }}</a>
+                        </div>
+                        {% if project.created_by %}
+                        <div class="project-meta-line">
+                            {{ ui_icon('Employee.svg', 'meta-icon', 14) }}
+                            <span>Автор: <span class="meta-user">{{ project.created_by }}</span></span>
+                        </div>
+                        {% endif %}
+                        <div class="project-meta-line">
+                            {{ ui_icon('BaselineCalendarMonth.svg', 'meta-icon icon-tint-warn', 14) }}
+                            <span>
+                                Создан:
+                                {% if project.created_at %}
+                                <strong>{{ project.created_at.strftime('%d.%m.%Y %H:%M') }}</strong>
+                                {% else %}
+                                <strong>—</strong>
+                                {% endif %}
+                            </span>
+                        </div>
+                        <div class="project-meta-line">
+                            {{ ui_icon('BarcodeScanDuotone.svg', 'meta-icon icon-tint-info', 14) }}
+                            <span>Сканирований: <strong>{{ total_scans_count }}</strong></span>
+                        </div>
+                    </div>
+
+                    <div class="project-actions">
+                        <button class="btn btn-success" type="button" onclick="toggleScanForm()">
+                            {{ ui_icon('BxsRocket.svg', 'btn-icon', 16) }}
+                            Запустить сканирование
+                        </button>
+                        <button class="btn btn-zip-scan" type="button" onclick="toggleLocalScanForm()">
+                            {{ ui_icon('ArrowUpload.svg', 'btn-icon icon-tint-purple', 16) }}
+                            Сканирование ZIP
+                        </button>
+                        <div class="actions-more">
+                            <button type="button"
+                                    class="btn btn-more"
+                                    id="projectActionsMoreBtn"
+                                    aria-label="Ещё действия"
+                                    aria-haspopup="menu"
+                                    aria-expanded="false"
+                                    aria-controls="projectActionsMenu">
+                                <span class="btn-more-dots" aria-hidden="true">⋯</span>
+                            </button>
+                            <div class="actions-more-menu" id="projectActionsMenu" role="menu" hidden>
+                                <button type="button" class="actions-more-item" role="menuitem" onclick="handleMoreAction('edit')">
+                                    {{ ui_icon('BxsMessageSquareEdit.svg', 'actions-more-icon icon-tint-info', 16) }}
+                                    <span>Редактировать</span>
+                                </button>
+                                <button type="button" class="actions-more-item" role="menuitem" onclick="handleMoreAction('merge')">
+                                    {{ ui_icon('Combine.svg', 'actions-more-icon icon-tint-warn', 16) }}
+                                    <span>Объединить</span>
+                                </button>
+                                <button type="button" class="actions-more-item actions-more-item--danger" role="menuitem" onclick="handleMoreAction('delete')">
+                                    {{ ui_icon('FolderTrash.svg', 'actions-more-icon icon-tint-error', 16) }}
+                                    <span>Удалить проект</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
-        
+
         {% if request.url.query %}
             {% if 'error=microservice_unavailable' in request.url.query %}
-            <div class="alert alert-error">Microservice is unavailable. Please check if the scanning service is running.</div>
+            <div class="alert alert-error">
+                {{ ui_icon('CloudAlerting.svg', 'alert-icon icon-tint-error', 16) }}
+                <span>Microservice is unavailable. Please check if the scanning service is running.</span>
+            </div>
             {% elif 'error=microservice_timeout' in request.url.query %}
-            <div class="alert alert-error">Request to microservice timed out. Please try again.</div>
+            <div class="alert alert-error">
+                {{ ui_icon('Timeout.svg', 'alert-icon icon-tint-error', 16) }}
+                <span>Request to microservice timed out. Please try again.</span>
+            </div>
             {% elif 'error=microservice_connection_error' in request.url.query %}
-            <div class="alert alert-error">Unable to connect to microservice. Please check the service status.</div>
+            <div class="alert alert-error">
+                {{ ui_icon('CloudAlerting.svg', 'alert-icon icon-tint-error', 16) }}
+                <span>Unable to connect to microservice. Please check the service status.</span>
+            </div>
             {% elif 'error=microservice_invalid_response' in request.url.query %}
-            <div class="alert alert-error">Microservice returned an invalid response.</div>
+            <div class="alert alert-error">
+                {{ ui_icon('Error.svg', 'alert-icon icon-tint-error', 16) }}
+                <span>Microservice returned an invalid response.</span>
+            </div>
             {% elif 'success=scan_deleted' in request.url.query %}
-            <div class="alert alert-success">Scan deleted successfully.</div>
+            <div class="alert alert-success">
+                {{ ui_icon('CheckboxCheckedFilled.svg', 'alert-icon icon-tint-success', 16) }}
+                <span>Scan deleted successfully.</span>
+            </div>
             {% elif 'success=project_updated' in request.url.query %}
-            <div class="alert alert-success">Данные проекта успешно обновлены.</div>
+            <div class="alert alert-success">
+                {{ ui_icon('CheckboxCheckedFilled.svg', 'alert-icon icon-tint-success', 16) }}
+                <span>Данные проекта успешно обновлены.</span>
+            </div>
             {% elif 'error=project_exists' in request.url.query %}
-            <div class="alert alert-error">Проект с таким именем уже существует.</div>
+            <div class="alert alert-error">
+                {{ ui_icon('Error.svg', 'alert-icon icon-tint-error', 16) }}
+                <span>Проект с таким именем уже существует.</span>
+            </div>
             {% elif 'error=project_not_found' in request.url.query %}
-            <div class="alert alert-error">Проект не найден.</div>
+            <div class="alert alert-error">
+                {{ ui_icon('Error.svg', 'alert-icon icon-tint-error', 16) }}
+                <span>Проект не найден.</span>
+            </div>
             {% elif 'error=project_update_failed' in request.url.query %}
-            <div class="alert alert-error">Не удалось обновить проект.</div>
+            <div class="alert alert-error">
+                {{ ui_icon('Error.svg', 'alert-icon icon-tint-error', 16) }}
+                <span>Не удалось обновить проект.</span>
+            </div>
             {% elif 'error=empty_merge_fields' in request.url.query %}
-            <div class="alert alert-error">❌ Все поля для объединения должны быть заполнены.</div>
+            <div class="alert alert-error">
+                {{ ui_icon('Error.svg', 'alert-icon icon-tint-error', 16) }}
+                <span>Все поля для объединения должны быть заполнены.</span>
+            </div>
             {% elif 'error=same_project_merge' in request.url.query %}
-            <div class="alert alert-error">❌ Нельзя объединить проект с самим собой.</div>
+            <div class="alert alert-error">
+                {{ ui_icon('Error.svg', 'alert-icon icon-tint-error', 16) }}
+                <span>Нельзя объединить проект с самим собой.</span>
+            </div>
             {% elif 'error=main_project_not_found' in request.url.query %}
-            <div class="alert alert-error">❌ Основной проект не найден.</div>
+            <div class="alert alert-error">
+                {{ ui_icon('Error.svg', 'alert-icon icon-tint-error', 16) }}
+                <span>Основной проект не найден.</span>
+            </div>
             {% elif 'error=target_project_not_found' in request.url.query %}
-            <div class="alert alert-error">❌ Целевой проект для объединения не найден.</div>
+            <div class="alert alert-error">
+                {{ ui_icon('Error.svg', 'alert-icon icon-tint-error', 16) }}
+                <span>Целевой проект для объединения не найден.</span>
+            </div>
             {% elif 'error=project_merge_failed' in request.url.query %}
-            <div class="alert alert-error">❌ Ошибка при объединении проектов. Попробуйте еще раз.</div>
+            <div class="alert alert-error">
+                {{ ui_icon('Error.svg', 'alert-icon icon-tint-error', 16) }}
+                <span>Ошибка при объединении проектов. Попробуйте еще раз.</span>
+            </div>
             {% elif 'success=project_merged' in request.url.query %}
-            <div class="alert alert-success">✅ Проекты успешно объединены! Перенесено сканирований: {{ request.url.query.split('merged_scans=')[1].split('&')[0] if 'merged_scans=' in request.url.query else '0' }}</div>
-            {% elif 'error=' in request.url.query %}
-            <div class="alert alert-error">{{ request.url.query.split('error=')[1].split('&')[0] | urldecode }}</div>
+            <div class="alert alert-success">
+                {{ ui_icon('CertificateSuccess.svg', 'alert-icon icon-tint-success', 16) }}
+                <span>Проекты успешно объединены! Перенесено сканирований: {{ request.url.query.split('merged_scans=')[1].split('&')[0] if 'merged_scans=' in request.url.query else '0' }}</span>
+            </div>
             {% elif 'error=invalid_file_format' in request.url.query %}
-            <div class="alert alert-error">Файл должен быть в формате ZIP</div>
+            <div class="alert alert-error">
+                {{ ui_icon('Error.svg', 'alert-icon icon-tint-error', 16) }}
+                <span>Файл должен быть в формате ZIP</span>
+            </div>
             {% elif 'error=local_scan_failed' in request.url.query %}
-            <div class="alert alert-error">Ошибка при запуске локального сканирования</div>
+            <div class="alert alert-error">
+                {{ ui_icon('Error.svg', 'alert-icon icon-tint-error', 16) }}
+                <span>Ошибка при запуске локального сканирования</span>
+            </div>
+            {% elif 'error=' in request.url.query %}
+            <div class="alert alert-error">
+                {{ ui_icon('Error.svg', 'alert-icon icon-tint-error', 16) }}
+                <span>{{ request.url.query.split('error=')[1].split('&')[0] | urldecode }}</span>
+            </div>
             {% endif %}
         {% endif %}
-        
-        <div class="edit-project-form" id="editProjectForm">
-            <h2 class="section-title">✏️ Редактировать проект</h2>
+
+        <div class="edit-project-form panel-form" id="editProjectForm">
+            {{ section_heading('BxsMessageSquareEdit.svg', 'badge-blue', 'icon-tint-info', 'Редактировать проект') }}
             <form method="post" action="/secret_scanner/projects/update">
                 <input type="hidden" name="project_id" value="{{ project.id }}">
                 <div class="form-group">
                     <label for="project_name">Название проекта</label>
-                    <input type="text" id="project_name" name="project_name" value="{{ project.name }}" required 
-                           pattern="[a-zA-Z0-9._\-\s]+" 
+                    <input type="text" id="project_name" name="project_name" value="{{ project.name }}" required
+                           pattern="[a-zA-Z0-9._\-\s]+"
                            title="Допустимы буквы, цифры, точки, дефисы, подчеркивания и пробелы">
                 </div>
                 <div class="form-group">
                     <label for="repo_url">Ссылка на репозиторий</label>
+                    <input type="url" id="repo_url" name="repo_url" value="{{ project.repo_url }}" required>
                     {% if HUB_TYPE == "Azure" %}
-                    <input type="url" id="repo_url" name="repo_url" value="{{ project.repo_url }}" required>
-                    <small style="color: #666; font-size: 0.85rem;">
-                        Формат для Azure DevOps: http://server/collection/project/_git/repository<br>
-                        или http://server/collection/_git/repository
-                    </small>
+                    <small>Формат для Azure DevOps: http://server/collection/project/_git/repository или http://server/collection/_git/repository</small>
                     {% else %}
-                    <input type="url" id="repo_url" name="repo_url" value="{{ project.repo_url }}" required>
-                    <small style="color: #666; font-size: 0.85rem;">
-                        Поддерживаются GitHub, GitLab, Bitbucket и другие Git-хостинги
-                    </small>
+                    <small>Поддерживаются GitHub, GitLab, Bitbucket и другие Git-хостинги</small>
                     {% endif %}
                 </div>
                 <div class="form-actions">
-                    <button type="submit" class="btn btn-primary">Обновить проект</button>
+                    <button type="submit" class="btn btn-primary">
+                        {{ ui_icon('ArrowSync.svg', 'btn-icon btn-icon-light', 16) }}
+                        Обновить проект
+                    </button>
                     <button type="button" class="btn btn-secondary" onclick="toggleEditForm()">Отмена</button>
                 </div>
             </form>
         </div>
 
-        <!-- Merge Project Form -->
-        <div id="mergeProjectForm" class="merge-project-form">
-            <h2 class="merge-form-title">🔗 Объединить проекты</h2>
-            <div class="merge-form-description">
-                <strong>Внимание!</strong> Этот функционал объединяет два проекта в один. Все сканирования из выбранного проекта будут перенесены в текущий проект, а выбранный проект будет удален. 
-                <br><br>
-                <strong>Это действие необратимо!</strong> Используйте его для объединения дублирующихся проектов (например, когда один репозиторий создан с разными URL).
+        <div id="mergeProjectForm" class="merge-project-form panel-form">
+            {{ section_heading('Combine.svg', 'badge-orange', 'icon-tint-warn', 'Объединить проекты') }}
+            <div class="form-hint-warn">
+                {{ ui_icon('CloudAlerting.svg', 'icon-tint-warn', 16) }}
+                <div>
+                    <strong>Внимание!</strong> Этот функционал объединяет два проекта в один. Все сканирования из выбранного проекта будут перенесены в текущий проект, а выбранный проект будет удален.
+                    <br><br>
+                    <strong>Это действие необратимо!</strong> Используйте его для объединения дублирующихся проектов (например, когда один репозиторий создан с разными URL).
+                </div>
             </div>
             <form action="/secret_scanner/projects/merge" method="post">
                 <input type="hidden" name="main_project_name" value="{{ project.name }}">
                 <div class="form-group">
-                    <label for="target_project_name">Проект для объединения:</label>
+                    <label for="target_project_name">Проект для объединения</label>
                     <div class="autocomplete-container">
-                        <input type="text" id="target_project_name" name="target_project_name" 
+                        <input type="text" id="target_project_name" name="target_project_name"
                                placeholder="Начните вводить название проекта..." required>
                         <div id="project_dropdown" class="project-dropdown"></div>
                     </div>
                 </div>
                 <div class="form-group">
-                    <label for="new_repo_url">Финальный URL репозитория:</label>
-                    <input type="url" id="new_repo_url" name="new_repo_url" 
-                           value="{{ project.repo_url }}" 
+                    <label for="new_repo_url">Финальный URL репозитория</label>
+                    <input type="url" id="new_repo_url" name="new_repo_url"
+                           value="{{ project.repo_url }}"
                            placeholder="URL репозитория, который останется после объединения" required>
                 </div>
                 <div class="form-actions">
-                    <button type="button" class="btn btn-merge" onclick="mergeProjects()">🔗 Объединить проекты</button>
+                    <button type="button" class="btn btn-merge" onclick="mergeProjects()">
+                        {{ ui_icon('Combine.svg', 'btn-icon icon-tint-warn', 16) }}
+                        Объединить проекты
+                    </button>
                     <button type="button" class="btn btn-secondary" onclick="toggleMergeForm()">Отмена</button>
                 </div>
             </form>
         </div>
-        
-        <div class="scan-form" id="scanForm">
-            <h2 class="section-title">🆕 Запуск нового сканирования</h2>
+
+        <div class="panel-form" id="scanForm">
+            {{ section_heading('BxsRocket.svg', 'badge-green', 'icon-tint-success', 'Запуск нового сканирования') }}
             <form method="post" action="/secret_scanner/project/{{ project.name }}/scan">
                 <div class="form-group">
-                    <label for="scan_type">Тип сканирования:</label>
-                    <select id="scan_type" name="scan_type" required>
-                        <option value="secrets" selected>Секреты</option>
-                        <option value="forbidden">Расширения / языки</option>
-                    </select>
+                    <label for="scan_type">Тип сканирования</label>
+                    <div class="select-with-icon icon-select">
+                        <select id="scan_type" name="scan_type" required>
+                            <option value="secrets" selected data-icon="LockPassword.svg" data-tint="icon-tint-warn">Секреты</option>
+                            <option value="forbidden" data-icon="Extensions.svg" data-tint="icon-tint-purple">Расширения / языки</option>
+                        </select>
+                    </div>
                 </div>
                 <div class="form-group">
-                    <label for="ref_type">Reference Type:</label>
-                    <select id="ref_type" name="ref_type" required>
-                        <option value="Branch">Branch</option>
-                        <option value="Tag">Tag</option>
-                        <option value="Commit">Commit</option>
-                    </select>
+                    <label for="ref_type">Reference Type</label>
+                    <div class="select-with-icon icon-select">
+                        <select id="ref_type" name="ref_type" required>
+                            <option value="Branch" selected data-icon="Branch.svg" data-tint="icon-tint-info">Branch</option>
+                            <option value="Tag" data-icon="BxsPurchaseTag.svg" data-tint="icon-tint-warn">Tag</option>
+                            <option value="Commit" data-icon="Commit.svg" data-tint="icon-tint-commit">Commit</option>
+                        </select>
+                    </div>
                 </div>
                 <div class="form-group">
-                    <label for="ref">Reference:</label>
+                    <label for="ref">Reference</label>
                     <input type="text" id="ref" name="ref" placeholder="main" required>
                 </div>
                 <div class="form-actions">
-                    <button type="submit" class="btn btn-success">Сканировать</button>
+                    <button type="submit" class="btn btn-success">
+                        {{ ui_icon('BarcodeScanDuotone.svg', 'btn-icon', 16) }}
+                        Сканировать
+                    </button>
                     <button type="button" class="btn btn-secondary" onclick="toggleScanForm()">Отмена</button>
                 </div>
             </form>
         </div>
 
-        <div class="scan-form" id="localScanForm">
-            <h2 class="section-title">📦 Локальное сканирование ZIP-архива</h2>
+        <div class="panel-form" id="localScanForm">
+            {{ section_heading('ArrowUpload.svg', 'badge-purple', 'icon-tint-purple', 'Локальное сканирование ZIP-архива') }}
             <form method="post" action="/secret_scanner/project/{{ project.name }}/local-scan" enctype="multipart/form-data">
                 <div class="form-group">
-                    <label for="local_scan_type">Тип сканирования:</label>
-                    <select id="local_scan_type" name="scan_type" required>
-                        <option value="secrets" selected>Секреты</option>
-                        <option value="forbidden">Расширения / языки</option>
-                    </select>
+                    <label for="local_scan_type">Тип сканирования</label>
+                    <div class="select-with-icon icon-select">
+                        <select id="local_scan_type" name="scan_type" required>
+                            <option value="secrets" selected data-icon="LockPassword.svg" data-tint="icon-tint-warn">Секреты</option>
+                            <option value="forbidden" data-icon="Extensions.svg" data-tint="icon-tint-purple">Расширения / языки</option>
+                        </select>
+                    </div>
                 </div>
                 <div class="form-group">
-                    <label for="commit">Коммит (<span style="color: #dc3545;">required</span>):</label>
+                    <label for="commit">Коммит (<span class="required-mark">required</span>)</label>
                     <input type="text" id="commit" name="commit" placeholder="a1b2c3d4..." required>
-                    <small style="color: #666; font-size: 0.85rem;">
-                        SHA коммита, соответствующего содержимому ZIP-архива
-                    </small>
+                    <small>SHA коммита, соответствующего содержимому ZIP-архива</small>
                 </div>
                 <div class="form-group">
-                    <label for="zip_file">ZIP-файл с исходным кодом:</label>
+                    <label for="zip_file">ZIP-файл с исходным кодом</label>
                     <div class="file-upload-area" id="fileUploadArea">
                         <div class="file-upload-content">
-                            <div class="file-upload-icon">📁</div>
+                            {{ ui_icon('Files.svg', 'file-upload-icon', 32) }}
                             <div class="file-upload-text">
                                 <strong>Перетащите ZIP-файл сюда</strong><br>
                                 или <span class="file-upload-browse">выберите файл</span>
@@ -207,121 +493,147 @@
                     </div>
                     <div class="file-info" id="fileInfo" style="display: none;">
                         <span id="fileName"></span>
-                        <button type="button" class="file-remove" onclick="removeFile()">✕</button>
+                        <button type="button" class="file-remove" onclick="removeFile()" aria-label="Удалить файл">
+                            {{ ui_icon('Error.svg', 'icon-tint-error', 14) }}
+                        </button>
                     </div>
-                    <small style="color: #666; font-size: 0.85rem;">
-                        Выберите ZIP-архив с исходным кодом проекта
-                    </small>
+                    <small>Выберите ZIP-архив с исходным кодом проекта</small>
                 </div>
                 <div class="form-actions">
-                    <button type="submit" class="btn btn-success">Запустить скан</button>
+                    <button type="submit" class="btn btn-success">
+                        {{ ui_icon('BxsRocket.svg', 'btn-icon', 16) }}
+                        Запустить скан
+                    </button>
                     <button type="button" class="btn btn-secondary" onclick="toggleLocalScanForm()">Отмена</button>
                 </div>
             </form>
         </div>
-        
+
         {% if latest_scan %}
-        <div class="latest-scan">
-            <h2 class="section-title">🔍 Последний скан</h2>
-            <div class="scan-info">
+        <div class="latest-scan-section" id="latestScanSection">
+            <button type="button" class="latest-scan-toggle" onclick="toggleLatestScan()" aria-expanded="false" aria-controls="latestScanPanel">
+                {{ ui_icon('BarcodeScanDuotone.svg', 'btn-icon icon-tint-info', 16) }}
+                <span class="latest-scan-toggle-label">Показать последний скан</span>
+                <span class="arrow">▼</span>
+            </button>
+            <div class="latest-scan card" id="latestScanPanel">
+            {{ section_heading('BarcodeScanDuotone.svg', 'badge-teal', 'icon-tint-info', 'Последний скан') }}
+
+            <div class="scan-info-grid">
                 <div class="scan-info-item">
-                    <div class="scan-info-label">📊 Статус</div>
+                    <div class="scan-info-label">
+                        {{ ui_icon('AppWindowPieChart.svg', 'meta-icon', 14) }}
+                        Статус
+                    </div>
                     <div class="scan-info-value">
-                        <span class="scan-status {{ latest_scan.status }}">
-                            {% if latest_scan.status == 'running' %}⏳ Running
-                            {% elif latest_scan.status == 'completed' %}✅ Completed
-                            {% else %}❌ Failed
-                            {% endif %}
+                        {% if latest_scan.status == 'completed' %}
+                        <span class="scan-status-plain completed">
+                            {{ ui_icon('CheckboxCheckedFilled.svg', 'status-icon icon-tint-success', 14) }}
+                            Завершено
                         </span>
+                        {% else %}
+                        {{ scan_status_badge(latest_scan.status) }}
+                        {% endif %}
                     </div>
                 </div>
                 <div class="scan-info-item">
-                    <div class="scan-info-label">🕑 Запущен</div>
+                    <div class="scan-info-label">
+                        {{ ui_icon('BaselineCalendarMonth.svg', 'meta-icon', 14) }}
+                        Запущен
+                    </div>
                     <div class="scan-info-value">{{ latest_scan.started_at.strftime('%d.%m.%Y %H:%M') }}</div>
                 </div>
                 {% if latest_scan.repo_commit %}
                 <div class="scan-info-item">
-                    <div class="scan-info-label">⚙️ Commit</div>
-                    <div class="scan-info-value">{{ latest_scan.repo_commit }}</div>
+                    <div class="scan-info-label">
+                        {{ ui_icon('Commit.svg', 'meta-icon icon-tint-commit', 14) }}
+                        Commit
+                    </div>
+                    <div class="scan-info-value mono">{{ latest_scan.repo_commit }}</div>
                 </div>
                 {% endif %}
                 <div class="scan-info-item">
-                    <div class="scan-info-label">☰ Запущен по</div>
+                    <div class="scan-info-label">
+                        {{ ui_icon('BaselineFormatListNumbered.svg', 'meta-icon', 14) }}
+                        Запущен по
+                    </div>
                     <div class="scan-info-value">{{ latest_scan.ref_type }}: {{ latest_scan.ref }}</div>
                 </div>
                 {% if latest_scan.files_scanned %}
                 <div class="scan-info-item">
-                    <div class="scan-info-label">📂 Файлов найдено</div>
+                    <div class="scan-info-label">
+                        {{ ui_icon('Files.svg', 'meta-icon', 14) }}
+                        Файлов найдено
+                    </div>
                     <div class="scan-info-value">{{ latest_scan.files_scanned }}</div>
                 </div>
                 {% endif %}
             </div>
 
-            <!-- Статистики фреймворков -->
             {% if framework_stats %}
-            <div class="frameworks-section" style="margin-bottom: 1.5rem;">
-                <div class="frameworks-header" style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;">
-                    <span style="font-size: 1.1rem; font-weight: 600; color: #333;">🎯 Обнаруженные фреймворки</span>
+            <div class="frameworks-section">
+                <div class="frameworks-header">
+                    {{ ui_icon('BusinessTarget.svg', 'icon-tint-error', 18) }}
+                    Обнаруженные фреймворки
                 </div>
-                <div class="frameworks-list" style="display: flex; flex-wrap: wrap; gap: 0.75rem;">
+                <div class="frameworks-list">
                     {% for framework, data in framework_stats.items() %}
-                    <div class="framework-item" data-framework="{{ framework }}" style="background: white; border: 1px solid #e1e5e9; border-radius: 8px; padding: 0.75rem; display: flex; align-items: center; gap: 0.5rem; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                    <div class="framework-item" data-framework="{{ framework }}">
                         {% if data.icon %}
-                        <img src="{{ '/secret_scanner/' + data.icon if data.icon else '' }}" alt="{{ framework }}" style="width: 24px; height: 24px;">
+                        <img src="{{ '/secret_scanner/' + data.icon if data.icon else '' }}" alt="{{ framework }}" class="framework-icon">
                         {% else %}
-                        <div style="width: 24px; height: 24px; background-color: {{ data.color }}; border-radius: 4px; display: flex; align-items: center; justify-content: center; color: white; font-size: 10px; font-weight: 600;">
+                        <div class="framework-icon-fallback" style="background-color: {{ data.color }};">
                             {{ framework[:2].upper() }}
                         </div>
                         {% endif %}
-                        <span style="font-weight: 500;">{{ framework }}</span>
-                        <button class="framework-details-btn" onclick="toggleFrameworkDetails('{{ framework }}')" 
-                                style="background: #f0f9ff; border: 1px solid #0ea5e9; color: #0ea5e9; border-radius: 4px; padding: 0.25rem 0.5rem; font-size: 0.75rem; cursor: pointer;">
-                            📋 Подробнее
+                        <span class="framework-name">{{ framework }}</span>
+                        <button type="button" class="framework-details-btn" data-framework-toggle="{{ framework }}" onclick="toggleFrameworkDetails('{{ framework }}')">
+                            {{ ui_icon('EyeShowLine.svg', 'btn-icon icon-tint-info', 14) }}
+                            <span class="framework-toggle-label">Подробнее</span>
                         </button>
                     </div>
                     {% endfor %}
                 </div>
-                
-                <!-- Детали фреймворков -->
+
                 {% for framework, data in framework_stats.items() %}
-                <div class="framework-details" id="framework-details-{{ framework }}" style="display: none; margin-top: 1rem; background: #f8f9fa; border: 1px solid #e1e5e9; border-radius: 8px; padding: 1rem;">
-                    <div style="font-weight: 600; margin-bottom: 0.75rem; color: #333;">🔍 Детали обнаружения {{ framework }}:</div>
+                <div class="framework-details" id="framework-details-{{ framework }}">
+                    <div class="framework-details-title">
+                        {{ ui_icon('BaselineSearch.svg', 'icon-tint-info', 16) }}
+                        Детали обнаружения {{ framework }}
+                    </div>
                     {% for detection in data.detections %}
-                    <div style="background: white; border-radius: 6px; padding: 0.75rem; margin-bottom: 0.5rem; border-left: 3px solid {{ data.color }};">
-                        <div style="font-size: 0.9rem; color: #333; margin-bottom: 0.5rem;">{{ detection.Description }}</div>
-                        <div style="font-size: 0.8rem; color: #666;">
-                            <div style="font-weight: 500; margin-bottom: 0.25rem;">📄 Файлы:</div>
-                            {% if detection.Files %}
-                                {% for file in detection.Files %}
-                                <div style="margin-left: 1rem; margin-bottom: 0.15rem;">
-                                    <a href="#" onclick="openFrameworkFile('{{ file }}', '{{ framework }}')" style="color: #0ea5e9; text-decoration: underline; cursor: pointer;">{{ file }}</a>
-                                </div>
-                                {% endfor %}
-                            {% elif detection.File %}
-                                <!-- Поддержка старого формата на случай если где-то еще используется -->
-                                <div style="margin-left: 1rem;">
-                                    <a href="#" onclick="openFrameworkFile('{{ detection.File }}', '{{ framework }}')" style="color: #0ea5e9; text-decoration: underline; cursor: pointer;">{{ detection.File }}</a>
-                                </div>
-                            {% else %}
-                                <div style="margin-left: 1rem; color: #666; font-style: italic;">Файлы не указаны</div>
-                            {% endif %}
+                    <div class="framework-detection" style="border-left-color: {{ data.color }};">
+                        <div class="framework-detection-desc">{{ detection.Description }}</div>
+                        <div class="framework-files-label">
+                            {{ ui_icon('Files.svg', 'meta-icon', 14) }}
+                            Файлы
                         </div>
+                        {% if detection.Files %}
+                            {% for file in detection.Files %}
+                            <a href="#" class="framework-file-link" onclick="openFrameworkFile('{{ file }}', '{{ framework }}'); return false;">{{ file }}</a>
+                            {% endfor %}
+                        {% elif detection.File %}
+                            <a href="#" class="framework-file-link" onclick="openFrameworkFile('{{ detection.File }}', '{{ framework }}'); return false;">{{ detection.File }}</a>
+                        {% else %}
+                            <div class="framework-files-empty">Файлы не указаны</div>
+                        {% endif %}
                     </div>
                     {% endfor %}
                 </div>
                 {% endfor %}
             </div>
             {% endif %}
-            
-            <!-- Статистики языков -->
+
             {% if language_stats %}
-            <button class="language-stats-toggle" onclick="toggleLanguageStats()">
-                <span>📊 Показать распределение по языкам</span>
+            <button type="button" class="language-stats-toggle" onclick="toggleLanguageStats()">
+                {{ ui_icon('Analysis.svg', 'btn-icon icon-tint-info', 16) }}
+                <span class="language-toggle-label">Показать распределение по языкам</span>
                 <span class="arrow">▼</span>
             </button>
             <div class="language-stats" id="languageStats">
                 <div class="language-stats-title">
-                    📊 Статистика по языкам
+                    {{ ui_icon('AppWindowPieChart.svg', 'icon-tint-info', 18) }}
+                    Статистика по языкам
                 </div>
                 {% if language_stats|length > 0 %}
                 <div class="language-chart-container">
@@ -329,14 +641,13 @@
                     <div class="language-legend">
                         {% for stat in language_stats %}
                         <div class="legend-item" data-language="{{ stat.language }}" data-extensions="{{ stat.extensions | join(',') if stat.extensions else '' }}">
-                            <div style="display: flex; align-items: center;">
+                            <div class="legend-label-wrap">
                                 {% if stat.icon %}
                                 <div class="legend-color has-icon" data-language="{{ stat.language }}">
-                                    <img src="{{ '/secret_scanner/' + stat.icon if stat.icon else '' }}" alt="{{ stat.language }}" style="width: 18px; height: 18px;">
+                                    <img src="{{ '/secret_scanner/' + stat.icon if stat.icon else '' }}" alt="{{ stat.language }}" width="18" height="18">
                                 </div>
                                 {% else %}
-                                <div class="legend-color no-icon" data-language="{{ stat.language }}" 
-                                    style="background-color: {{ stat.color }};">
+                                <div class="legend-color no-icon" data-language="{{ stat.language }}" style="background-color: {{ stat.color }};">
                                     {{ stat.language[:2].upper() }}
                                 </div>
                                 {% endif %}
@@ -351,163 +662,72 @@
                     </div>
                 </div>
                 {% else %}
-                <div class="no-files-message">
-                    Файлы с секретами не найдены
-                </div>
+                <div class="no-files-message">Файлы с секретами не найдены</div>
                 {% endif %}
             </div>
             {% endif %}
-            
+
             {% if latest_scan.status == 'running' %}
-            <div style="text-align: center; margin-top: 1rem;">
-                <a href="/secret_scanner/scan/{{ latest_scan.id }}" class="btn btn-primary">Посмотреть отчет</a>
+            <div class="latest-scan-actions">
+                <a href="/secret_scanner/scan/{{ latest_scan.id }}" class="btn btn-primary">
+                    {{ ui_icon('BarcodeScanDuotone.svg', 'btn-icon btn-icon-light', 16) }}
+                    Посмотреть отчет
+                </a>
             </div>
             {% elif latest_scan.status == 'completed' %}
-            <div style="text-align: center; margin-top: 1rem; display: flex; gap: 1rem; justify-content: center;">
-                <a href="/secret_scanner/scan/{{ latest_scan.id }}/results" class="btn btn-primary">Посмотреть отчет</a>
-                <a href="/secret_scanner/project/{{ project.name }}/secrets-history" class="btn btn-secondary">📋 История секретов (beta)</a>
+            <div class="latest-scan-actions">
+                <a href="/secret_scanner/scan/{{ latest_scan.id }}/results" class="btn btn-primary">
+                    {{ ui_icon('BarcodeScanDuotone.svg', 'btn-icon btn-icon-light', 16) }}
+                    Посмотреть отчет
+                </a>
+                <a href="/secret_scanner/project/{{ project.name }}/secrets-history" class="btn btn-secondary">
+                    {{ ui_icon('BaselineHistory.svg', 'btn-icon icon-tint-info', 16) }}
+                    История секретов (beta)
+                </a>
             </div>
             {% endif %}
+            </div>
         </div>
         {% endif %}
-        
-    <div class="scan-history">
-        <div class="history-tabs">
-            <button type="button" class="history-tab active" data-history-tab="secrets">📋 История сканирований</button>
-            <button type="button" class="history-tab" data-history-tab="forbidden">📋 История сканирования (расширения)</button>
-        </div>
 
-        <div class="history-tab-panel active" id="history-secrets">
-        {% if secrets_scan_stats %}
-        <div class="scan-list">
-            {% for stat in secrets_scan_stats %}
-            {% if stat.scan.status == 'completed' %}
-            <a href="/secret_scanner/scan/{{ stat.scan.id }}/results" class="scan-item">
-            {% elif stat.scan.status == 'running' %}
-            <a href="/secret_scanner/scan/{{ stat.scan.id }}" class="scan-item">
-            {% elif stat.scan.status == 'failed' or stat.scan.status == 'timeout' %}
-            <a href="/secret_scanner/scan/{{ stat.scan.id }}" class="scan-item">
-            {% else %}
-            <div class="scan-item">
-            {% endif %}
-                <div class="scan-details">
-                    <div class="scan-date">{{ stat.scan.started_at.strftime('%d.%m.%Y %H:%M') }}</div>
-                    <div class="scan-meta">
-                        <span class="scan-status {{ stat.scan.status }}">
-                            {% if stat.scan.status == 'running' %}⏳ Running
-                            {% elif stat.scan.status == 'completed' %}✅ Completed
-                            {% elif stat.scan.status == 'timeout' %}⏰ Timeout
-                            {% elif stat.scan.status == 'failed' %}❌ Failed
-                            {% else %}❓ Unknown
-                            {% endif %}
-                        </span>
-                        <div>
-                            • ℹ️ Запущено по: {{ stat.scan.ref_type }}: {{ stat.scan.ref }}<br>
-                            {% if stat.scan.started_by %}• 👮 <b><span style="color: #3b82f6;">{{ stat.scan.started_by }}</span></b>{% endif %}
-                        </div>
-                        <div>
-                            {% if stat.scan.repo_commit %}
-                            • ⚙️ Commit: {{ stat.scan.repo_commit }}
-                            {% endif %}
-                        </div>
-                    </div>
-                </div>
-                <div class="scan-stats">
-                    <div>
-                        <span class="confirmed-count">{{ stat.confirmed_count }}</span> secrets
-                    </div>
-                    {% if stat.scan.files_scanned %}
-                    <div class="files-count">Просканировано {{ stat.scan.files_scanned }} файлов</div>
-                    {% endif %}
-                </div>
-                <div class="scan-actions">
-                    <form method="post" action="/secret_scanner/scan/{{ stat.scan.id }}/delete" 
-                        onsubmit="return confirm('Are you sure you want to delete this scan?')"
-                        onclick="event.stopPropagation()">
-                        <button type="submit" class="btn btn-danger btn-sm">Delete</button>
-                    </form>
-                </div>
-            {% if stat.scan.status == 'completed' or stat.scan.status == 'running' or stat.scan.status == 'failed' or stat.scan.status == 'timeout' %}
-            </a>
-            {% else %}
+        <div class="scan-history card">
+            <div class="history-tabs">
+                <button type="button" class="history-tab active" data-history-tab="secrets">
+                    {{ ui_icon('BaselineHistory.svg', 'tab-icon icon-tint-info', 16) }}
+                    История сканирований
+                </button>
+                <button type="button" class="history-tab" data-history-tab="forbidden">
+                    {{ ui_icon('Extensions.svg', 'tab-icon icon-tint-purple', 16) }}
+                    История (расширения)
+                </button>
             </div>
-            {% endif %}
-            {% endfor %}
-        </div>
-        {% else %}
-        <div class="empty-state">
-            <h3>🤷‍♂️ Не найдено</h3>
-            <p>Запустите свое первое сканирование секретов для этого проекта.</p>
-        </div>
-        {% endif %}
-        </div>
 
-        <div class="history-tab-panel" id="history-forbidden">
-        {% if forbidden_scan_stats %}
-        <div class="scan-list">
-            {% for stat in forbidden_scan_stats %}
-            {% if stat.scan.status == 'completed' %}
-            <a href="/secret_scanner/scan/{{ stat.scan.id }}/forbidden-results" class="scan-item">
-            {% elif stat.scan.status == 'running' %}
-            <a href="/secret_scanner/scan/{{ stat.scan.id }}" class="scan-item">
-            {% elif stat.scan.status == 'failed' or stat.scan.status == 'timeout' %}
-            <a href="/secret_scanner/scan/{{ stat.scan.id }}" class="scan-item">
-            {% else %}
-            <div class="scan-item">
-            {% endif %}
-                <div class="scan-details">
-                    <div class="scan-date">{{ stat.scan.started_at.strftime('%d.%m.%Y %H:%M') }}</div>
-                    <div class="scan-meta">
-                        <span class="scan-status {{ stat.scan.status }}">
-                            {% if stat.scan.status == 'running' %}⏳ Running
-                            {% elif stat.scan.status == 'completed' %}✅ Completed
-                            {% elif stat.scan.status == 'timeout' %}⏰ Timeout
-                            {% elif stat.scan.status == 'failed' %}❌ Failed
-                            {% else %}❓ Unknown
-                            {% endif %}
-                        </span>
-                        <div>
-                            • ℹ️ Запущено по: {{ stat.scan.ref_type }}: {{ stat.scan.ref }}<br>
-                            {% if stat.scan.started_by %}• 👮 <b><span style="color: #3b82f6;">{{ stat.scan.started_by }}</span></b>{% endif %}
-                        </div>
-                        <div>
-                            {% if stat.scan.repo_commit %}
-                            • ⚙️ Commit: {{ stat.scan.repo_commit }}
-                            {% endif %}
-                        </div>
-                    </div>
+            <div class="history-tab-panel active" id="history-secrets">
+                {% if secrets_scan_stats %}
+                {{ scan_history_table(secrets_scan_stats) }}
+                {% else %}
+                <div class="empty-state">
+                    {{ ui_icon('CreditCardNotFound.svg', 'empty-state-icon', 40) }}
+                    <h3>Не найдено</h3>
+                    <p>Запустите свое первое сканирование секретов для этого проекта.</p>
                 </div>
-                <div class="scan-stats">
-                    <div>
-                        <span class="confirmed-count">{{ stat.violations_count }}</span> violations
-                    </div>
-                    {% if stat.scan.files_scanned %}
-                    <div class="files-count">Проанализировано {{ stat.scan.files_scanned }} файлов</div>
-                    {% endif %}
-                </div>
-                <div class="scan-actions">
-                    <form method="post" action="/secret_scanner/scan/{{ stat.scan.id }}/delete" 
-                        onsubmit="return confirm('Are you sure you want to delete this scan?')"
-                        onclick="event.stopPropagation()">
-                        <button type="submit" class="btn btn-danger btn-sm">Delete</button>
-                    </form>
-                </div>
-            {% if stat.scan.status == 'completed' or stat.scan.status == 'running' or stat.scan.status == 'failed' or stat.scan.status == 'timeout' %}
-            </a>
-            {% else %}
+                {% endif %}
             </div>
-            {% endif %}
-            {% endfor %}
-        </div>
-        {% else %}
-        <div class="empty-state">
-            <h3>🤷‍♂️ Не найдено</h3>
-            <p>Запустите первое сканирование расширений/языков для этого проекта.</p>
-        </div>
-        {% endif %}
+
+            <div class="history-tab-panel" id="history-forbidden">
+                {% if forbidden_scan_stats %}
+                {{ scan_history_table(forbidden_scan_stats) }}
+                {% else %}
+                <div class="empty-state">
+                    {{ ui_icon('CreditCardNotFound.svg', 'empty-state-icon', 40) }}
+                    <h3>Не найдено</h3>
+                    <p>Запустите первое сканирование расширений/языков для этого проекта.</p>
+                </div>
+                {% endif %}
+            </div>
         </div>
     </div>
-    </div>
+
     <script src="/secret_scanner/static/js/project.js"></script>
 </body>
 </html>

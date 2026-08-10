@@ -1,132 +1,172 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Scan Status - Secrets Scanner</title>
+    <title>Scan Status — {{ scan.project_name }}</title>
     <link rel="stylesheet" href="/secret_scanner/static/css/base_header.css">
     <link rel="stylesheet" href="/secret_scanner/static/css/scan_status.css">
     <link rel="icon" type="image/x-icon" href="/secret_scanner/favicon.ico">
 </head>
-<body data-scan-status="{{ scan.status if scan.status else 'unknown' }}" 
-      data-scan-id="{{ scan.id }}" 
+<body data-scan-status="{{ scan.status if scan.status else 'unknown' }}"
+      data-scan-id="{{ scan.id }}"
       data-scan-type="{{ scan_type if scan_type else 'secrets' }}"
       data-project-name="{{ scan.project_name }}"
       data-callback-url="{{ callback_url if callback_url else '' }}"
       data-scan-started-at="{{ scan.started_at.strftime('%Y-%m-%dT%H:%M:%S') if scan.started_at else '' }}"
       data-scan-started-at-display="{{ scan.started_at.strftime('%d.%m.%Y %H:%M') if scan.started_at else '' }}">
     {% from "components/base_header.html" import header %}
+    {% from "components/scan_results_macros.html" import ui_icon, meta_line %}
     {{ header('', current_user) }}
-    
+
     <div class="container">
-        <div class="scan-status-card">
-            <div id="status-content">
-                <!-- Содержимое будет обновляться через JavaScript -->
+        <a href="/secret_scanner/project/{{ scan.project_name }}" class="back-link">
+            {{ ui_icon('ArrowBack.svg', 'icon-tint-info', 16) }}
+            Назад к проекту
+        </a>
+
+        <div class="scan-status-card card" id="scanStatusCard">
+            <div id="status-content" class="status-content">
                 <div class="loading-spinner"></div>
-                <div class="status-icon">🔄</div>
-                <h1 class="status-title">Загрузка статуса...</h1>
-                <p class="status-description">
-                    Получение информации о состоянии сканирования...
-                </p>
-            </div>
-            
-            <div class="scan-details">
-                <div class="scan-detail-item">
-                    <span class="scan-detail-label">Проект:</span>
-                    <span class="scan-detail-value">{{ scan.project_name }}</span>
-                </div>
-                <div class="scan-detail-item">
-                    <span class="scan-detail-label">Reference Type:</span>
-                    <span class="scan-detail-value">{{ scan.ref_type if scan.ref_type else 'N/A' }}</span>
-                </div>
-                <div class="scan-detail-item">
-                    <span class="scan-detail-label">Reference:</span>
-                    <span class="scan-detail-value">{{ scan.ref if scan.ref else 'N/A' }}</span>
-                </div>
-                {% if scan.repo_commit %}
-                <div class="scan-detail-item">
-                    <span class="scan-detail-label">Commit:</span>
-                    <span class="scan-detail-value commit-display">{{ scan.repo_commit }}</span>
-                </div>
-                {% endif %}
-                <div class="scan-detail-item">
-                    <span class="scan-detail-label">Scan ID:</span>
-                    <span class="scan-detail-value">{{ scan.id }}</span>
-                </div>
-                <div class="scan-detail-item" id="started-at-detail">
-                    <span class="scan-detail-label">Запущен:</span>
-                    <span class="scan-detail-value">{{ scan.started_at.strftime('%d.%m.%Y %H:%M') if scan.started_at else 'Не запущен' }}</span>
-                </div>
-                <div class="scan-detail-item" id="completed-at-detail" style="display: none;">
-                    <span class="scan-detail-label">Завершен:</span>
-                    <span class="scan-detail-value" id="completed-at-value">-</span>
-                </div>
-                <div class="scan-detail-item" id="execution-time-detail" style="display: none;">
-                    <span class="scan-detail-label">Время выполнения:</span>
-                    <span class="scan-detail-value" id="execution-time-value">-</span>
+                <div class="status-hero">
+                    <span class="status-hero-badge badge-blue">
+                        {{ ui_icon('ArrayDateTime.svg', 'status-hero-icon icon-tint-info', 32) }}
+                    </span>
+                    <h1 class="status-title">Загрузка статуса...</h1>
+                    <p class="status-description">Получение информации о состоянии сканирования...</p>
                 </div>
             </div>
-            
-            <!-- Прогресс информация - будет показываться для активных задач -->
-            <div id="progress-section" style="display: none;">
+
+            <div class="scan-details card-inner">
+                <h2 class="scan-details-title">
+                    {{ ui_icon('AppDashboard.svg', 'icon-tint-muted', 18) }}
+                    <span>Детали сканирования</span>
+                </h2>
+                <div class="scan-details-grid">
+                    <div class="scan-detail-item">
+                        <span class="scan-detail-label">
+                            {{ ui_icon('FolderWithFilesLinear.svg', 'meta-icon icon-tint-warn', 14) }}
+                            Проект
+                        </span>
+                        <span class="scan-detail-value">{{ scan.project_name }}</span>
+                    </div>
+                    <div class="scan-detail-item">
+                        <span class="scan-detail-label">
+                            {% if scan.ref_type == 'Tag' %}
+                            {{ ui_icon('BxsPurchaseTag.svg', 'meta-icon icon-tint-warn', 14) }}
+                            {% elif scan.ref_type == 'Commit' %}
+                            {{ ui_icon('Commit.svg', 'meta-icon icon-tint-commit', 14) }}
+                            {% else %}
+                            {{ ui_icon('Branch.svg', 'meta-icon icon-tint-info', 14) }}
+                            {% endif %}
+                            Reference Type
+                        </span>
+                        <span class="scan-detail-value">{{ scan.ref_type if scan.ref_type else 'N/A' }}</span>
+                    </div>
+                    <div class="scan-detail-item">
+                        <span class="scan-detail-label">
+                            {{ ui_icon('BaselineFormatListNumbered.svg', 'meta-icon icon-tint-muted', 14) }}
+                            Reference
+                        </span>
+                        <span class="scan-detail-value mono">{{ scan.ref if scan.ref else 'N/A' }}</span>
+                    </div>
+                    {% if scan.repo_commit %}
+                    <div class="scan-detail-item">
+                        <span class="scan-detail-label">
+                            {{ ui_icon('Commit.svg', 'meta-icon icon-tint-commit', 14) }}
+                            Commit
+                        </span>
+                        <span class="scan-detail-value mono commit-display">{{ scan.repo_commit }}</span>
+                    </div>
+                    {% endif %}
+                    <div class="scan-detail-item">
+                        <span class="scan-detail-label">
+                            {{ ui_icon('BarcodeScanDuotone.svg', 'meta-icon icon-tint-info', 14) }}
+                            Scan ID
+                        </span>
+                        <span class="scan-detail-value mono">{{ scan.id }}</span>
+                    </div>
+                    <div class="scan-detail-item" id="started-at-detail">
+                        <span class="scan-detail-label">
+                            {{ ui_icon('ArrayDateTime.svg', 'meta-icon icon-tint-muted', 14) }}
+                            Запущен
+                        </span>
+                        <span class="scan-detail-value">{{ scan.started_at.strftime('%d.%m.%Y %H:%M') if scan.started_at else 'Не запущен' }}</span>
+                    </div>
+                    <div class="scan-detail-item" id="completed-at-detail" hidden>
+                        <span class="scan-detail-label">
+                            {{ ui_icon('CheckboxCheckedFilled.svg', 'meta-icon icon-tint-success', 14) }}
+                            Завершен
+                        </span>
+                        <span class="scan-detail-value" id="completed-at-value">—</span>
+                    </div>
+                    <div class="scan-detail-item" id="execution-time-detail" hidden>
+                        <span class="scan-detail-label">
+                            {{ ui_icon('Timeout.svg', 'meta-icon icon-tint-warn', 14) }}
+                            Время выполнения
+                        </span>
+                        <span class="scan-detail-value" id="execution-time-value">—</span>
+                    </div>
+                </div>
+            </div>
+
+            <div id="progress-section" class="progress-section" hidden>
                 <div class="progress-info">
                     <div class="progress-text" id="progress-status-text">Выполнение...</div>
                     <div class="progress-bar">
                         <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
                     </div>
                     <div class="progress-percentage" id="progress-percentage">0%</div>
-                    <div class="progress-detail" id="progress-detail"></div>
+                    <div class="progress-detail" id="progress-detail" hidden></div>
                 </div>
             </div>
 
-            <!-- Результаты сканирования -->
-            <div id="results-section" style="display: none;">
-                <div class="files-scanned" id="results-info">
-                    📊 Результаты готовы
+            <div id="results-section" class="results-section" hidden>
+                <div class="results-banner" id="results-info">
+                    {{ ui_icon('CheckboxCheckedFilled.svg', 'banner-icon icon-tint-success', 18) }}
+                    <span>Результаты готовы</span>
                 </div>
             </div>
 
-            <!-- Информация об ошибке -->
-            <div id="error-section" style="display: none;">
+            <div id="error-section" class="error-section" hidden>
                 <div class="error-info">
-                    <div class="error-title">❌ Ошибка сканирования</div>
+                    <div class="error-title">
+                        {{ ui_icon('Error.svg', 'icon-tint-error', 18) }}
+                        <span>Ошибка сканирования</span>
+                    </div>
                     <div class="error-message" id="error-message"></div>
                 </div>
             </div>
 
-            <!-- Время выполнения (для активных задач) -->
-            <div class="elapsed-time" id="elapsedTime" style="display: none;">
-                Запущен: {{ scan.started_at.strftime('%d.%m.%Y %H:%M') if scan.started_at else 'N/A' }}
-            </div>
+            <div class="elapsed-time" id="elapsedTime" hidden></div>
 
-            <div class="logs-info" id="logs-info" style="display: none;">
+            <div class="logs-info" id="logs-info" hidden>
                 <div class="logs-info-title">
-                    💡 Информация о диагностике
+                    {{ ui_icon('CloudAlerting.svg', 'icon-tint-warn', 18) }}
+                    <span>Информация о диагностике</span>
                 </div>
                 <div class="logs-info-text" id="logs-info-text">
                     При возникновении проблем с сканированием вы можете просмотреть логи сервиса для диагностики.
                 </div>
                 <div class="logs-button-container">
-                    <a href="/secret_scanner/logs" class="btn btn-info">
-                        📋 Посмотреть логи
+                    <a href="/secret_scanner/logs" class="btn btn-secondary">
+                        {{ ui_icon('ActivityLog.svg', 'btn-icon icon-tint-info', 14) }}
+                        Посмотреть логи
                     </a>
                 </div>
             </div>
-            
-            <div style="margin-top: 2rem;" id="action-buttons">
-                <a href="/secret_scanner/project/{{ scan.project_name }}" class="btn btn-secondary">
-                    ← Назад к проекту
-                </a>
-                
-                <button class="btn btn-info" id="refresh-btn" onclick="refreshStatus()">
-                    🔄 Обновить статус
-                </button>
 
-                <!-- Кнопки будут добавляться динамически через JavaScript -->
-                <div id="dynamic-buttons"></div>
+            <div class="action-buttons" id="action-buttons">
+                <button type="button" class="btn btn-secondary" id="refresh-btn" onclick="refreshStatus()">
+                    {{ ui_icon('ArrowSync.svg', 'btn-icon icon-tint-info', 14) }}
+                    Обновить статус
+                </button>
+                <div id="dynamic-buttons" class="dynamic-buttons"></div>
             </div>
         </div>
     </div>
+
+    <script src="/secret_scanner/static/js/ui_icons.js"></script>
     <script src="/secret_scanner/static/js/scan_status.js"></script>
 </body>
 </html>

@@ -211,6 +211,8 @@ async def process_forbidden_results_background(scan_id: str, data: dict, db_sess
             scan.status = "failed"
             scan.completed_at = datetime.now()
             scan.error_message = data.get("Message", "Unknown error during forbidden check")
+            if data.get("RepoCommit"):
+                scan.repo_commit = data.get("RepoCommit")
             db_session.commit()
             return
 

@@ -5,21 +5,211 @@ const fileName = document.getElementById('fileName');
 const refTypeSelect = document.getElementById('ref_type');
 const refInput = document.getElementById('ref');
 
+const ICON_BASE = '/secret_scanner/static/icons/new/';
+const CHEVRON_DOWN = `${ICON_BASE}AltArrowDownLineDuotone.svg`;
+const CHEVRON_UP = `${ICON_BASE}AltArrowUpLineDuotone.svg`;
+
 const placeholders = {
     'Branch': 'master',
     'Tag': 'v1.1.3',
     'Commit': 'ab12c3d...'
 };
 
-// при изменении типа ссылки обновляем placeholder
-refTypeSelect.addEventListener('change', function () {
-    const selectedType = this.value;
-    refInput.placeholder = placeholders[selectedType] || '';
+function setIconSelectChevron(wrapper, isOpen) {
+    const chevron = wrapper.querySelector('.icon-select-chevron');
+    if (!chevron) return;
+    chevron.src = isOpen ? CHEVRON_UP : CHEVRON_DOWN;
+}
+
+function syncIconSelectTrigger(wrapper) {
+    const select = wrapper.querySelector('select');
+    const option = select?.options[select.selectedIndex];
+    const triggerIcon = wrapper.querySelector('.icon-select-trigger-icon');
+    const triggerLabel = wrapper.querySelector('.icon-select-trigger-label');
+
+    if (!option || !triggerIcon || !triggerLabel) return;
+
+    triggerIcon.src = `${ICON_BASE}${option.dataset.icon || ''}`;
+    triggerIcon.className = `icon-select-trigger-icon ui-icon ${option.dataset.tint || ''}`.trim();
+    triggerLabel.textContent = option.textContent;
+}
+
+function updateIconSelectOptions(wrapper) {
+    const select = wrapper.querySelector('select');
+    if (!select) return;
+
+    wrapper.querySelectorAll('.icon-select-option').forEach(li => {
+        const isSelected = li.dataset.value === select.value;
+        li.classList.toggle('selected', isSelected);
+        li.setAttribute('aria-selected', isSelected ? 'true' : 'false');
+    });
+}
+
+function closeIconSelectMenu(wrapper) {
+    const menu = wrapper.querySelector('.icon-select-menu');
+    const trigger = wrapper.querySelector('.icon-select-trigger');
+    if (menu) menu.hidden = true;
+    if (trigger) trigger.setAttribute('aria-expanded', 'false');
+    wrapper.classList.remove('open');
+    setIconSelectChevron(wrapper, false);
+}
+
+function closeAllIconSelectMenus(exceptWrapper = null) {
+    document.querySelectorAll('.select-with-icon.open').forEach(wrapper => {
+        if (wrapper !== exceptWrapper) {
+            closeIconSelectMenu(wrapper);
+        }
+    });
+}
+
+function toggleIconSelectMenu(wrapper) {
+    const menu = wrapper.querySelector('.icon-select-menu');
+    const trigger = wrapper.querySelector('.icon-select-trigger');
+    if (!menu || !trigger) return;
+
+    const willOpen = menu.hidden;
+    closeAllIconSelectMenus();
+
+    if (willOpen) {
+        menu.hidden = false;
+        trigger.setAttribute('aria-expanded', 'true');
+        wrapper.classList.add('open');
+        setIconSelectChevron(wrapper, true);
+    }
+}
+
+function selectIconSelectOption(wrapper, value) {
+    const select = wrapper.querySelector('select');
+    if (!select) return;
+
+    select.value = value;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    syncIconSelectTrigger(wrapper);
+    updateIconSelectOptions(wrapper);
+    closeIconSelectMenu(wrapper);
+}
+
+function buildIconSelect(wrapper) {
+    const select = wrapper.querySelector('select');
+    if (!select || wrapper.dataset.iconSelectBuilt === 'true') return;
+    wrapper.dataset.iconSelectBuilt = 'true';
+
+    select.classList.add('icon-select-native');
+    select.tabIndex = -1;
+
+    const trigger = document.createElement('button');
+    trigger.type = 'button';
+    trigger.className = 'icon-select-trigger';
+    trigger.setAttribute('aria-haspopup', 'listbox');
+    trigger.setAttribute('aria-expanded', 'false');
+
+    const triggerIcon = document.createElement('img');
+    triggerIcon.className = 'icon-select-trigger-icon ui-icon';
+    triggerIcon.width = 16;
+    triggerIcon.height = 16;
+    triggerIcon.alt = '';
+
+    const triggerLabel = document.createElement('span');
+    triggerLabel.className = 'icon-select-trigger-label';
+
+    const triggerChevron = document.createElement('img');
+    triggerChevron.src = CHEVRON_DOWN;
+    triggerChevron.className = 'icon-select-chevron ui-icon';
+    triggerChevron.width = 16;
+    triggerChevron.height = 16;
+    triggerChevron.alt = '';
+
+    trigger.append(triggerIcon, triggerLabel, triggerChevron);
+
+    const menu = document.createElement('ul');
+    menu.className = 'icon-select-menu';
+    menu.setAttribute('role', 'listbox');
+    menu.hidden = true;
+
+    Array.from(select.options).forEach(option => {
+        const item = document.createElement('li');
+        item.className = 'icon-select-option';
+        item.setAttribute('role', 'option');
+        item.dataset.value = option.value;
+        if (option.selected) {
+            item.classList.add('selected');
+        }
+        item.setAttribute('aria-selected', option.selected ? 'true' : 'false');
+
+        const optionIcon = document.createElement('img');
+        optionIcon.className = `icon-select-option-icon ui-icon ${option.dataset.tint || ''}`.trim();
+        optionIcon.src = `${ICON_BASE}${option.dataset.icon || ''}`;
+        optionIcon.width = 16;
+        optionIcon.height = 16;
+        optionIcon.alt = '';
+
+        const optionLabel = document.createElement('span');
+        optionLabel.className = 'icon-select-option-label';
+        optionLabel.textContent = option.textContent;
+
+        item.append(optionIcon, optionLabel);
+        item.addEventListener('click', (event) => {
+            event.stopPropagation();
+            selectIconSelectOption(wrapper, option.value);
+        });
+        menu.appendChild(item);
+    });
+
+    select.insertAdjacentElement('afterend', trigger);
+    trigger.insertAdjacentElement('afterend', menu);
+
+    menu.addEventListener('click', (event) => {
+        event.stopPropagation();
+    });
+
+    const label = wrapper.closest('.form-group')?.querySelector(`label[for="${select.id}"]`);
+    if (label) {
+        label.addEventListener('click', (event) => {
+            event.preventDefault();
+            trigger.focus();
+            toggleIconSelectMenu(wrapper);
+        });
+    }
+
+    trigger.addEventListener('click', (event) => {
+        event.stopPropagation();
+        toggleIconSelectMenu(wrapper);
+    });
+
+    select.addEventListener('change', () => {
+        syncIconSelectTrigger(wrapper);
+        updateIconSelectOptions(wrapper);
+    });
+
+    syncIconSelectTrigger(wrapper);
+}
+
+function initIconSelects() {
+    document.querySelectorAll('.select-with-icon.icon-select').forEach(buildIconSelect);
+}
+
+document.addEventListener('click', () => closeAllIconSelectMenus());
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+        closeAllIconSelectMenus();
+    }
 });
+
+// при изменении типа ссылки обновляем placeholder
+if (refTypeSelect && refInput) {
+    refTypeSelect.addEventListener('change', function () {
+        const selectedType = this.value;
+        refInput.placeholder = placeholders[selectedType] || '';
+    });
+}
 
 // Устанавливаем placeholder при загрузке
 document.addEventListener('DOMContentLoaded', function () {
-    refInput.placeholder = placeholders[refTypeSelect.value];
+    if (refTypeSelect && refInput) {
+        refInput.placeholder = placeholders[refTypeSelect.value];
+    }
+
+    initIconSelects();
     
     document.querySelectorAll('.history-tab').forEach(tab => {
         tab.addEventListener('click', () => {
@@ -99,6 +289,55 @@ function removeFile() {
     fileInfo.style.display = 'none';
 }
 
+function closeProjectActionsMenu() {
+    const menu = document.getElementById('projectActionsMenu');
+    const trigger = document.getElementById('projectActionsMoreBtn');
+    const wrapper = document.querySelector('.actions-more');
+    if (!menu || !trigger || !wrapper) return;
+
+    menu.hidden = true;
+    trigger.setAttribute('aria-expanded', 'false');
+    wrapper.classList.remove('open');
+}
+
+function toggleProjectActionsMenu() {
+    const menu = document.getElementById('projectActionsMenu');
+    const trigger = document.getElementById('projectActionsMoreBtn');
+    const wrapper = document.querySelector('.actions-more');
+    if (!menu || !trigger || !wrapper) return;
+
+    const willOpen = menu.hidden;
+    closeAllIconSelectMenus();
+    closeProjectActionsMenu();
+
+    if (willOpen) {
+        menu.hidden = false;
+        trigger.setAttribute('aria-expanded', 'true');
+        wrapper.classList.add('open');
+    }
+}
+
+function handleMoreAction(action) {
+    closeProjectActionsMenu();
+
+    if (action === 'edit') {
+        toggleEditForm();
+        return;
+    }
+
+    if (action === 'merge') {
+        toggleMergeForm();
+        return;
+    }
+
+    if (action === 'delete') {
+        const projectId = document.body.dataset.projectId;
+        if (projectId) {
+            deleteProject(projectId);
+        }
+    }
+}
+
 function toggleScanForm() {
     const form = document.getElementById('scanForm');
     const editForm = document.getElementById('editProjectForm');
@@ -108,6 +347,7 @@ function toggleScanForm() {
     localForm.classList.remove('show');
     mergeForm.classList.remove('show');
     form.classList.toggle('show');
+    closeProjectActionsMenu();
 }
 
 function toggleEditForm() {
@@ -119,6 +359,7 @@ function toggleEditForm() {
     localForm.classList.remove('show');
     mergeForm.classList.remove('show');
     form.classList.toggle('show');
+    closeProjectActionsMenu();
 }
 
 function toggleLocalScanForm() {
@@ -130,6 +371,7 @@ function toggleLocalScanForm() {
     editForm.classList.remove('show');
     mergeForm.classList.remove('show');
     form.classList.toggle('show');
+    closeProjectActionsMenu();
 }
 
 function toggleMergeForm() {
@@ -141,6 +383,7 @@ function toggleMergeForm() {
     editForm.classList.remove('show');
     localForm.classList.remove('show');
     form.classList.toggle('show');
+    closeProjectActionsMenu();
 }
 
 function deleteProject(id) {
@@ -285,28 +528,35 @@ function setupProjectAutocomplete() {
     });
 }
 
+function toggleLatestScan() {
+    const section = document.getElementById('latestScanSection');
+    const toggleButton = document.querySelector('.latest-scan-toggle');
+    const label = toggleButton.querySelector('.latest-scan-toggle-label');
+    const isExpanded = section.classList.toggle('expanded');
+
+    toggleButton.classList.toggle('expanded', isExpanded);
+    toggleButton.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+    label.textContent = isExpanded ? 'Скрыть последний скан' : 'Показать последний скан';
+}
+
 function toggleLanguageStats() {
     const statsBlock = document.getElementById('languageStats');
     const toggleButton = document.querySelector('.language-stats-toggle');
-    const buttonText = toggleButton.querySelector('span:first-child');
-    
+    const buttonText = toggleButton.querySelector('.language-toggle-label');
+
     if (statsBlock.classList.contains('show')) {
-        // Скрываем
         statsBlock.classList.remove('show');
         toggleButton.classList.remove('expanded');
-        buttonText.textContent = '📊 Показать распределение по языкам';
+        buttonText.textContent = 'Показать распределение по языкам';
     } else {
-        // Показываем
         statsBlock.classList.add('show');
         toggleButton.classList.add('expanded');
-        buttonText.textContent = '📊 Скрыть распределение по языкам';
-        
-        // Создаем диаграмму при первом показе
+        buttonText.textContent = 'Скрыть распределение по языкам';
+
         const chartElement = document.getElementById('languagePieChart');
         if (chartElement && !chartElement.hasChildNodes()) {
             const languageData = getLanguageStats();
             if (languageData && languageData.length > 0) {
-                // console.log('Language data:', languageData);
                 createPieChart(languageData);
             }
         }
@@ -425,20 +675,17 @@ function createPieChart(data) {
 
 function toggleFrameworkDetails(framework) {
     const detailsElement = document.getElementById(`framework-details-${framework}`);
-    const button = document.querySelector(`[onclick="toggleFrameworkDetails('${framework}')"]`);
-    
-    if (detailsElement.style.display === 'none') {
-        detailsElement.style.display = 'block';
-        button.textContent = '📋 Скрыть';
-        button.style.background = '#fee2e2';
-        button.style.borderColor = '#ef4444';
-        button.style.color = '#ef4444';
+    const button = document.querySelector(`[data-framework-toggle="${framework}"]`);
+    const label = button.querySelector('.framework-toggle-label');
+
+    if (!detailsElement.classList.contains('is-open')) {
+        detailsElement.classList.add('is-open');
+        button.classList.add('is-expanded');
+        label.textContent = 'Скрыть';
     } else {
-        detailsElement.style.display = 'none';
-        button.textContent = '📋 Подробнее';
-        button.style.background = '#f0f9ff';
-        button.style.borderColor = '#0ea5e9';
-        button.style.color = '#0ea5e9';
+        detailsElement.classList.remove('is-open');
+        button.classList.remove('is-expanded');
+        label.textContent = 'Подробнее';
     }
 }
 
@@ -465,6 +712,20 @@ function openFrameworkFile(filePath, framework) {
 
 // Auto-refresh if there's a running scan
 document.addEventListener('DOMContentLoaded', function() {
+    const moreBtn = document.getElementById('projectActionsMoreBtn');
+    if (moreBtn) {
+        moreBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            toggleProjectActionsMenu();
+        });
+    }
+
+    document.addEventListener('click', function(e) {
+        if (!e.target.closest('.actions-more')) {
+            closeProjectActionsMenu();
+        }
+    });
+
     const latestScanStatus = document.body.dataset.latestScanStatus;
     if (latestScanStatus === 'running') {
         setTimeout(() => {
