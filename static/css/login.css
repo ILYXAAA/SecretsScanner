@@ -22,8 +22,32 @@
     src: url('../fonts/orbitron-900.woff2') format('woff2');
 }
 
-
-@import url('tokens.css');
+:root {
+    --brand-bg: #0c1117;
+    --brand-surface: #161b22;
+    --brand-border: rgba(255, 255, 255, 0.08);
+    --brand-text: #f0f6fc;
+    --brand-muted: #8b949e;
+    --accent: #238636;
+    --accent-hover: #2ea043;
+    --accent-glow: rgba(35, 134, 54, 0.22);
+    --brand-display: 'Orbitron', sans-serif;
+    --main-bg: #e8ecf0;
+    --surface: #ffffff;
+    --text-primary: #1f2328;
+    --text-secondary: #656d76;
+    --text-muted: #8b949e;
+    --border: #d0d7de;
+    --border-focus: #0969da;
+    --focus-ring: rgba(9, 105, 218, 0.25);
+    --error-bg: #fff1f0;
+    --error-text: #cf222e;
+    --error-border: #ffccc7;
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+    --shadow-form: 0 8px 24px rgba(31, 35, 40, 0.08), 0 2px 6px rgba(31, 35, 40, 0.04);
+}
 
 * {
     margin: 0;
