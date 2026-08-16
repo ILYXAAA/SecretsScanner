@@ -20,37 +20,67 @@
         <div class="left-panel" id="leftPanel">
             <div class="panel-header">
                 <div class="project-info">
-                    <div class="project-title">{{ project.name }}</div>
-                    {% if project.repo_url and scan.repo_commit %}
-                    <a href="{{ project.repo_url }}/commit/{{ scan.repo_commit }}"
-                       target="_blank"
-                       class="repo-link">
-                        {{ ui_icon('repository.svg', 'repo-link-icon icon-tint-success', 14) }}
-                        {{ project.repo_url }}/commit/{{ scan.repo_commit[:8] }}...
-                    </a>
-                    {% endif %}
-                    {{ meta_line('Commit.svg', 'icon-tint-muted', 'Commit', scan.repo_commit if scan.repo_commit else 'Unknown') }}
-                    {% if scan.started_by %}
-                    {{ meta_line('Employee.svg', 'icon-tint-muted', 'Запущен пользователем', scan.started_by) }}
-                    {% endif %}
-                    {{ meta_line('ArrayDateTime.svg', 'icon-tint-muted', 'Завершен', scan.completed_at.strftime('%d.%m.%Y %H:%M') if scan.completed_at else scan.started_at.strftime('%d.%m.%Y %H:%M')) }}
-                    {% if scan.files_scanned %}
-                    {{ meta_line('Files.svg', 'icon-tint-muted', 'Всего файлов', scan.files_scanned) }}
-                    {% endif %}
-                </div>
+                    <div class="project-info-main">
+                        <div class="project-title">{{ project.name }}</div>
+                        {% if project.repo_url and scan.repo_commit %}
+                        <a href="{{ project.repo_url }}/commit/{{ scan.repo_commit }}"
+                           target="_blank"
+                           class="repo-link">
+                            {{ ui_icon('repository.svg', 'repo-link-icon icon-tint-success', 14) }}
+                            {{ project.repo_url }}/commit/{{ scan.repo_commit[:8] }}...
+                        </a>
+                        {% endif %}
+                        {{ meta_line('Commit.svg', 'icon-tint-muted', 'Commit', scan.repo_commit if scan.repo_commit else 'Unknown') }}
+                        {% if scan.started_by %}
+                        {{ meta_line('Employee.svg', 'icon-tint-muted', 'Запущен пользователем', scan.started_by) }}
+                        {% endif %}
+                        {{ meta_line('ArrayDateTime.svg', 'icon-tint-muted', 'Завершен', scan.completed_at.strftime('%d.%m.%Y %H:%M') if scan.completed_at else scan.started_at.strftime('%d.%m.%Y %H:%M')) }}
+                        {% if scan.files_scanned %}
+                        {{ meta_line('Files.svg', 'icon-tint-muted', 'Всего файлов', scan.files_scanned) }}
+                        {% endif %}
+                    </div>
 
-                <div class="stats-summary">
-                    <div class="stat-item">
-                        <div class="stat-number" id="totalViolationsCount">{{ violations_count }}</div>
-                        <div class="stat-label">Всего</div>
-                    </div>
-                    <div class="stat-item high-bg">
-                        <div class="stat-number high-text" id="highViolationsCount">0</div>
-                        <div class="stat-label high-text">Blocking</div>
-                    </div>
-                    <div class="stat-item potential-bg">
-                        <div class="stat-number" id="potentialViolationsCount">0</div>
-                        <div class="stat-label">Non-blocking</div>
+                    <div class="stats-summary" aria-label="Статистика нарушений">
+                        <div class="stats-cards" role="group" aria-label="Фильтр по уровню блокировки">
+                            <article class="stats-card stats-card--total">
+                                <div class="stats-card-top">
+                                    <span class="stats-card-label">Total</span>
+                                </div>
+                                <div class="stats-card-value" id="totalViolationsCount">{{ violations_count }}</div>
+                                <div class="stats-card-distribution" aria-hidden="true">
+                                    <span class="stats-card-distribution-seg stats-card-distribution-seg--high" id="blockingDistributionSeg"></span>
+                                    <span class="stats-card-distribution-seg stats-card-distribution-seg--potential" id="nonBlockingDistributionSeg"></span>
+                                </div>
+                            </article>
+
+                            <button type="button"
+                                    class="stats-card stats-card--high stats-card--filterable"
+                                    id="blockingStatsCard"
+                                    aria-pressed="true"
+                                    title="Показать/скрыть Blocking">
+                                <div class="stats-card-top">
+                                    <span class="stats-card-icon-wrap stats-card-icon-wrap--high" aria-hidden="true">
+                                        {{ ui_icon('critical.svg', 'stats-card-icon icon-tint-error', 15) }}
+                                    </span>
+                                    <span class="stats-card-label">Blocking</span>
+                                </div>
+                                <div class="stats-card-value" id="highViolationsCount">0</div>
+                            </button>
+
+                            <button type="button"
+                                    class="stats-card stats-card--potential stats-card--filterable"
+                                    id="nonBlockingStatsCard"
+                                    aria-pressed="true"
+                                    title="Показать/скрыть Non-blocking">
+                                <div class="stats-card-top">
+                                    <span class="stats-card-icon-wrap stats-card-icon-wrap--potential" aria-hidden="true">
+                                        {{ ui_icon('warning.svg', 'stats-card-icon icon-tint-warn', 15) }}
+                                    </span>
+                                    <span class="stats-card-label">Non-blocking</span>
+                                </div>
+                                <div class="stats-card-value" id="potentialViolationsCount">0</div>
+                            </button>
+                        </div>
                     </div>
                 </div>
 

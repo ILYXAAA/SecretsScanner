@@ -20,59 +20,89 @@
         <div class="left-panel" id="leftPanel">
             <div class="panel-header">
                 <div class="project-info">
-                    <div class="project-title">{{ project.name }}</div>
-                    {% if project.repo_url and scan.repo_commit %}
-                    <a href="{{ project.repo_url }}/commit/{{ scan.repo_commit }}" 
-                       target="_blank" 
-                       class="repo-link">
-                        {{ ui_icon('repository.svg', 'repo-link-icon icon-tint-success', 14) }}
-                        {{ project.repo_url }}/commit/{{ scan.repo_commit[:8] }}...
-                    </a>
-                    {% endif %}
-                    {{ meta_line('Commit.svg', 'icon-tint-muted', 'Commit', scan.repo_commit if scan.repo_commit else 'Unknown') }}
-                    {% if scan.started_by %}
-                    {{ meta_line('Employee.svg', 'icon-tint-muted', 'Запущен пользователем', scan.started_by) }}
-                    {% endif %}
-                    {{ meta_line('ArrayDateTime.svg', 'icon-tint-muted', 'Завершен', scan.completed_at.strftime('%d.%m.%Y %H:%M') if scan.completed_at else scan.started_at.strftime('%d.%m.%Y %H:%M')) }}
-                    {% if scan.files_scanned %}
-                    {{ meta_line('Files.svg', 'icon-tint-muted', 'Всего файлов', scan.files_scanned) }}
-                    {% endif %}
-                    {% if scan.excluded_files_count %}
-                    {{ meta_line('FalsePositive.svg', 'icon-tint-error', 'Файлов исключено by rules', scan.excluded_files_count) }}
-                    {% endif %}
-                    {% if scan.excluded_files_list %}
-                    <div class="commit-info meta-line">
-                        {{ ui_icon('Extensions.svg', 'meta-icon icon-tint-warn', 14) }}
-                        <span>Список исключенных файлов:
-                        <strong class="meta-value" title="{{ scan.excluded_files_list }}">
-                            {% if scan.excluded_files_list|length > 100 %}
-                                {{ scan.excluded_files_list[:100] }}...
-                            {% else %}
-                                {{ scan.excluded_files_list }}
-                            {% endif %}
-                        </strong></span>
-                    </div>
-                    {% endif %}
-                </div>
-                                
-                <div class="stats-summary">
-                    <div class="stat-item">
-                        <div class="stat-number" id="totalSecretsCount">
-                            {{ total_secrets if total_secrets is defined else (secrets|selectattr('is_exception', 'equalto', False)|list|length) }}
+                    <div class="project-info-main">
+                        <div class="project-title">{{ project.name }}</div>
+                        {% if project.repo_url and scan.repo_commit %}
+                        <a href="{{ project.repo_url }}/commit/{{ scan.repo_commit }}" 
+                           target="_blank" 
+                           class="repo-link">
+                            {{ ui_icon('repository.svg', 'repo-link-icon icon-tint-success', 14) }}
+                            {{ project.repo_url }}/commit/{{ scan.repo_commit[:8] }}...
+                        </a>
+                        {% endif %}
+                        {{ meta_line('Commit.svg', 'icon-tint-muted', 'Commit', scan.repo_commit if scan.repo_commit else 'Unknown') }}
+                        {% if scan.started_by %}
+                        {{ meta_line('Employee.svg', 'icon-tint-muted', 'Запущен пользователем', scan.started_by) }}
+                        {% endif %}
+                        {{ meta_line('ArrayDateTime.svg', 'icon-tint-muted', 'Завершен', scan.completed_at.strftime('%d.%m.%Y %H:%M') if scan.completed_at else scan.started_at.strftime('%d.%m.%Y %H:%M')) }}
+                        {% if scan.files_scanned %}
+                        {{ meta_line('Files.svg', 'icon-tint-muted', 'Всего файлов', scan.files_scanned) }}
+                        {% endif %}
+                        {% if scan.excluded_files_count %}
+                        {{ meta_line('FalsePositive.svg', 'icon-tint-error', 'Файлов исключено by rules', scan.excluded_files_count) }}
+                        {% endif %}
+                        {% if scan.excluded_files_list %}
+                        <div class="commit-info meta-line">
+                            {{ ui_icon('Extensions.svg', 'meta-icon icon-tint-warn', 14) }}
+                            <span>Список исключенных файлов:
+                            <strong class="meta-value" title="{{ scan.excluded_files_list }}">
+                                {% if scan.excluded_files_list|length > 100 %}
+                                    {{ scan.excluded_files_list[:100] }}...
+                                {% else %}
+                                    {{ scan.excluded_files_list }}
+                                {% endif %}
+                            </strong></span>
                         </div>
-                        <div class="stat-label">Total</div>
+                        {% endif %}
                     </div>
-                    <div class="stat-item high-bg">
-                        <div class="stat-number high-text" id="highSecretsCount">
-                            {{ high_secrets if high_secrets is defined else (secrets|selectattr('severity', 'equalto', 'High')|selectattr('is_exception', 'equalto', False)|list|length) }}
+
+                    <div class="stats-summary" aria-label="Статистика секретов">
+                        <div class="stats-cards" role="group" aria-label="Фильтр по критичности">
+                            <article class="stats-card stats-card--total">
+                                <div class="stats-card-top">
+                                    <span class="stats-card-label">Total</span>
+                                </div>
+                                <div class="stats-card-value" id="totalSecretsCount">
+                                    {{ total_secrets if total_secrets is defined else (secrets|selectattr('is_exception', 'equalto', False)|list|length) }}
+                                </div>
+                                <div class="stats-card-distribution" aria-hidden="true">
+                                    <span class="stats-card-distribution-seg stats-card-distribution-seg--high" id="highDistributionSeg"></span>
+                                    <span class="stats-card-distribution-seg stats-card-distribution-seg--potential" id="potentialDistributionSeg"></span>
+                                </div>
+                            </article>
+
+                            <button type="button"
+                                    class="stats-card stats-card--high stats-card--filterable"
+                                    id="highStatsCard"
+                                    aria-pressed="true"
+                                    title="Показать/скрыть High">
+                                <div class="stats-card-top">
+                                    <span class="stats-card-icon-wrap stats-card-icon-wrap--high" aria-hidden="true">
+                                        {{ ui_icon('critical.svg', 'stats-card-icon icon-tint-error', 15) }}
+                                    </span>
+                                    <span class="stats-card-label">High</span>
+                                </div>
+                                <div class="stats-card-value" id="highSecretsCount">
+                                        {{ high_secrets if high_secrets is defined else (secrets|selectattr('severity', 'equalto', 'High')|selectattr('is_exception', 'equalto', False)|list|length) }}
+                                    </div>
+                            </button>
+
+                            <button type="button"
+                                    class="stats-card stats-card--potential stats-card--filterable"
+                                    id="potentialStatsCard"
+                                    aria-pressed="true"
+                                    title="Показать/скрыть Potential">
+                                <div class="stats-card-top">
+                                    <span class="stats-card-icon-wrap stats-card-icon-wrap--potential" aria-hidden="true">
+                                        {{ ui_icon('warning.svg', 'stats-card-icon icon-tint-warn', 15) }}
+                                    </span>
+                                    <span class="stats-card-label">Potential</span>
+                                </div>
+                                <div class="stats-card-value" id="potentialSecretsCount">
+                                        {{ potential_secrets if potential_secrets is defined else (secrets|selectattr('severity', 'equalto', 'Potential')|selectattr('is_exception', 'equalto', False)|list|length) }}
+                                    </div>
+                            </button>
                         </div>
-                        <div class="stat-label high-text">High</div>
-                    </div>
-                    <div class="stat-item potential-bg">
-                        <div class="stat-number" id="potentialSecretsCount">
-                            {{ potential_secrets if potential_secrets is defined else (secrets|selectattr('severity', 'equalto', 'Potential')|selectattr('is_exception', 'equalto', False)|list|length) }}
-                        </div>
-                        <div class="stat-label">Potential</div>
                     </div>
                 </div>
                 
@@ -147,7 +177,7 @@
                 <h3>Secret Details</h3>
                 <button class="btn btn-danger" onclick="openAddSecretModal()" style="font-size: 0.875rem;">
                     {{ ui_icon('AddFolderBroken.svg', 'btn-icon btn-icon-light', 14) }}
-                    Новый секрет
+                    Добавить вручную
                 </button>
             </div>
             <div class="detail-panel" id="detailPanel">
@@ -193,19 +223,19 @@
             </div>
 
             <div class="filter-group">
-                {{ filter_group_title('AlertErrorStroke16.svg', 'icon-tint-warn', 'Уровень') }}
+                {{ filter_group_title('SeverityUnknown.svg', 'icon-tint-muted', 'Критичность') }}
                 <div class="checkbox-item">
                     <input type="checkbox" id="severity-high" value="High" onchange="applyFilters()">
-                    {{ filter_label('AlertErrorStroke16.svg', 'icon-tint-error', 'High', 'severity-high') }}
+                    {{ filter_label('critical.svg', 'icon-tint-error', 'High', 'severity-high') }}
                 </div>
                 <div class="checkbox-item">
                     <input type="checkbox" id="severity-potential" value="Potential" onchange="applyFilters()">
-                    {{ filter_label('BarChartVerticalFilter.svg', 'icon-tint-muted', 'Potential', 'severity-potential') }}
+                    {{ filter_label('warning.svg', 'icon-tint-warn', 'Potential', 'severity-potential') }}
                 </div>
             </div>
 
             <div class="filter-group">
-                {{ filter_group_title('ReviewCheckmark.svg', 'icon-tint-success', 'Тип') }}
+                {{ filter_group_title('AppsListDetail24Regular.svg', 'icon-tint-muted', 'Тип') }}
                 <div id="typeFilters">
                     <!-- Type filters will be populated by JavaScript -->
                 </div>

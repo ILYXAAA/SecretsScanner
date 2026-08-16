@@ -8,8 +8,9 @@ function uiIconLabel(icon, tint, text, size = 14) {
     return `<span class="inline-icon-label">${uiIcon(icon, 'ui-icon ' + tint, size)}<span>${text}</span></span>`;
 }
 
-function uiDetailHeading(icon, tint, text) {
-    return `<h4 class="detail-section-title">${uiIcon(icon, 'ui-icon ' + tint, 16)}<span>${text}</span></h4>`;
+function uiDetailHeading(icon, tint, text, hint = '') {
+    const hintHtml = hint ? `<span class="detail-section-hint">${hint}</span>` : '';
+    return `<h4 class="detail-section-title">${uiIcon(icon, 'ui-icon ' + tint, 16)}<span>${text}</span>${hintHtml}</h4>`;
 }
 
 function uiTh(icon, tint, text) {

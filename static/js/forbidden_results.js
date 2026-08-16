@@ -132,6 +132,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     normalizeViolations();
     initializeFilters();
+    initStatsCards();
     applyFiltersSync();
 });
 
@@ -249,6 +250,43 @@ function clearAllFilters() {
     applyFilters();
 }
 
+function syncStatsCardStates() {
+    const blockingCb = document.getElementById('blocking-high');
+    const nonBlockingCb = document.getElementById('blocking-potential');
+    const blockingCard = document.getElementById('blockingStatsCard');
+    const nonBlockingCard = document.getElementById('nonBlockingStatsCard');
+
+    if (blockingCard && blockingCb) {
+        const isActive = blockingCb.checked;
+        blockingCard.classList.toggle('stats-card--active', isActive);
+        blockingCard.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    }
+
+    if (nonBlockingCard && nonBlockingCb) {
+        const isActive = nonBlockingCb.checked;
+        nonBlockingCard.classList.toggle('stats-card--active', isActive);
+        nonBlockingCard.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    }
+}
+
+function toggleBlockingFilter(level) {
+    const checkboxId = level === 'blocking' ? 'blocking-high' : 'blocking-potential';
+    const checkbox = document.getElementById(checkboxId);
+    if (!checkbox) return;
+
+    checkbox.checked = !checkbox.checked;
+    applyFilters();
+}
+
+function initStatsCards() {
+    const blockingCard = document.getElementById('blockingStatsCard');
+    const nonBlockingCard = document.getElementById('nonBlockingStatsCard');
+
+    blockingCard?.addEventListener('click', () => toggleBlockingFilter('blocking'));
+    nonBlockingCard?.addEventListener('click', () => toggleBlockingFilter('non-blocking'));
+    syncStatsCardStates();
+}
+
 function updateStats() {
     const totalCount = filteredViolations.length;
     const blockingCount = filteredViolations.filter(v => v.blockingLevel === 'blocking').length;
@@ -257,10 +295,16 @@ function updateStats() {
     const totalEl = document.getElementById('totalViolationsCount');
     const highEl = document.getElementById('highViolationsCount');
     const potentialEl = document.getElementById('potentialViolationsCount');
+    const blockingSegEl = document.getElementById('blockingDistributionSeg');
+    const nonBlockingSegEl = document.getElementById('nonBlockingDistributionSeg');
 
     if (totalEl) totalEl.textContent = totalCount;
     if (highEl) highEl.textContent = blockingCount;
     if (potentialEl) potentialEl.textContent = nonBlockingCount;
+    if (blockingSegEl) blockingSegEl.style.flexGrow = blockingCount;
+    if (nonBlockingSegEl) nonBlockingSegEl.style.flexGrow = nonBlockingCount;
+
+    syncStatsCardStates();
 }
 
 function renderTable() {
@@ -795,8 +839,8 @@ function loadViolationDetails(violationId) {
     if (!violation) return;
 
     const fileUrl = buildFileUrl(violation);
-    const safePath = safeHtml(violation.path || '');
-    const safeComment = safeHtml(violation.exception_comment || '');
+    const safePath = escapeHtml(violation.path || '');
+    const safeComment = escapeHtml(violation.exception_comment || '');
     const safeHash = escapeHtml(violation.hash_from_ci || '');
     const reasonsHtml = (violation.violation_reasons || [])
         .map(r => `• ${escapeHtml(r)}`)

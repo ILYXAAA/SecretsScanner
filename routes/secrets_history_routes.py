@@ -8,22 +8,10 @@ from models import Project, Scan, Secret
 from services.auth import get_current_user
 from services.database import get_db
 from services.templates import templates
+from services.template_filters import json_for_html_script
 from config import HUB_TYPE
 
 router = APIRouter()
-
-def safe_json_for_html(data):
-    """Безопасная сериализация JSON для вставки в HTML"""
-    # Сначала сериализуем в JSON
-    json_str = json.dumps(data, ensure_ascii=False, separators=(',', ':'))
-    
-    # Затем экранируем только опасные HTML символы, но НЕ кавычки JSON
-    json_str = json_str.replace('&', '&amp;')
-    json_str = json_str.replace('<', '&lt;')
-    json_str = json_str.replace('>', '&gt;')
-    # НЕ экранируем кавычки - они нужны для JSON!
-    
-    return json_str
 
 @router.get("/project/{project_name}/secrets-history", response_class=HTMLResponse)
 async def project_secrets_history(request: Request, project_name: str, 
@@ -249,8 +237,8 @@ async def project_secrets_history(request: Request, project_name: str,
     secrets_list.sort(key=lambda x: x["last_scan_date"], reverse=True)
     secrets_list_all.sort(key=lambda x: x["last_scan_date"], reverse=True)
 
-    secrets_json = safe_json_for_html(secrets_list)
-    secrets_all_json = safe_json_for_html(secrets_list_all)
+    secrets_json = json_for_html_script(secrets_list)
+    secrets_all_json = json_for_html_script(secrets_list_all)
     
     # JSON для JavaScript - теперь все объекты сериализуемы
     #secrets_json = json.dumps(secrets_list_safe, ensure_ascii=False, separators=(',', ':'))

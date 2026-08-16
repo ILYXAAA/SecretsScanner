@@ -36,6 +36,52 @@ function getFileNameFromPath(path) {
 }
 
 /** Превью контекста: окно вокруг строки с секретом (по подстроке или по середине блока). Секрет всегда в видимой части. */
+function initSegmentedControls(root = document, options = {}) {
+    const scope = root instanceof Element ? root : document;
+    scope.querySelectorAll('.segmented-control').forEach((control) => {
+        syncSegmentedControl(control, options);
+    });
+}
+
+function syncSegmentedControl(control, options = {}) {
+    if (!control) return;
+
+    const slider = control.querySelector('.segmented-slider');
+    const activeBtn = control.querySelector('.segmented-option.active');
+    if (!slider) return;
+
+    const instant = options.instant === true || !control.classList.contains('segmented-control--ready');
+
+    if (!activeBtn) {
+        slider.style.opacity = '0';
+        return;
+    }
+
+    if (instant) {
+        slider.classList.add('segmented-slider--instant');
+    }
+
+    slider.style.opacity = '1';
+    slider.style.width = `${activeBtn.offsetWidth}px`;
+    slider.style.height = `${activeBtn.offsetHeight}px`;
+    slider.style.transform = `translate(${activeBtn.offsetLeft}px, ${activeBtn.offsetTop}px)`;
+
+    slider.className = 'segmented-slider';
+    const tone = activeBtn.dataset.sliderTone;
+    if (tone) {
+        slider.classList.add(tone);
+    }
+    if (instant) {
+        slider.classList.add('segmented-slider--instant');
+    }
+
+    if (instant) {
+        void slider.offsetWidth;
+        slider.classList.remove('segmented-slider--instant');
+        control.classList.add('segmented-control--ready');
+    }
+}
+
 function truncateContextAroundSecret(rawContext, rawSecret) {
     if (!rawContext || typeof rawContext !== 'string') return { text: '', hasMore: false };
     const decoded = _decodeHtmlEntities(rawContext).replace(/\r\n/g, '\n');
@@ -66,6 +112,12 @@ function truncateContextAroundSecret(rawContext, rawSecret) {
     const start = Math.max(0, secretLineIndex - CONTEXT_PREVIEW_LINES_BEFORE);
     const end = Math.min(lines.length, secretLineIndex + CONTEXT_PREVIEW_LINES_AFTER + 1);
     const previewLines = lines.slice(start, end);
+    while (previewLines.length && previewLines[0].trim() === '') {
+        previewLines.shift();
+    }
+    while (previewLines.length && previewLines[previewLines.length - 1].trim() === '') {
+        previewLines.pop();
+    }
     let text = previewLines.join('\n');
     if (text.length > CONTEXT_PREVIEW_MAX_CHARS) {
         const secretStartInPreview = decodedSecret ? text.indexOf(decodedSecret) : -1;
@@ -258,8 +310,8 @@ function renderGroupModalPage(page) {
 
     tbody.innerHTML = pageMembers.map(member => {
         const line = member.line || 0;
-        const secretVal = safeHtml(member.secret || '');
-        const secretType = safeHtml(member.type || '');
+        const secretVal = escapeHtml(member.secret || '');
+        const secretType = escapeHtml(member.type || '');
         const isConfirmed = normalizeSecretStatus(member.status) === 'Confirmed';
         const actionCell = isConfirmed
             ? `<span class="secrets-details-added-label">${uiIcon('CheckboxCheckedFilled.svg', 'icon-tint-success', 14)}<span>Подтверждён</span></span>`
@@ -416,7 +468,32 @@ function parseConfidence(value, defaultValue = 1.0) {
     return Number.isFinite(parsed) ? parsed : defaultValue;
 }
 
+function decodeSecretField(value) {
+    if (value === null || value === undefined) {
+        return value;
+    }
+    return _decodeHtmlEntities(String(value));
+}
+
+function normalizeSecretPath(path) {
+    let normalized = decodeSecretField(path || '').replace(/\\/g, '/');
+    if (normalized && !normalized.startsWith('/')) {
+        normalized = `/${normalized}`;
+    }
+    return normalized;
+}
+
 function normalizeSecretRecord(secret) {
+    secret.path = normalizeSecretPath(secret.path);
+    secret.secret = decodeSecretField(secret.secret);
+    secret.context = decodeSecretField(secret.context);
+    secret.type = decodeSecretField(secret.type);
+    secret.severity = decodeSecretField(secret.severity);
+    secret.exception_comment = decodeSecretField(secret.exception_comment);
+    if (secret.previous_status) {
+        secret.previous_status = decodeSecretField(secret.previous_status);
+    }
+    secret.status = decodeSecretField(secret.status);
     if (secret.status === null || secret.status === undefined || secret.status === '' || secret.status === 'null') {
         secret.status = 'No status';
     }
@@ -585,6 +662,8 @@ document.addEventListener('DOMContentLoaded', function() {
         emptyDetailHtml = detailPanel.innerHTML;
     }
 
+    window.addEventListener('resize', () => initSegmentedControls());
+
     // console.log('Page loading...');
     
     // Загружаем данные из атрибутов
@@ -629,6 +708,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Initialize filters synchronously
     initializeFilters();
+    initStatsCards();
     
     // Apply filters immediately
     applyFiltersSync();
@@ -893,6 +973,43 @@ function clearAllFilters() {
     applyFilters();
 }
 
+function syncStatsCardStates() {
+    const highCb = document.getElementById('severity-high');
+    const potentialCb = document.getElementById('severity-potential');
+    const highCard = document.getElementById('highStatsCard');
+    const potentialCard = document.getElementById('potentialStatsCard');
+
+    if (highCard && highCb) {
+        const isActive = highCb.checked;
+        highCard.classList.toggle('stats-card--active', isActive);
+        highCard.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    }
+
+    if (potentialCard && potentialCb) {
+        const isActive = potentialCb.checked;
+        potentialCard.classList.toggle('stats-card--active', isActive);
+        potentialCard.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    }
+}
+
+function toggleSeverityFilter(severity) {
+    const checkboxId = severity === 'High' ? 'severity-high' : 'severity-potential';
+    const checkbox = document.getElementById(checkboxId);
+    if (!checkbox) return;
+
+    checkbox.checked = !checkbox.checked;
+    applyFilters();
+}
+
+function initStatsCards() {
+    const highCard = document.getElementById('highStatsCard');
+    const potentialCard = document.getElementById('potentialStatsCard');
+
+    highCard?.addEventListener('click', () => toggleSeverityFilter('High'));
+    potentialCard?.addEventListener('click', () => toggleSeverityFilter('Potential'));
+    syncStatsCardStates();
+}
+
 function updateStats() {
     const totalCount = filteredSecrets.length;
     const highCount = filteredSecrets.filter(s => s.severity === 'High').length;
@@ -901,10 +1018,17 @@ function updateStats() {
     const totalEl = document.getElementById('totalSecretsCount');
     const highEl = document.getElementById('highSecretsCount');
     const potentialEl = document.getElementById('potentialSecretsCount');
-    
+    const highSegEl = document.getElementById('highDistributionSeg');
+    const potentialSegEl = document.getElementById('potentialDistributionSeg');
+
     if (totalEl) totalEl.textContent = totalCount;
     if (highEl) highEl.textContent = highCount;
     if (potentialEl) potentialEl.textContent = potentialCount;
+
+    if (highSegEl) highSegEl.style.flexGrow = highCount;
+    if (potentialSegEl) potentialSegEl.style.flexGrow = potentialCount;
+
+    syncStatsCardStates();
 }
 
 function updateURL() {
@@ -947,7 +1071,7 @@ function renderTable() {
                     <th class="sortable file-col" data-sort="file">${uiTh('Files.svg', 'icon-tint-muted', 'File')}</th>
                     <th class="sortable" data-sort="type">${uiTh('ReviewCheckmark.svg', 'icon-tint-muted', 'Type')}</th>
                     <th class="sortable" data-sort="status">${uiTh('Analysis.svg', 'icon-tint-muted', 'Status')}</th>
-                    <th class="sortable" data-sort="confidence">${uiTh('BusinessTarget.svg', 'icon-tint-muted', '')}</th>
+                    <th class="sortable" data-sort="confidence">${uiTh('BusinessTarget.svg', 'icon-tint-muted', 'Conf.')}</th>
                     <th class="sortable" data-sort="severity">${uiTh('AlertErrorStroke16.svg', 'icon-tint-muted', 'Level')}</th>
                 </tr>
             </thead>
@@ -990,7 +1114,7 @@ function renderTable() {
             tableHTML += `
             <tr class="secret-row ${safeHtml(row.severity).toLowerCase()}" data-secret-id="${row.id}" data-row-index="${globalIndex}">
                 <td>
-                    <div class="secret-value">${safeHtml(row.secret)}</div>
+                    <div class="secret-value">${escapeHtml(row.secret)}</div>
                 </td>
                 <td class="file-cell">
                     <span class="secret-file path-truncate" title="${escapeHtml((row.path || '').split('/').pop())}">${escapeHtml((row.path || '').split('/').pop())}</span>
@@ -1025,11 +1149,7 @@ function getStatusHTML(secret) {
     if (secret.status === 'Confirmed') {
         return statusConfirmedHtml('Confirmed');
     } else if (secret.status === 'Refuted') {
-        let html = statusRefutedHtml('Refuted');
-        if (secret.refuted_at) {
-            html += `<div class="refuted-date">${escapeHtml(secret.refuted_at)}</div>`;
-        }
-        return html;
+        return statusRefutedHtml('Refuted');
     }
     return statusNoneHtml('Без статуса');
 }
@@ -1073,23 +1193,26 @@ function refreshSecretDetailStatus(secretId) {
     const panel = document.getElementById('detailPanel');
     if (!panel) return;
 
-    const confirmedBtn = panel.querySelector('.status-btn-confirmed');
+    const statusControl = panel.querySelector('#secretStatusControl');
+    const confirmedBtn = statusControl?.querySelector('.status-btn-confirmed');
     if (!confirmedBtn) {
         loadSecretDetails(secretId);
         return;
     }
 
-    panel.querySelectorAll('.status-btn-confirmed, .status-btn-none, .status-btn-refuted').forEach(btn => {
+    statusControl.querySelectorAll('.segmented-option').forEach(btn => {
         btn.classList.remove('active');
     });
 
     if (secret.status === 'Confirmed') {
         confirmedBtn.classList.add('active');
     } else if (secret.status === 'Refuted') {
-        panel.querySelector('.status-btn-refuted')?.classList.add('active');
+        statusControl.querySelector('.status-btn-refuted')?.classList.add('active');
     } else {
-        panel.querySelector('.status-btn-none')?.classList.add('active');
+        statusControl.querySelector('.status-btn-none')?.classList.add('active');
     }
+
+    syncSegmentedControl(statusControl);
 
     const commentSection = panel.querySelector('.comment-section');
     if (commentSection) {
@@ -1104,22 +1227,18 @@ function refreshSecretDetailSeverity(secretId) {
     const panel = document.getElementById('detailPanel');
     if (!panel) return;
 
-    const buttons = panel.querySelectorAll('.detail-section .status-btn');
-    if (buttons.length < 2) {
+    const severityControl = panel.querySelector('#secretSeverityControl');
+    const highBtn = severityControl?.querySelector('.status-btn-high');
+    const potentialBtn = severityControl?.querySelector('.status-btn-potential');
+    if (!highBtn || !potentialBtn) {
         loadSecretDetails(secretId);
         return;
     }
 
-    const [highBtn, potentialBtn] = buttons;
     const isHigh = secret.severity === 'High';
-
     highBtn.classList.toggle('active', isHigh);
-    highBtn.style.background = isHigh ? '#dc2626' : '#fff';
-    highBtn.style.color = isHigh ? '#fff' : '#dc2626';
-
     potentialBtn.classList.toggle('active', !isHigh);
-    potentialBtn.style.background = !isHigh ? '#6b7280' : '#fff';
-    potentialBtn.style.color = !isHigh ? '#fff' : '#6b7280';
+    syncSegmentedControl(severityControl);
 }
 
 function refreshAfterSecretChange(secretId) {
@@ -1533,7 +1652,13 @@ function updateSortIndicators() {
 
 function sortDisplayRows() {
     if (sortColumns.length === 0) {
+        const statusOrder = { 'Confirmed': 3, 'No status': 2, 'Refuted': 1 };
         displayRows.sort((a, b) => {
+            const statusA = statusOrder[normalizeSecretStatus(a.status)] || 0;
+            const statusB = statusOrder[normalizeSecretStatus(b.status)] || 0;
+            if (statusB !== statusA) {
+                return statusB - statusA;
+            }
             const confA = a.isGroup
                 ? Math.max(...a.members.map(m => parseConfidence(m.confidence, 0)))
                 : parseConfidence(a.confidence, 0);
@@ -1606,11 +1731,17 @@ function sortDisplayRows() {
 
 function sortSecrets() {
     if (sortColumns.length === 0) {
-        // Сортировка по умолчанию: по Confidence от высокой к низкой
+        // Сортировка по умолчанию: подтверждённые сверху, затем по confidence
+        const statusOrder = { 'Confirmed': 3, 'No status': 2, 'Refuted': 1 };
         filteredSecrets.sort((a, b) => {
+            const statusA = statusOrder[a.status] || 0;
+            const statusB = statusOrder[b.status] || 0;
+            if (statusB !== statusA) {
+                return statusB - statusA;
+            }
             const confA = parseFloat(a.confidence) || 0;
             const confB = parseFloat(b.confidence) || 0;
-            return confB - confA; // от высокой к низкой
+            return confB - confA;
         });
         return;
     }
@@ -1666,7 +1797,7 @@ function loadGroupDetails(groupRow) {
     currentGroup = groupRow;
     window._currentGroup = groupRow;
 
-    const safePath = safeHtml(groupRow.path || '');
+    const safePath = escapeHtml(groupRow.path || '');
     const safeStatus = safeHtml(groupRow.status || '');
     const count = groupRow.count || 0;
 
@@ -1766,77 +1897,77 @@ function loadSecretDetails(secretId) {
         contextDisplayHtml = escapeHtml(decodedPreview);
     }
 
-    // Данные уже экранированы на сервере
-    const safeSecret = safeHtml(secretData.secret || '');
-    const safePath = safeHtml(secretData.path || '');
-    const safeType = safeHtml(secretData.type || '');
-    const safeComment = safeHtml(secretData.exception_comment || '');
+    const safeSecret = escapeHtml(secretData.secret || '');
+    const safePath = escapeHtml(secretData.path || '');
+    const safeType = escapeHtml(secretData.type || '');
+    const safeComment = escapeHtml(secretData.exception_comment || '');
     const safeHash = escapeHtml(secretData.hash_from_ci || '');
 
     let detailsButtonHtml = '';
     if (contextHasMore) {
         detailsButtonHtml = `
-                <button type="button" class="btn btn-secondary context-more-btn" onclick="openContextModal()" style="margin-top: 0.5rem;">
-                    Подробнее
+                <button type="button" class="context-expand-btn" onclick="openContextModal()" aria-label="Показать полный контекст">
+                    ${uiIcon('BaselineFileOpen.svg', 'ui-icon icon-tint-muted', 16)}
                 </button>`;
     }
     
-    // Добавить информацию о пользователях
-    let userInfoHtml = '';
-    if ((secretData.confirmed_by && secretData.confirmed_by.trim() !== '') || 
-        (secretData.refuted_by && secretData.refuted_by.trim() !== '')) {
-        userInfoHtml = `
-            <div class="detail-section">
-                ${uiDetailHeading('Employee.svg', 'icon-tint-info', 'Информация об изменениях')}
-                <div class="detail-field" style="background: #f0f9ff; border-left: 3px solid #3b82f6;">
-                    ${secretData.confirmed_by ? `${statusConfirmedHtml('Подтвержден пользователем')}: <strong>${escapeHtml(secretData.confirmed_by)}</strong>` : ''}
-                    ${secretData.refuted_by ? `${statusRefutedHtml('Опровергнут пользователем')}: <strong>${escapeHtml(secretData.refuted_by)}</strong>` : ''}
-                    ${secretData.refuted_at ? `<br><small>Дата: ${escapeHtml(secretData.refuted_at)}</small>` : ''}
-                </div>
-            </div>
-        `;
+    let previousChangesHtml = '';
+    const previousChangeParts = [];
+    const currentStatus = secretData.status;
+    const inheritedStatusUnchanged = secretData.previous_status && currentStatus === secretData.previous_status;
+    const hasAuthorForCurrentStatus = Boolean(
+        (currentStatus === 'Confirmed' && secretData.confirmed_by && secretData.confirmed_by.trim() !== '')
+        || (currentStatus === 'Refuted' && secretData.refuted_by && secretData.refuted_by.trim() !== '')
+    );
+    const showedInheritedStatus = inheritedStatusUnchanged && !hasAuthorForCurrentStatus;
+    const hasSeverityChange = Boolean(
+        secretData.previous_severity && secretData.previous_severity !== secretData.severity
+    );
+
+    if (showedInheritedStatus) {
+        previousChangeParts.push(`Статус из предыдущего скана: ${secretData.previous_status === 'Confirmed' ? statusConfirmedHtml(secretData.previous_status) : statusRefutedHtml(secretData.previous_status)}`);
     }
 
-    let previousStatusHtml = '';
-    if (secretData.previous_status || secretData.previous_severity) {
-        let statusPart = '';
-        let severityPart = '';
-        
-        if (secretData.previous_status) {
-            statusPart = `Статус: ${secretData.previous_status === 'Confirmed' ? statusConfirmedHtml(secretData.previous_status) : statusRefutedHtml(secretData.previous_status)}`;
+    if (hasSeverityChange) {
+        previousChangeParts.push(`Критичность: <span class="inline-icon-label">${uiIcon(secretData.previous_severity === 'High' ? 'critical.svg' : 'warning.svg', secretData.previous_severity === 'High' ? 'icon-tint-error' : 'icon-tint-warn', 12)}<span>${safeHtml(secretData.previous_severity)}</span></span> → <span class="inline-icon-label">${uiIcon(secretData.severity === 'High' ? 'critical.svg' : 'warning.svg', secretData.severity === 'High' ? 'icon-tint-error' : 'icon-tint-warn', 12)}<span>${safeHtml(secretData.severity)}</span></span>`);
+    }
+
+    if (secretData.confirmed_by && secretData.confirmed_by.trim() !== '' && currentStatus === 'Confirmed') {
+        previousChangeParts.push(`${uiIconLabel('CheckboxCheckedFilled.svg', 'icon-tint-success', 'Подтвержден пользователем')}: <strong>${escapeHtml(secretData.confirmed_by)}</strong>`);
+    }
+
+    if (secretData.refuted_by && secretData.refuted_by.trim() !== '' && currentStatus === 'Refuted') {
+        let refutedAuthorLine = `${uiIconLabel('Error.svg', 'icon-tint-error', 'Опровергнут пользователем')}: <strong>${escapeHtml(secretData.refuted_by)}</strong>`;
+        if (secretData.refuted_at) {
+            refutedAuthorLine += ` <span style="color: #666;">(${escapeHtml(secretData.refuted_at)})</span>`;
         }
-        
-        if (secretData.previous_severity && secretData.previous_severity !== secretData.severity) {
-            severityPart = `Уровень: <span class="inline-icon-label">${uiIcon('AlertErrorStroke16.svg', 'icon-tint-error', 12)}<span>${safeHtml(secretData.previous_severity)}</span></span> → <span class="inline-icon-label">${uiIcon(secretData.severity === 'High' ? 'AlertErrorStroke16.svg' : 'BarChartVerticalFilter.svg', secretData.severity === 'High' ? 'icon-tint-error' : 'icon-tint-muted', 12)}<span>${safeHtml(secretData.severity)}</span></span>`;
-        }
-        
-        let content = [statusPart, severityPart].filter(p => p).join('<br>');
-        
-        previousStatusHtml = `
+        previousChangeParts.push(refutedAuthorLine);
+    }
+
+    const hasPreviousScanChanges = showedInheritedStatus || hasSeverityChange;
+
+    if (previousChangeParts.length > 0) {
+        const shouldShowPreviousScanDate = Boolean(
+            secretData.previous_scan_date
+            && (hasPreviousScanChanges || hasAuthorForCurrentStatus)
+        );
+        const previousScanDateHtml = shouldShowPreviousScanDate
+            ? `<div class="detail-history-line detail-history-line--meta"><small style="color: #666;">Изменено ${safeHtml(secretData.previous_scan_date)}</small></div>`
+            : '';
+        const previousScanHintHtml = hasPreviousScanChanges
+            ? `<div style="font-size: 0.8rem; color: #666; margin-top: 0.25rem;">
+                    Настройки этого секрета были автоматически применены на основе ваших предыдущих решений. При необходимости вы можете изменить их.
+                </div>`
+            : '';
+
+        previousChangesHtml = `
             <div class="detail-section">
                 ${uiDetailHeading('BaselineHistory.svg', 'icon-tint-warn', 'Предыдущие изменения')}
-                <div class="detail-field" style="background: #fef3c7; border-left: 3px solid #f59e0b;">
-                    ${content}<br>
-                    <small style="color: #666;">Изменено ${safeHtml(secretData.previous_scan_date || '')}</small>
+                <div class="detail-field detail-field-history" style="background: #fef3c7; border-left: 3px solid #f59e0b;">
+                    ${previousChangeParts.map(part => `<div class="detail-history-line">${part}</div>`).join('')}
+                    ${previousScanDateHtml}
                 </div>
-                <div style="font-size: 0.8rem; color: #666; margin-top: 0.25rem;">
-                    Настройки этого секрета были автоматически применены на основе ваших предыдущих решений. При необходимости вы можете изменить их.
-                </div>
-            </div>
-        `;
-    }
-
-    let restoreHtml = '';
-    if (secretData.status === 'Refuted') {
-        restoreHtml = `
-            <div class="detail-section">
-                ${uiDetailHeading('ArrowSync.svg', 'icon-tint-info', 'Quick Restore')}
-                <button class="btn btn-warning" onclick="restoreSingleSecret(${secretId})" style="width: 100%;">
-                    ${iconActionBtn('ArrowSync.svg', 'icon-tint-warn', 'Restore This Secret')}
-                </button>
-                <div style="font-size: 0.8rem; color: #666; margin-top: 0.25rem;">
-                    Это изменит статус с "Опровергнуто" на "Нет статуса", чтобы он отображался в основном отчете.
-                </div>
+                ${previousScanHintHtml}
             </div>
         `;
     }
@@ -1846,8 +1977,6 @@ function loadSecretDetails(secretId) {
     
     detailPanel.innerHTML = `
         <div class="detail-content">
-            <h3>Secret Details</h3>
-            
             <div class="detail-section">
                 ${uiDetailHeading('LockPassword.svg', 'icon-tint-warn', 'Значение секрета')}
                 <div class="detail-field" style="background: #fef3c7; border: 1px solid #f59e0b; color: #92400e; font-weight: 600;">
@@ -1855,18 +1984,19 @@ function loadSecretDetails(secretId) {
                 </div>
             </div>
             
-            <div class="status-controls">
-                <h4 style="margin-bottom: 8px;">Статус</h4>
-                <div class="status-buttons">
-                    <button class="status-btn status-btn-confirmed ${secretData.status === 'Confirmed' ? 'active' : ''}" 
+            <div class="detail-section">
+                ${uiDetailHeading('Analysis.svg', 'icon-tint-info', 'Статус')}
+                <div class="segmented-control segmented-control--status" id="secretStatusControl">
+                    <div class="segmented-slider" aria-hidden="true"></div>
+                    <button type="button" class="segmented-option status-btn-confirmed ${secretData.status === 'Confirmed' ? 'active' : ''}" data-slider-tone="tone-confirmed"
                             onclick="updateSecretStatus(${secretId}, 'Confirmed')">
                         ${iconActionBtn('CheckboxCheckedFilled.svg', 'icon-tint-success', 'Подтвердить')}
                     </button>
-                    <button class="status-btn status-btn-none ${secretData.status === 'No status' ? 'active' : ''}" 
+                    <button type="button" class="segmented-option status-btn-none ${secretData.status === 'No status' ? 'active' : ''}" data-slider-tone="tone-none"
                             onclick="updateSecretStatus(${secretId}, 'No status')">
                         ${iconActionBtn('NoStatus.svg', 'icon-tint-muted', 'Без статуса')}
                     </button>
-                    <button class="status-btn status-btn-refuted ${secretData.status === 'Refuted' ? 'active' : ''}" 
+                    <button type="button" class="segmented-option status-btn-refuted ${secretData.status === 'Refuted' ? 'active' : ''}" data-slider-tone="tone-refuted"
                             onclick="updateSecretStatus(${secretId}, 'Refuted')">
                         ${iconActionBtn('Error.svg', 'icon-tint-error', 'Опровергнуть')}
                     </button>
@@ -1880,32 +2010,43 @@ function loadSecretDetails(secretId) {
                     </button>
                 </div>
             </div>
-
-            <div class="detail-section">
-                ${uiDetailHeading('AlertErrorStroke16.svg', 'icon-tint-warn', 'Severity Уровень')}
-                <div style="display: flex; gap: 0.5rem;">
-                    <button class="status-btn ${secretData.severity === 'High' ? 'active' : ''}" 
-                            onclick="updateSecretSeverity(${secretId}, 'High')"
-                            style="background: ${secretData.severity === 'High' ? '#dc2626' : '#fff'}; 
-                                color: ${secretData.severity === 'High' ? '#fff' : '#dc2626'};">
-                        ${iconActionBtn('AlertErrorStroke16.svg', secretData.severity === 'High' ? 'icon-tint-success' : 'icon-tint-error', 'High')}
-                    </button>
-                    <button class="status-btn ${secretData.severity === 'Potential' ? 'active' : ''}" 
-                            onclick="updateSecretSeverity(${secretId}, 'Potential')"
-                            style="background: ${secretData.severity === 'Potential' ? '#6b7280' : '#fff'}; 
-                                color: ${secretData.severity === 'Potential' ? '#fff' : '#6b7280'};">
-                        ${iconActionBtn('BarChartVerticalFilter.svg', secretData.severity === 'Potential' ? 'icon-tint-success' : 'icon-tint-muted', 'Potential')}
-                    </button>
-                </div>
-            </div>
             
             <div class="detail-section">
-                ${uiDetailHeading('Files.svg', 'icon-tint-info', 'Путь до файла')}
+                ${uiDetailHeading('Files.svg', 'icon-tint-info', 'Путь до файла', '(Нажмите чтобы открыть в репозитории (строка выделяется при открытии))')}
                 <a href="${fileUrl}" target="_blank" class="detail-field clickable" style="display: block; text-decoration: none; color: inherit;">
                     ${safePath}
                 </a>
-                <div style="font-size: 0.8rem; color: #666; margin-top: 0.25rem;">
-                    Нажмите чтобы открыть в репозитории (строка выделяется при открытии)
+            </div>
+            
+            <div class="detail-section detail-section--context">
+                ${uiDetailHeading('Code.svg', 'icon-tint-info', 'Контекст')}
+                <div class="detail-field context-preview">
+                    <div class="context-preview-layout">
+                        <div class="context-preview-text">${contextDisplayHtml}</div>
+                        <div class="context-preview-aside">${detailsButtonHtml}</div>
+                    </div>
+                </div>
+            </div>
+            
+            ${previousChangesHtml}
+            
+            <div class="detail-section">
+                ${uiDetailHeading('AppsListDetail24Regular.svg', 'icon-tint-muted', 'Тип')}
+                <div class="detail-field">${safeType}</div>
+            </div>
+
+            <div class="detail-section">
+                ${uiDetailHeading('SeverityUnknown.svg', 'icon-tint-muted', 'Критичность')}
+                <div class="segmented-control segmented-control--severity" id="secretSeverityControl">
+                    <div class="segmented-slider" aria-hidden="true"></div>
+                    <button type="button" class="segmented-option status-btn-high ${secretData.severity === 'High' ? 'active' : ''}" data-slider-tone="tone-high"
+                            onclick="updateSecretSeverity(${secretId}, 'High')">
+                        ${iconActionBtn('critical.svg', 'icon-tint-error', 'High')}
+                    </button>
+                    <button type="button" class="segmented-option status-btn-potential ${secretData.severity === 'Potential' ? 'active' : ''}" data-slider-tone="tone-potential"
+                            onclick="updateSecretSeverity(${secretId}, 'Potential')">
+                        ${iconActionBtn('warning.svg', secretData.severity === 'Potential' ? 'icon-tint-success' : 'icon-tint-muted', 'Potential')}
+                    </button>
                 </div>
             </div>
             
@@ -1923,23 +2064,7 @@ function loadSecretDetails(secretId) {
                     Хеш для CI (falses.txt): project + path + secret + line
                 </div>
             </div>
-            
-            <div class="detail-section">
-                ${uiDetailHeading('Files.svg', 'icon-tint-info', 'Контекст')}
-                <div class="detail-field context-preview" style="white-space: pre-wrap; overflow-x: auto;">
-                    ${contextDisplayHtml}
-                </div>
-                ${detailsButtonHtml}
-            </div>
-            
-            <div class="detail-section">
-                ${uiDetailHeading('ReviewCheckmark.svg', 'icon-tint-success', 'Тип')}
-                <div class="detail-field">${safeType}</div>
-            </div>
 
-            ${previousStatusHtml}
-            ${userInfoHtml}
-            ${restoreHtml}
             <div class="detail-section">
                 <button 
                     class="btn btn-danger" 
@@ -1955,27 +2080,8 @@ function loadSecretDetails(secretId) {
             </div>
         </div>
     `;
-}
 
-async function restoreSingleSecret(secretId) {
-    if (confirm('Are you sure you want to restore this secret? It will be changed from "Refuted" to "No status".')) {
-        try {
-            const response = await fetch(`/secret_scanner/secrets/${secretId}/update-status`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: new URLSearchParams({ status: 'No status', comment: '' })
-            });
-            
-            if (response.ok) {
-                location.reload();
-            } else {
-                alert('Error restoring secret');
-            }
-        } catch (error) {
-            console.error('Error restoring secret:', error);
-            alert('Error restoring secret');
-        }
-    }
+    requestAnimationFrame(() => initSegmentedControls(detailPanel, { instant: true }));
 }
 
 async function deleteSecret(secretId) {
