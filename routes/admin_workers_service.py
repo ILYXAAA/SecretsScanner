@@ -31,7 +31,14 @@ def get_admin_headers() -> dict:
         "Content-Type": "application/json"
     }
 
-async def make_microservice_request(method: str, endpoint: str, timeout: int = 30, files: Optional[dict] = None, data: Optional[dict] = None) -> dict:
+async def make_microservice_request(
+    method: str,
+    endpoint: str,
+    timeout: int = 30,
+    files: Optional[dict] = None,
+    data: Optional[dict] = None,
+    json_body: Optional[dict] = None,
+) -> dict:
     """Make request to microservice with error handling"""
     url = f"{MICROSERVICE_URL}{endpoint}"
     headers = get_admin_headers()
@@ -45,6 +52,8 @@ async def make_microservice_request(method: str, endpoint: str, timeout: int = 3
                     # Remove Content-Type for multipart/form-data (httpx will set it automatically)
                     headers.pop("Content-Type", None)
                     response = await client.post(url, headers=headers, files=files, data=data)
+                elif json_body is not None:
+                    response = await client.post(url, headers=headers, json=json_body)
                 else:
                     response = await client.post(url, headers=headers)
             else:
@@ -680,4 +689,95 @@ async def get_tasks_analytics(
         return JSONResponse(
             status_code=500,
             content={"status": "error", "message": f"Failed to get tasks analytics: {str(e)}"}
+        )
+
+
+@router.get("/admin/credentials")
+async def get_credentials(current_user: str = Depends(get_admin_user)):
+    """Get scanning service credential status (preview only)."""
+    try:
+        result = await make_microservice_request("GET", "/admin/credentials")
+        return JSONResponse(content=result)
+    except HTTPException as e:
+        return JSONResponse(
+            status_code=e.status_code,
+            content={"status": "error", "message": e.detail or "Failed to get credentials status"},
+        )
+    except Exception as e:
+        logger.error(f"Error getting credentials status: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": f"Failed to get credentials status: {str(e)}"},
+        )
+
+
+@router.post("/admin/credentials/repo")
+async def set_repo_credentials(request: Request, current_user: str = Depends(get_admin_user)):
+    """Update Azure/GitHub repo credentials on the scanning service."""
+    try:
+        body = await request.json()
+        payload = {
+            key: value.strip()
+            for key, value in body.items()
+            if isinstance(value, str) and value.strip()
+        }
+        if not payload:
+            return JSONResponse(
+                status_code=400,
+                content={"status": "error", "message": "Укажите хотя бы одно поле для обновления"},
+            )
+
+        result = await make_microservice_request(
+            "POST",
+            "/admin/credentials/repo",
+            json_body=payload,
+        )
+        user_logger.info(f"Admin user {current_user} updated repo credentials on scanning service")
+        return JSONResponse(content=result)
+    except HTTPException as e:
+        return JSONResponse(
+            status_code=e.status_code,
+            content={"status": "error", "message": e.detail or "Failed to update repo credentials"},
+        )
+    except Exception as e:
+        logger.error(f"Error updating repo credentials: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": f"Failed to update repo credentials: {str(e)}"},
+        )
+
+
+@router.post("/admin/credentials/jenkins")
+async def set_jenkins_credentials(request: Request, current_user: str = Depends(get_admin_user)):
+    """Update DevZone Jenkins credentials on the scanning service."""
+    try:
+        body = await request.json()
+        payload = {
+            key: value.strip()
+            for key, value in body.items()
+            if isinstance(value, str) and value.strip()
+        }
+        if not payload:
+            return JSONResponse(
+                status_code=400,
+                content={"status": "error", "message": "Укажите хотя бы одно поле для обновления"},
+            )
+
+        result = await make_microservice_request(
+            "POST",
+            "/admin/credentials/jenkins",
+            json_body=payload,
+        )
+        user_logger.info(f"Admin user {current_user} updated Jenkins credentials on scanning service")
+        return JSONResponse(content=result)
+    except HTTPException as e:
+        return JSONResponse(
+            status_code=e.status_code,
+            content={"status": "error", "message": e.detail or "Failed to update Jenkins credentials"},
+        )
+    except Exception as e:
+        logger.error(f"Error updating Jenkins credentials: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": f"Failed to update Jenkins credentials: {str(e)}"},
         )

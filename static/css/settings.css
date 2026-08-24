@@ -716,3 +716,90 @@ body {
         justify-content: center;
     }
 }
+
+.credentials-status-panel {
+    margin-bottom: 1.25rem;
+}
+
+.credentials-status-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.75rem;
+}
+
+.credentials-status-card {
+    background: #f6f8fa;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 0.875rem 1rem;
+}
+
+.credentials-status-card-title {
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 0.625rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.credentials-field-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    align-items: flex-start;
+    padding: 0.375rem 0;
+    border-top: 1px solid var(--border);
+    font-size: 0.8125rem;
+}
+
+.credentials-field-row:first-of-type {
+    border-top: none;
+    padding-top: 0;
+}
+
+.credentials-field-label {
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+.credentials-field-value {
+    text-align: right;
+    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+    color: var(--text-primary);
+    word-break: break-all;
+}
+
+.credentials-field-value.is-configured {
+    color: var(--success-text);
+}
+
+.credentials-field-value.is-missing {
+    color: var(--text-muted);
+}
+
+.credentials-loading,
+.credentials-error {
+    padding: 0.875rem 1rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: #f6f8fa;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+}
+
+.credentials-error {
+    border-color: var(--danger-border);
+    background: var(--danger-bg);
+    color: var(--danger);
+}
+
+.config-tab[data-tab="repo-credentials"].active {
+    color: var(--accent);
+    background: var(--accent-subtle);
+}
+
+.config-tab[data-tab="jenkins-credentials"].active {
+    color: #0969da;
+    background: var(--info-bg);
+}

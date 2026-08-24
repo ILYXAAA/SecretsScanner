@@ -2250,6 +2250,39 @@ async function performBulkAction(action, value) {
     }
 }
 
+function getScanIdFromUrl() {
+    const pathParts = window.location.pathname.split('/');
+    return pathParts[pathParts.length - 2];
+}
+
+function buildExportQueryParams() {
+    syncActiveFiltersFromDOM();
+    const params = new URLSearchParams();
+    activeFilters.status.forEach(status => params.append('status_filter', status));
+    activeFilters.severity.forEach(severity => params.append('severity_filter', severity));
+    activeFilters.type.forEach(type => params.append('type_filter', type));
+    if (activeFilters.secretValue) {
+        params.set('search', activeFilters.secretValue);
+    }
+    return params;
+}
+
+function exportScanJson(event) {
+    event.preventDefault();
+    const scanId = getScanIdFromUrl();
+    const params = buildExportQueryParams();
+    const query = params.toString();
+    window.location.href = `/secret_scanner/scan/${scanId}/export${query ? `?${query}` : ''}`;
+}
+
+function exportScanHtml(event) {
+    event.preventDefault();
+    const scanId = getScanIdFromUrl();
+    const params = buildExportQueryParams();
+    const query = params.toString();
+    window.location.href = `/secret_scanner/scan/${scanId}/export-html${query ? `?${query}` : ''}`;
+}
+
 // Close filters panel when clicking outside
 document.addEventListener('click', function(e) {
     const filtersPanel = document.getElementById('filtersPanel');

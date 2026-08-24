@@ -128,11 +128,11 @@
                             {{ ui_icon('Filter.svg', 'btn-icon icon-tint-info', 14) }}
                             Фильтры
                         </button>
-                        <a href="/secret_scanner/scan/{{ scan.id }}/export" class="btn btn-secondary btn-export-json">
+                        <a href="#" class="btn btn-secondary btn-export-json" onclick="exportScanJson(event)">
                             {{ ui_icon('FileTypeLightJson.svg', 'btn-icon btn-icon-native', 14) }}
                             Export JSON
                         </a>
-                        <a href="/secret_scanner/scan/{{ scan.id }}/export-html" class="btn btn-secondary btn-export-html">
+                        <a href="#" class="btn btn-secondary btn-export-html" onclick="exportScanHtml(event)">
                             {{ ui_icon('FileTypeHtml.svg', 'btn-icon btn-icon-native', 14) }}
                             Export HTML
                         </a>

@@ -352,6 +352,14 @@ excluded_files:
                     {{ ui_icon('ForgotPassword.svg', 'tab-icon icon-tint-warn', 16) }}
                     PAT Token
                 </button>
+                <button class="config-tab" data-tab="repo-credentials">
+                    {{ ui_icon('repository.svg', 'tab-icon icon-tint-success', 16) }}
+                    Repo Credentials
+                </button>
+                <button class="config-tab" data-tab="jenkins-credentials">
+                    {{ ui_icon('Employee.svg', 'tab-icon icon-tint-info', 16) }}
+                    Jenkins
+                </button>
                 {% else %}
                 <button class="config-tab active" data-tab="password-change">
                     {{ ui_icon('LockPassword.svg', 'tab-icon icon-tint-info', 16) }}
@@ -451,6 +459,82 @@ excluded_files:
                         <button type="submit" class="btn btn-primary">
                             {{ ui_icon('Commit.svg', 'btn-icon btn-icon-light', 16) }}
                             Обновить токен
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Repo Credentials Tab -->
+                <div class="config-content" id="repo-credentials-content">
+                    <div class="config-header">
+                        <div class="config-description">
+                            <p style="color: #666; margin-bottom: 1rem;">
+                                Креды для Azure/GitHub (NTLM + PAT), используемые микросервисом сканирования для доступа к репозиториям.
+                            </p>
+                            <p class="config-hint">
+                                {{ ui_icon('AlertErrorStroke16.svg', 'hint-icon icon-tint-warn', 14) }}
+                                <span>Можно обновить только нужные поля — пустые поля не изменяются.</span>
+                            </p>
+                        </div>
+                    </div>
+
+                    <div id="repo-credentials-status" class="credentials-status-panel">
+                        <div class="credentials-loading">Загрузка статуса кредов...</div>
+                    </div>
+
+                    <form id="repoCredentialsForm">
+                        <div class="form-group">
+                            <label for="repo_login">Login (domain\user):</label>
+                            <input type="password" id="repo_login" name="login" placeholder="Оставьте пустым, чтобы не менять" autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                            <label for="repo_password">Password:</label>
+                            <input type="password" id="repo_password" name="password" placeholder="Оставьте пустым, чтобы не менять" autocomplete="new-password">
+                        </div>
+                        <div class="form-group">
+                            <label for="repo_pat_token">PAT Token:</label>
+                            <input type="password" id="repo_pat_token" name="pat_token" placeholder="Оставьте пустым, чтобы не менять" autocomplete="off">
+                        </div>
+                        <button type="submit" class="btn btn-primary" id="repoCredentialsBtn">
+                            {{ ui_icon('Commit.svg', 'btn-icon btn-icon-light', 16) }}
+                            Сохранить repo credentials
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Jenkins Credentials Tab -->
+                <div class="config-content" id="jenkins-credentials-content">
+                    <div class="config-header">
+                        <div class="config-description">
+                            <p style="color: #666; margin-bottom: 1rem;">
+                                Креды для DevZone Jenkins, используемые микросервисом для checkout репозиториев.
+                            </p>
+                            <p class="config-hint">
+                                {{ ui_icon('AlertErrorStroke16.svg', 'hint-icon icon-tint-warn', 14) }}
+                                <span>Можно обновить только нужные поля — пустые поля не изменяются.</span>
+                            </p>
+                        </div>
+                    </div>
+
+                    <div id="jenkins-credentials-status" class="credentials-status-panel">
+                        <div class="credentials-loading">Загрузка статуса кредов...</div>
+                    </div>
+
+                    <form id="jenkinsCredentialsForm">
+                        <div class="form-group">
+                            <label for="jenkins_job_url">Job URL:</label>
+                            <input type="text" id="jenkins_job_url" name="job_url" placeholder="https://jenkins.example/job/devzone-checkout/" autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                            <label for="jenkins_login">Login:</label>
+                            <input type="password" id="jenkins_login" name="login" placeholder="Оставьте пустым, чтобы не менять" autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                            <label for="jenkins_api_token">API Token:</label>
+                            <input type="password" id="jenkins_api_token" name="api_token" placeholder="Оставьте пустым, чтобы не менять" autocomplete="off">
+                        </div>
+                        <button type="submit" class="btn btn-primary" id="jenkinsCredentialsBtn">
+                            {{ ui_icon('Commit.svg', 'btn-icon btn-icon-light', 16) }}
+                            Сохранить Jenkins credentials
                         </button>
                     </form>
                 </div>

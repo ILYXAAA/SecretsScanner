@@ -64,6 +64,24 @@ def sanitize_js_string(text):
     
     return text
 
+def normalize_report_status(status):
+    if not status or status == "null":
+        return "No status"
+    return str(status)
+
+
+def format_status_badge(status):
+    normalized = normalize_report_status(status)
+    safe_status = sanitize_input(normalized)
+    if normalized == "Confirmed":
+        css_class = "status-confirmed"
+    elif normalized == "Refuted":
+        css_class = "status-refuted"
+    else:
+        css_class = "status-none"
+        safe_status = "Без статуса"
+    return f'<span class="status-badge {css_class}">{safe_status}</span>'
+
 def generate_html_report(scan, project, secrets, HubType):    
     # Санитизация всех входных данных
     project_name = sanitize_input(project.name)
@@ -209,6 +227,45 @@ def generate_html_report(scan, project, secrets, HubType):
         
         .secrets-section {{
             padding: 2rem;
+        }}
+
+        .secrets-section-header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }}
+
+        .secrets-section-header h2 {{
+            margin: 0;
+        }}
+
+        .filters-toggle-btn {{
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.55rem 1rem;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            background: white;
+            color: #334155;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }}
+
+        .filters-toggle-btn:hover {{
+            background: #f8fafc;
+            border-color: #94a3b8;
+        }}
+
+        .filters-toggle-btn.active {{
+            background: #eef2ff;
+            border-color: #667eea;
+            color: #4338ca;
         }}
         
         .type-group {{
@@ -360,11 +417,88 @@ def generate_html_report(scan, project, secrets, HubType):
             margin-bottom: 0.5rem;
             color: #28a745;
         }}
+
+        .status-filters {{
+            display: none;
+            margin-bottom: 1.5rem;
+            padding: 1rem 1.25rem;
+            background: white;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+        }}
+
+        .status-filters.open {{
+            display: block;
+        }}
+
+        .status-filters-title {{
+            font-weight: 600;
+            color: #495057;
+            margin-bottom: 0.75rem;
+        }}
+
+        .status-filter-options {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }}
+
+        .status-filter-option {{
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            cursor: pointer;
+            user-select: none;
+            font-size: 0.95rem;
+        }}
+
+        .status-filter-option input {{
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+        }}
+
+        .status-badge {{
+            display: inline-block;
+            padding: 0.25rem 0.65rem;
+            border-radius: 999px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            white-space: nowrap;
+        }}
+
+        .status-badge.status-confirmed {{
+            background: #d1fae5;
+            color: #065f46;
+        }}
+
+        .status-badge.status-refuted {{
+            background: #fee2e2;
+            color: #991b1b;
+        }}
+
+        .status-badge.status-none {{
+            background: #f3f4f6;
+            color: #4b5563;
+        }}
+
+        .secret-row-hidden {{
+            display: none;
+        }}
+
+        .type-group-hidden {{
+            display: none;
+        }}
         
         @media print {{
             body {{ background: white; padding: 0; }}
             .container {{ box-shadow: none; }}
             .secrets-table {{ box-shadow: none; }}
+            .filters-toggle-btn,
+            .status-filters {{
+                display: none !important;
+            }}
         }}
     </style>
 </head>
@@ -408,7 +542,29 @@ def generate_html_report(scan, project, secrets, HubType):
         </div>
         
         <div class="secrets-section">
-            <h2>🔍 Обнаруженные секреты</h2>
+            <div class="secrets-section-header">
+                <h2>🔍 Обнаруженные секреты</h2>
+                <button type="button" class="filters-toggle-btn" id="filtersToggleBtn" onclick="toggleStatusFiltersPanel()">
+                    🔎 Фильтры
+                </button>
+            </div>
+            <div class="status-filters" id="statusFiltersPanel">
+                <div class="status-filters-title">Фильтр по статусу</div>
+                <div class="status-filter-options">
+                    <label class="status-filter-option">
+                        <input type="checkbox" class="status-filter-cb" value="Confirmed" checked onchange="applyStatusFilters()">
+                        <span>Confirmed</span>
+                    </label>
+                    <label class="status-filter-option">
+                        <input type="checkbox" class="status-filter-cb" value="No status" checked onchange="applyStatusFilters()">
+                        <span>Без статуса</span>
+                    </label>
+                    <label class="status-filter-option">
+                        <input type="checkbox" class="status-filter-cb" value="Refuted" checked onchange="applyStatusFilters()">
+                        <span>Refuted</span>
+                    </label>
+                </div>
+            </div>
 """
     
     if not secrets:
@@ -425,11 +581,11 @@ def generate_html_report(scan, project, secrets, HubType):
             type_id_js = sanitize_js_string(type_id)
             
             html_content += f"""
-            <div class="type-group">
+            <div class="type-group" data-type-group="{type_id}">
                 <div class="type-header" onclick="toggleTypeGroup('{type_id_js}')">
                     <div class="type-header-content">
                         <div class="type-title">🔐 {secret_type}</div>
-                        <div class="type-count">{len(type_secrets)} секретов найдено</div>
+                        <div class="type-count" id="count_{type_id}">{len(type_secrets)} секретов найдено</div>
                     </div>
                     <div class="collapse-indicator" id="indicator_{type_id}">Свернуть 🔽</div>
                 </div>
@@ -441,6 +597,7 @@ def generate_html_report(scan, project, secrets, HubType):
                                 <th>🔑 Значение</th>
                                 <th>📁 Путь к файлу</th>
                                 <th>📍 Номер строки</th>
+                                <th>📊 Статус</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -452,6 +609,8 @@ def generate_html_report(scan, project, secrets, HubType):
                 secret_path = sanitize_input(secret.path).replace("/devzone_repository/", "")
                 secret_line = int(secret.line) if str(secret.line).isdigit() else 1
                 secret_value = sanitize_input(secret.secret)
+                secret_status = normalize_report_status(secret.status)
+                status_badge = format_status_badge(secret.status)
                 
                 # Build file URL based on hub type с дополнительной проверкой
                 try:
@@ -482,7 +641,7 @@ def generate_html_report(scan, project, secrets, HubType):
                     masked_secret = secret_value + '*' * (FIXED_MASK_LENGTH - len(secret.secret))
                 
                 html_content += f"""
-                            <tr>
+                            <tr class="secret-row" data-status="{sanitize_input(secret_status)}" data-type-group="{type_id}">
                                 <td>
                                     <div class="secret-value">{masked_secret}</div>
                                 </td>
@@ -493,6 +652,9 @@ def generate_html_report(scan, project, secrets, HubType):
                                 </td>
                                 <td>
                                     <span class="line-number">{secret_line}</span>
+                                </td>
+                                <td>
+                                    {status_badge}
                                 </td>
                             </tr>
                 """
@@ -543,6 +705,62 @@ def generate_html_report(scan, project, secrets, HubType):
                 content.classList.add('expanded');
                 indicator.textContent = 'Свернуть 🔽';
             }}
+        }}
+
+        function toggleStatusFiltersPanel() {{
+            const panel = document.getElementById('statusFiltersPanel');
+            const btn = document.getElementById('filtersToggleBtn');
+            if (!panel || !btn) {{
+                return;
+            }}
+
+            const isOpen = panel.classList.contains('open');
+            if (isOpen) {{
+                panel.classList.remove('open');
+                btn.classList.remove('active');
+                btn.textContent = '🔎 Фильтры';
+            }} else {{
+                panel.classList.add('open');
+                btn.classList.add('active');
+                btn.textContent = '✕ Закрыть';
+            }}
+        }}
+
+        function getCheckedStatuses() {{
+            return Array.from(document.querySelectorAll('.status-filter-cb:checked')).map(function(cb) {{
+                return cb.value;
+            }});
+        }}
+
+        function updateTypeGroupCounts() {{
+            document.querySelectorAll('.type-group').forEach(function(group) {{
+                const typeId = group.getAttribute('data-type-group');
+                const countEl = document.getElementById('count_' + typeId);
+                if (!countEl) {{
+                    return;
+                }}
+                const visibleRows = group.querySelectorAll('.secret-row:not(.secret-row-hidden)');
+                const visibleCount = visibleRows.length;
+                countEl.textContent = visibleCount + ' секретов найдено';
+                if (visibleCount === 0) {{
+                    group.classList.add('type-group-hidden');
+                }} else {{
+                    group.classList.remove('type-group-hidden');
+                }}
+            }});
+        }}
+
+        function applyStatusFilters() {{
+            const checkedStatuses = getCheckedStatuses();
+            document.querySelectorAll('.secret-row').forEach(function(row) {{
+                const status = row.getAttribute('data-status');
+                if (checkedStatuses.length === 0 || checkedStatuses.indexOf(status) === -1) {{
+                    row.classList.add('secret-row-hidden');
+                }} else {{
+                    row.classList.remove('secret-row-hidden');
+                }}
+            }});
+            updateTypeGroupCounts();
         }}
         
         // Блокировка небезопасных операций

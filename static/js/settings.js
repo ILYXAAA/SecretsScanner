@@ -81,6 +81,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Load backups on page load
     loadBackups();
+
+    // Load scanning service credentials status for admin Security tabs
+    initCredentialsManagement();
     
     // Initialize unsaved changes tracking
     initializeChangeTracking();
@@ -135,6 +138,227 @@ if (tokenInput) {
     });
     tokenInput.addEventListener('blur', () => {
         tokenInput.type = 'password';
+    });
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text ?? '';
+    return div.innerHTML;
+}
+
+function renderCredentialField(label, field) {
+    const configured = Boolean(field?.configured);
+    const preview = field?.preview;
+    const valueClass = configured ? 'is-configured' : 'is-missing';
+    const valueText = configured
+        ? escapeHtml(preview || '****')
+        : 'Не задано';
+
+    return `
+        <div class="credentials-field-row">
+            <span class="credentials-field-label">${escapeHtml(label)}</span>
+            <span class="credentials-field-value ${valueClass}">${valueText}</span>
+        </div>
+    `;
+}
+
+function renderCredentialsStatusCard(title, rowsHtml) {
+    return `
+        <div class="credentials-status-card">
+            <div class="credentials-status-card-title">${escapeHtml(title)}</div>
+            ${rowsHtml}
+        </div>
+    `;
+}
+
+function renderCredentialsError(message) {
+    return `<div class="credentials-error">${escapeHtml(message)}</div>`;
+}
+
+function renderRepoCredentialsStatus(repo) {
+    if (!repo) {
+        return renderCredentialsError('Данные repo credentials недоступны');
+    }
+
+    return `
+        <div class="credentials-status-grid">
+            ${renderCredentialsStatusCard('Repo', [
+                renderCredentialField('Login', repo.login),
+                renderCredentialField('Password', repo.password),
+                renderCredentialField('PAT Token', repo.pat_token),
+            ].join(''))}
+        </div>
+    `;
+}
+
+function renderJenkinsCredentialsStatus(jenkins) {
+    if (!jenkins) {
+        return renderCredentialsError('Данные Jenkins credentials недоступны');
+    }
+
+    const jobUrlRow = `
+        <div class="credentials-field-row">
+            <span class="credentials-field-label">Job URL</span>
+            <span class="credentials-field-value ${jenkins.job_url ? 'is-configured' : 'is-missing'}">
+                ${jenkins.job_url ? escapeHtml(jenkins.job_url) : 'Не задано'}
+            </span>
+        </div>
+    `;
+
+    return `
+        <div class="credentials-status-grid">
+            ${renderCredentialsStatusCard('Jenkins', [
+                jobUrlRow,
+                renderCredentialField('Login', jenkins.login),
+                renderCredentialField('API Token', jenkins.api_token),
+            ].join(''))}
+        </div>
+    `;
+}
+
+let credentialsStatusCache = null;
+
+async function loadCredentialsStatus(force = false) {
+    const repoStatusEl = document.getElementById('repo-credentials-status');
+    const jenkinsStatusEl = document.getElementById('jenkins-credentials-status');
+    if (!repoStatusEl && !jenkinsStatusEl) {
+        return;
+    }
+
+    if (!force && credentialsStatusCache) {
+        if (repoStatusEl) {
+            repoStatusEl.innerHTML = renderRepoCredentialsStatus(credentialsStatusCache.repo);
+        }
+        if (jenkinsStatusEl) {
+            jenkinsStatusEl.innerHTML = renderJenkinsCredentialsStatus(credentialsStatusCache.jenkins);
+        }
+        return;
+    }
+
+    const loadingHtml = '<div class="credentials-loading">Загрузка статуса кредов...</div>';
+    if (repoStatusEl) repoStatusEl.innerHTML = loadingHtml;
+    if (jenkinsStatusEl) jenkinsStatusEl.innerHTML = loadingHtml;
+
+    try {
+        const response = await fetch('/secret_scanner/admin/credentials', {
+            method: 'GET',
+            headers: {
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache',
+            },
+        });
+        const data = await response.json();
+
+        if (!response.ok || data.status !== 'success') {
+            throw new Error(data.message || 'Не удалось загрузить статус кредов');
+        }
+
+        credentialsStatusCache = data.credentials || {};
+        if (repoStatusEl) {
+            repoStatusEl.innerHTML = renderRepoCredentialsStatus(credentialsStatusCache.repo);
+        }
+        if (jenkinsStatusEl) {
+            jenkinsStatusEl.innerHTML = renderJenkinsCredentialsStatus(credentialsStatusCache.jenkins);
+        }
+    } catch (error) {
+        const message = error.message || 'Не удалось загрузить статус кредов';
+        if (repoStatusEl) repoStatusEl.innerHTML = renderCredentialsError(message);
+        if (jenkinsStatusEl) jenkinsStatusEl.innerHTML = renderCredentialsError(message);
+    }
+}
+
+function bindSecretInputToggle(inputId) {
+    const input = document.getElementById(inputId);
+    if (!input || input.type === 'text') {
+        return;
+    }
+    input.addEventListener('focus', () => {
+        input.type = 'text';
+    });
+    input.addEventListener('blur', () => {
+        input.type = 'password';
+    });
+}
+
+async function submitCredentialsForm(formId, buttonId, endpoint, inputNames) {
+    const form = document.getElementById(formId);
+    const button = document.getElementById(buttonId);
+    if (!form || !button) {
+        return;
+    }
+
+    const payload = {};
+    inputNames.forEach((name) => {
+        const input = form.querySelector(`[name="${name}"]`);
+        if (input && input.value.trim()) {
+            payload[name] = input.value.trim();
+        }
+    });
+
+    if (Object.keys(payload).length === 0) {
+        showNotification('Укажите хотя бы одно поле для обновления', 'error');
+        return;
+    }
+
+    const originalText = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = '<span class="spinner"></span> Сохранение...';
+
+    try {
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+        });
+        const data = await response.json();
+
+        if (!response.ok || (data.status && data.status !== 'success')) {
+            throw new Error(data.message || 'Не удалось сохранить credentials');
+        }
+
+        form.reset();
+        credentialsStatusCache = null;
+        await loadCredentialsStatus(true);
+        showNotification(data.message || 'Credentials успешно обновлены', 'success');
+    } catch (error) {
+        showNotification(error.message || 'Не удалось сохранить credentials', 'error');
+    } finally {
+        button.disabled = false;
+        button.innerHTML = originalText;
+    }
+}
+
+function initCredentialsManagement() {
+    const repoForm = document.getElementById('repoCredentialsForm');
+    const jenkinsForm = document.getElementById('jenkinsCredentialsForm');
+    if (!repoForm && !jenkinsForm) {
+        return;
+    }
+
+    ['repo_login', 'repo_password', 'repo_pat_token', 'jenkins_login', 'jenkins_api_token'].forEach(bindSecretInputToggle);
+    loadCredentialsStatus();
+
+    repoForm?.addEventListener('submit', function(e) {
+        e.preventDefault();
+        submitCredentialsForm(
+            'repoCredentialsForm',
+            'repoCredentialsBtn',
+            '/secret_scanner/admin/credentials/repo',
+            ['login', 'password', 'pat_token'],
+        );
+    });
+
+    jenkinsForm?.addEventListener('submit', function(e) {
+        e.preventDefault();
+        submitCredentialsForm(
+            'jenkinsCredentialsForm',
+            'jenkinsCredentialsBtn',
+            '/secret_scanner/admin/credentials/jenkins',
+            ['login', 'api_token', 'job_url'],
+        );
     });
 }
 

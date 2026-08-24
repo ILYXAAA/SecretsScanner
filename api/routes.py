@@ -6,7 +6,7 @@ import urllib.parse
 import asyncio
 from datetime import datetime, timedelta
 from typing import List, Optional, Tuple
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from fastapi.responses import JSONResponse, HTMLResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
@@ -27,6 +27,7 @@ from utils.project_name import generate_project_name_from_repo_url
 from services.microservice_client import check_microservice_health
 from utils.html_report_generator import generate_html_report, attachment_content_disposition
 from utils.forbidden_html_report_generator import generate_forbidden_html_report
+from routes.scan_routes import get_secrets_for_export
 
 logger = logging.getLogger("main")
 user_logger = logging.getLogger("user_actions")
@@ -1342,6 +1343,10 @@ async def api_forbidden_check(
 )
 async def api_scan_export_html(
     scan_id: str,
+    status_filter: List[str] = Query(default=[]),
+    severity_filter: List[str] = Query(default=[]),
+    type_filter: List[str] = Query(default=[]),
+    search: str = Query(default=""),
     db: Session = Depends(get_db),
     token: ApiToken = Depends(require_permission("scan_results"))
 ):
@@ -1423,10 +1428,15 @@ async def api_scan_export_html(
             )
         
         # Count secrets before loading
-        secrets_count = db.query(func.count(Secret.id)).filter(
-            Secret.scan_id == scan_id,
-            Secret.is_exception == False
-        ).scalar() or 0
+        secrets = get_secrets_for_export(
+            db,
+            scan_id,
+            status_filters=status_filter,
+            severity_filters=severity_filter,
+            type_filters=type_filter,
+            search=search,
+        )
+        secrets_count = len(secrets)
         
         # Check limit
         if secrets_count > 3000:
@@ -1437,16 +1447,6 @@ async def api_scan_export_html(
                     "message": f"Cannot generate HTML report: too many secrets ({secrets_count}). Maximum allowed: 3000. Please use JSON export instead."
                 }
             )
-        
-        # Get secrets (exclude exceptions)
-        secrets = db.query(Secret).filter(
-            Secret.scan_id == scan_id,
-            Secret.is_exception == False
-        ).order_by(
-            Secret.severity == 'Potential',
-            Secret.path,
-            Secret.line
-        ).all()
         
         # Generate HTML report in separate thread
         html_content = await asyncio.to_thread(

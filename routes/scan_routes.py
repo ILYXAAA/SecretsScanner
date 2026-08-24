@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Request, Form, Depends, HTTPException, File, UploadFile, BackgroundTasks
+from typing import List
+
+from fastapi import APIRouter, Request, Form, Depends, HTTPException, File, UploadFile, BackgroundTasks, Query
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Response, FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -116,6 +118,76 @@ def normalize_file_path(file_path: str, repo_url: str) -> str:
 MANUAL_SECRET_SUFFIX = " (добавлен вручную, см. context)"
 
 
+def normalize_export_status(status) -> str:
+    if not status or status == "null":
+        return "No status"
+    return status
+
+
+def secret_filename_from_path(path: str) -> str:
+    if not path:
+        return ""
+    return path.replace("\\", "/").split("/")[-1]
+
+
+def has_export_filters(status_filters, severity_filters, type_filters, search) -> bool:
+    return bool(status_filters or severity_filters or type_filters or search)
+
+
+def secret_matches_export_filters(secret, status_filters, severity_filters, type_filters, search) -> bool:
+    status = normalize_export_status(secret.status)
+    if status_filters and status not in status_filters:
+        return False
+    if severity_filters and (secret.severity or "") not in severity_filters:
+        return False
+    if type_filters and (secret.type or "") not in type_filters:
+        return False
+    if search:
+        term = search.lower()
+        secret_value = (secret.secret or "").lower()
+        filename = secret_filename_from_path(secret.path or "").lower()
+        if term not in secret_value and term not in filename:
+            return False
+    return True
+
+
+def get_secrets_for_export(
+    db,
+    scan_id: str,
+    status_filters=None,
+    severity_filters=None,
+    type_filters=None,
+    search: str = "",
+):
+    status_filters = status_filters or []
+    severity_filters = severity_filters or []
+    type_filters = type_filters or []
+    search = search or ""
+
+    query = db.query(Secret).filter(Secret.scan_id == scan_id)
+    if not has_export_filters(status_filters, severity_filters, type_filters, search):
+        query = query.filter(Secret.is_exception == False)
+
+    secrets = query.order_by(
+        Secret.severity == "Potential",
+        Secret.path,
+        Secret.line,
+    ).all()
+
+    if not has_export_filters(status_filters, severity_filters, type_filters, search):
+        return secrets
+
+    if not status_filters or not severity_filters or not type_filters:
+        return []
+
+    return [
+        secret for secret in secrets
+        if secret_matches_export_filters(
+            secret, status_filters, severity_filters, type_filters, search
+        )
+    ]
+
+
 def build_secret_export_item(secret, project_name: str = "") -> dict:
     """Serialize a Secret for JSON file export."""
     path = secret.path or ""
@@ -130,6 +202,7 @@ def build_secret_export_item(secret, project_name: str = "") -> dict:
         "secret": "***",
         "message": secret.type or "",
         "context": secret.context or "",
+        "status": normalize_export_status(secret.status),
     }
 
 
@@ -1440,6 +1513,10 @@ async def bulk_violation_action(
 @router.get("/scan/{scan_id}/export")
 async def export_scan_results(
     scan_id: str,
+    status_filter: List[str] = Query(default=[]),
+    severity_filter: List[str] = Query(default=[]),
+    type_filter: List[str] = Query(default=[]),
+    search: str = Query(default=""),
     current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -1483,11 +1560,14 @@ async def export_scan_results(
                 headers={"Content-Disposition": attachment_content_disposition(filename)},
             )
 
-        # Get only non-exception secrets from this scan
-        secrets = db.query(Secret).filter(
-            Secret.scan_id == scan_id,
-            Secret.is_exception == False
-        ).order_by(Secret.path, Secret.line).all()
+        secrets = get_secrets_for_export(
+            db,
+            scan_id,
+            status_filters=status_filter,
+            severity_filters=severity_filter,
+            type_filters=type_filter,
+            search=search,
+        )
 
         export_data = [
             build_secret_export_item(secret, scan.project_name or "") for secret in secrets
@@ -1515,6 +1595,10 @@ async def export_scan_results(
 @router.get("/scan/{scan_id}/export-html")
 async def export_scan_results_html(
     scan_id: str,
+    status_filter: List[str] = Query(default=[]),
+    severity_filter: List[str] = Query(default=[]),
+    type_filter: List[str] = Query(default=[]),
+    search: str = Query(default=""),
     current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -1560,10 +1644,15 @@ async def export_scan_results_html(
             )
         
         # Подсчитать количество секретов перед их загрузкой
-        secrets_count = db.query(func.count(Secret.id)).filter(
-            Secret.scan_id == scan_id,
-            Secret.is_exception == False
-        ).scalar() or 0
+        secrets = get_secrets_for_export(
+            db,
+            scan_id,
+            status_filters=status_filter,
+            severity_filters=severity_filter,
+            type_filters=type_filter,
+            search=search,
+        )
+        secrets_count = len(secrets)
         
         # Проверить лимит
         if secrets_count > 3000:
@@ -1572,15 +1661,6 @@ async def export_scan_results_html(
                 detail=f"Cannot generate HTML report: too many secrets ({secrets_count}). "
                        f"Maximum allowed: 3000. Please use JSON export instead."
             )
-        
-        secrets = db.query(Secret).filter(
-            Secret.scan_id == scan_id,
-            Secret.is_exception == False
-        ).order_by(
-            Secret.severity == 'Potential',
-            Secret.path,
-            Secret.line
-        ).all()
         
         # Выполнить генерацию отчета в отдельном потоке
         html_content = await asyncio.to_thread(
