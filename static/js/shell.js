@@ -1,4 +1,4 @@
-/* shell.js v5 — streaming command execution via HTTP */
+/* shell.js v6 — streaming command execution via HTTP */
 (function () {
     const body = document.body;
     const authenticated = body.dataset.authenticated === 'true';
@@ -84,6 +84,68 @@
             }
         }
 
+        function normalizeStreamText(text) {
+            return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+        }
+
+        function createStreamWriter(outContainer) {
+            const state = { pending: '', partialEl: null };
+
+            function append(text) {
+                if (!text) {
+                    return;
+                }
+                state.pending += normalizeStreamText(text);
+                const parts = state.pending.split('\n');
+                state.pending = parts.pop() ?? '';
+
+                for (const part of parts) {
+                    const lineEl = document.createElement('div');
+                    lineEl.className = 'shell-result-line';
+                    lineEl.textContent = part;
+                    outContainer.appendChild(lineEl);
+                }
+
+                if (state.partialEl) {
+                    state.partialEl.remove();
+                    state.partialEl = null;
+                }
+
+                if (state.pending) {
+                    state.partialEl = document.createElement('div');
+                    state.partialEl.className = 'shell-result-line shell-result-partial';
+                    state.partialEl.textContent = state.pending;
+                    outContainer.appendChild(state.partialEl);
+                }
+
+                outputEl.scrollTop = outputEl.scrollHeight;
+            }
+
+            function flush() {
+                if (!state.pending) {
+                    if (state.partialEl) {
+                        state.partialEl.classList.remove('shell-result-partial');
+                        state.partialEl = null;
+                    }
+                    return;
+                }
+
+                if (state.partialEl) {
+                    state.partialEl.classList.remove('shell-result-partial');
+                    state.partialEl = null;
+                } else {
+                    const lineEl = document.createElement('div');
+                    lineEl.className = 'shell-result-line';
+                    lineEl.textContent = state.pending;
+                    outContainer.appendChild(lineEl);
+                }
+                state.pending = '';
+                outputEl.scrollTop = outputEl.scrollHeight;
+            }
+
+            return { append, flush };
+        }
+
         function createCommandBlock(command) {
             const block = document.createElement('div');
             block.className = 'shell-block';
@@ -93,22 +155,23 @@
             cmdLine.textContent = '$ ' + command;
             block.appendChild(cmdLine);
 
-            const outLine = document.createElement('pre');
-            outLine.className = 'shell-result';
-            outLine.textContent = '';
-            block.appendChild(outLine);
+            const outContainer = document.createElement('div');
+            outContainer.className = 'shell-result shell-result-stream';
+            block.appendChild(outContainer);
 
             outputEl.appendChild(block);
             outputEl.scrollTop = outputEl.scrollHeight;
 
-            return { block, outLine };
+            return { block, outContainer, writer: createStreamWriter(outContainer) };
         }
 
-        function finalizeCommandBlock(block, outLine, exitCode, options = {}) {
+        function finalizeCommandBlock(block, outContainer, writer, exitCode, options = {}) {
             const { cancelled = false, timedOut = false } = options;
 
+            writer.flush();
+
             if (exitCode !== 0 && exitCode !== null) {
-                outLine.classList.add('error');
+                outContainer.classList.add('error');
             }
 
             if (cancelled) {
@@ -132,11 +195,11 @@
         }
 
         function appendStaticBlock(command, output, exitCode) {
-            const { block, outLine } = createCommandBlock(command);
+            const { block, outContainer, writer } = createCommandBlock(command);
             if (output) {
-                outLine.textContent = output;
+                writer.append(output);
             }
-            finalizeCommandBlock(block, outLine, exitCode);
+            finalizeCommandBlock(block, outContainer, writer, exitCode);
         }
 
         async function parseNdjsonStream(response, onEvent) {
@@ -215,7 +278,7 @@
             }
             historyIndex = history.length;
 
-            const { block, outLine } = createCommandBlock(command);
+            const { block, outContainer, writer } = createCommandBlock(command);
             let exitCode = null;
             let streamFinished = false;
 
@@ -228,8 +291,8 @@
                 });
 
                 if (resp.status === 401) {
-                    outLine.textContent = 'Сессия истекла. Обновите страницу.\n';
-                    finalizeCommandBlock(block, outLine, 1);
+                    writer.append('Сессия истекла. Обновите страницу.\n');
+                    finalizeCommandBlock(block, outContainer, writer, 1);
                     setStatus('Не авторизован', 'error');
                     return;
                 }
@@ -243,15 +306,15 @@
                     } catch {
                         // ignore
                     }
-                    outLine.textContent = message + '\n';
-                    finalizeCommandBlock(block, outLine, 1);
+                    writer.append(message + '\n');
+                    finalizeCommandBlock(block, outContainer, writer, 1);
                     setStatus('Ошибка', 'error');
                     return;
                 }
 
                 if (!contentType.includes('ndjson')) {
-                    outLine.textContent = 'Неверный формат ответа сервера\n';
-                    finalizeCommandBlock(block, outLine, 1);
+                    writer.append('Неверный формат ответа сервера\n');
+                    finalizeCommandBlock(block, outContainer, writer, 1);
                     setStatus('Ошибка', 'error');
                     return;
                 }
@@ -264,8 +327,7 @@
                             setStatus('Выполняется: ' + cwd, 'running');
                         }
                     } else if (event.type === 'output' && event.text) {
-                        outLine.textContent += event.text;
-                        outputEl.scrollTop = outputEl.scrollHeight;
+                        writer.append(event.text);
                         setStatus('Выполняется: ' + cwd, 'running');
                     } else if (event.type === 'done') {
                         streamFinished = true;
@@ -273,35 +335,32 @@
                         if (event.cwd) {
                             cwd = event.cwd;
                         }
-                        finalizeCommandBlock(block, outLine, exitCode, {
+                        finalizeCommandBlock(block, outContainer, writer, exitCode, {
                             cancelled: Boolean(event.cancelled),
                             timedOut: Boolean(event.timed_out),
                         });
                         setStatus(cwd, event.cancelled ? 'error' : '');
                     } else if (event.type === 'error') {
                         streamFinished = true;
-                        outLine.textContent += (event.message || 'Ошибка') + '\n';
-                        finalizeCommandBlock(block, outLine, 1);
+                        writer.append((event.message || 'Ошибка') + '\n');
+                        finalizeCommandBlock(block, outContainer, writer, 1);
                         setStatus('Ошибка', 'error');
                     }
                 });
 
                 if (!streamFinished) {
-                    finalizeCommandBlock(block, outLine, exitCode ?? 1, { cancelled: true });
+                    finalizeCommandBlock(block, outContainer, writer, exitCode ?? 1, { cancelled: true });
                     setStatus(cwd, 'error');
                 }
             } catch (error) {
                 if (error.name === 'AbortError') {
                     if (!streamFinished) {
-                        if (!outLine.textContent) {
-                            outLine.textContent = '\n';
-                        }
-                        finalizeCommandBlock(block, outLine, 130, { cancelled: true });
+                        finalizeCommandBlock(block, outContainer, writer, 130, { cancelled: true });
                         setStatus(cwd, 'error');
                     }
                 } else {
-                    outLine.textContent = 'Ошибка соединения\n';
-                    finalizeCommandBlock(block, outLine, 1);
+                    writer.append('Ошибка соединения\n');
+                    finalizeCommandBlock(block, outContainer, writer, 1);
                     setStatus('Ошибка соединения', 'error');
                 }
             } finally {

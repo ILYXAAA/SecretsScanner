@@ -175,7 +175,25 @@ body {
     font-size: inherit;
 }
 
-.shell-result.error {
+.shell-result-stream {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.shell-result-line {
+    display: block;
+    white-space: pre-wrap;
+    word-break: break-all;
+    min-height: 1.5em;
+}
+
+.shell-result-line.shell-result-partial {
+    color: #8b949e;
+}
+
+.shell-result.error,
+.shell-result.error .shell-result-line {
     color: #ffa198;
 }
 
