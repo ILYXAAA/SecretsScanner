@@ -239,6 +239,20 @@ body {
     cursor: not-allowed;
 }
 
+.shell-input-row button.btn-cancel {
+    background: #da3633;
+    border-color: rgba(240, 246, 252, 0.1);
+}
+
+.shell-input-row button.btn-cancel:hover:not(:disabled) {
+    background: #f85149;
+}
+
+.shell-input-row input:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
 .shell-status {
     padding: 4px 12px;
     font-size: 0.75rem;

@@ -12,6 +12,7 @@
     data-exec-url="{{ exec_url }}"
     data-unlock-url="{{ get_full_url('shrek/unlock') }}"
     data-lock-url="{{ get_full_url('shrek/lock') }}"
+    data-cancel-url="{{ cancel_url if authenticated else '' }}"
 >
     <div class="container">
         <div class="header">
@@ -41,12 +42,13 @@
                 <span class="shell-prompt" id="shellPrompt">$</span>
                 <input type="text" id="commandInput" placeholder="ls -la" autocomplete="off" spellcheck="false" autofocus>
                 <button type="submit" id="runBtn">Run</button>
+                <button type="button" id="cancelBtn" class="btn-cancel" hidden>Прервать</button>
             </form>
             <div class="shell-status" id="shellStatus">Готов</div>
         </div>
         {% endif %}
     </div>
 
-    <script src="/secret_scanner/static/js/shell.js?v=4"></script>
+    <script src="/secret_scanner/static/js/shell.js?v=5"></script>
 </body>
 </html>

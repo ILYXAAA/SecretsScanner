@@ -5,13 +5,15 @@ SHELL_PASSWORD_HASH = "$2b$12$lE1QFZo.me6JCmZQxCB0e.Jq/tdDj5y7DZpMpJRxMo2UdXAkOX
 import asyncio
 import hashlib
 import hmac
+import json
 import logging
 import os
 import time
-from typing import Dict, Optional
+import uuid
+from typing import Dict, Optional, Tuple
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from passlib.context import CryptContext
 from starlette.responses import Response
 
@@ -29,6 +31,7 @@ SHELL_EXEC_TIMEOUT = 120
 
 router = APIRouter()
 _shell_cwd: Dict[str, str] = {}
+_shell_jobs: Dict[str, Tuple[str, asyncio.subprocess.Process]] = {}
 
 DEFAULT_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
@@ -103,6 +106,124 @@ def _resolve_cd(cwd: str, target: str) -> Optional[str]:
     return new_cwd if os.path.isdir(new_cwd) else None
 
 
+def _ndjson_line(payload: dict) -> str:
+    return json.dumps(payload, ensure_ascii=False) + "\n"
+
+
+async def _kill_shell_job(job_id: str) -> None:
+    entry = _shell_jobs.pop(job_id, None)
+    if not entry:
+        return
+    _, process = entry
+    if process.returncode is None:
+        try:
+            process.kill()
+        except ProcessLookupError:
+            pass
+        except Exception:
+            logger.exception("Failed to kill shell job %s", job_id)
+
+
+async def _stream_shell_command(
+    request: Request,
+    token: str,
+    command: str,
+    cwd: str,
+):
+    job_id = str(uuid.uuid4())
+    process = await asyncio.create_subprocess_exec(
+        "/bin/bash",
+        "-c",
+        command,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+        cwd=cwd,
+        env=_shell_env(),
+    )
+    _shell_jobs[job_id] = (token, process)
+
+    async def event_generator():
+        cancelled = False
+        try:
+            yield _ndjson_line({"type": "start", "job_id": job_id, "cwd": cwd})
+            deadline = time.monotonic() + SHELL_EXEC_TIMEOUT
+
+            while True:
+                if await request.is_disconnected():
+                    cancelled = True
+                    await _kill_shell_job(job_id)
+                    break
+
+                if job_id not in _shell_jobs:
+                    cancelled = True
+                    break
+
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    await _kill_shell_job(job_id)
+                    yield _ndjson_line({
+                        "type": "output",
+                        "text": f"\nCommand timed out after {SHELL_EXEC_TIMEOUT}s\n",
+                    })
+                    yield _ndjson_line({
+                        "type": "done",
+                        "exit_code": 124,
+                        "cwd": cwd,
+                        "timed_out": True,
+                    })
+                    cancelled = False
+                    return
+
+                try:
+                    chunk = await asyncio.wait_for(
+                        process.stdout.read(4096),
+                        timeout=min(1.0, remaining),
+                    )
+                except asyncio.TimeoutError:
+                    if process.returncode is not None:
+                        break
+                    continue
+
+                if not chunk:
+                    break
+
+                text = chunk.decode("utf-8", errors="replace")
+                if text:
+                    yield _ndjson_line({"type": "output", "text": text})
+
+            if process.returncode is None:
+                await process.wait()
+            exit_code = process.returncode if process.returncode is not None else 1
+            if cancelled or job_id not in _shell_jobs:
+                yield _ndjson_line({
+                    "type": "done",
+                    "exit_code": 130,
+                    "cwd": cwd,
+                    "cancelled": True,
+                })
+            else:
+                yield _ndjson_line({
+                    "type": "done",
+                    "exit_code": exit_code,
+                    "cwd": cwd,
+                })
+        except Exception as e:
+            logger.error("Shell stream error: %s", e)
+            yield _ndjson_line({"type": "error", "message": str(e)})
+        finally:
+            _shell_jobs.pop(job_id, None)
+            if process.returncode is None:
+                try:
+                    process.kill()
+                except Exception:
+                    pass
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="application/x-ndjson",
+    )
+
+
 if SHELL:
 
     @router.get("/shrek", response_class=HTMLResponse)
@@ -114,6 +235,7 @@ if SHELL:
                 "request": request,
                 "authenticated": authenticated,
                 "exec_url": get_full_url("shrek/exec"),
+                "cancel_url": get_full_url("shrek/cancel"),
             },
         )
 
@@ -139,6 +261,29 @@ if SHELL:
         response.delete_cookie(SHELL_SESSION_COOKIE)
         return response
 
+    @router.post("/shrek/cancel")
+    async def shell_cancel(request: Request):
+        token = _require_shell_session(request)
+        if not token:
+            return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+        body = await request.json()
+        job_id = body.get("job_id", "").strip()
+        if not job_id:
+            return JSONResponse({"error": "job_id required"}, status_code=400)
+
+        entry = _shell_jobs.get(job_id)
+        if not entry:
+            return JSONResponse({"success": False, "error": "Команда не найдена или уже завершена"}, status_code=404)
+
+        job_token, _process = entry
+        if job_token != token:
+            return JSONResponse({"error": "Forbidden"}, status_code=403)
+
+        await _kill_shell_job(job_id)
+        user_logger.info("Shell command cancelled: job_id=%s", job_id)
+        return JSONResponse({"success": True})
+
     @router.post("/shrek/exec")
     async def shell_exec(request: Request):
         token = _require_shell_session(request)
@@ -157,49 +302,28 @@ if SHELL:
             new_cwd = _resolve_cd(cwd, target)
             if new_cwd is None:
                 label = target or "~"
-                return JSONResponse({
-                    "output": f"cd: {label}: No such file or directory\n",
-                    "exit_code": 1,
-                    "cwd": cwd,
-                })
+                output = f"cd: {label}: No such file or directory\n"
+
+                async def cd_error_stream():
+                    yield _ndjson_line({"type": "start", "job_id": None, "cwd": cwd})
+                    yield _ndjson_line({"type": "output", "text": output})
+                    yield _ndjson_line({"type": "done", "exit_code": 1, "cwd": cwd})
+
+                return StreamingResponse(cd_error_stream(), media_type="application/x-ndjson")
+
             _shell_cwd[token] = new_cwd
             user_logger.info(f"Shell cd: {new_cwd}")
-            return JSONResponse({"output": "", "exit_code": 0, "cwd": new_cwd})
+
+            async def cd_ok_stream():
+                yield _ndjson_line({"type": "start", "job_id": None, "cwd": new_cwd})
+                yield _ndjson_line({"type": "done", "exit_code": 0, "cwd": new_cwd})
+
+            return StreamingResponse(cd_ok_stream(), media_type="application/x-ndjson")
 
         user_logger.info(f"Shell exec: {command!r} (cwd={cwd})")
 
         try:
-            process = await asyncio.create_subprocess_exec(
-                "/bin/bash",
-                "-c",
-                command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-                cwd=cwd,
-                env=_shell_env(),
-            )
-            stdout, _ = await asyncio.wait_for(
-                process.communicate(), timeout=SHELL_EXEC_TIMEOUT
-            )
-            output = stdout.decode("utf-8", errors="replace")
-            if output and not output.endswith("\n"):
-                output += "\n"
-
-            return JSONResponse({
-                "output": output,
-                "exit_code": process.returncode,
-                "cwd": cwd,
-            })
-        except asyncio.TimeoutError:
-            try:
-                process.kill()
-            except Exception:
-                pass
-            return JSONResponse({
-                "output": f"Command timed out after {SHELL_EXEC_TIMEOUT}s\n",
-                "exit_code": 124,
-                "cwd": cwd,
-            }, status_code=408)
+            return await _stream_shell_command(request, token, command, cwd)
         except Exception as e:
             logger.error(f"Shell exec error: {e}")
             return JSONResponse({"error": str(e)}, status_code=500)
