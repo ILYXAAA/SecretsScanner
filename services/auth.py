@@ -12,8 +12,15 @@ import logging
 
 from urllib.parse import quote, urlparse
 
-from config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, USERS_DATABASE_URL, BASE_URL, get_full_url
-from models import UserBase, User, AuthenticationException
+import hashlib
+import os
+import secrets as pysecrets
+
+from config import (
+    SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, USERS_DATABASE_URL, BASE_URL, get_full_url,
+    REFRESH_TOKEN_EXPIRE_DAYS, REFRESH_TOKEN_MAX_DAYS,
+)
+from models import UserBase, User, RefreshToken, AuthenticationException
 
 logger = logging.getLogger("main")
 
@@ -85,6 +92,136 @@ def verify_token(token: str):
         return username
     except JWTError:
         return None
+
+ACCESS_COOKIE = "auth_token"
+REFRESH_COOKIE = "secrets_scanner_refresh_token"
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+def _hash_refresh_token(raw_token: str) -> str:
+    return hashlib.sha256(raw_token.encode()).hexdigest()
+
+def _cookie_secure() -> bool:
+    return os.getenv("HTTPS", "false").lower() == "true"
+
+def _open_user_session() -> Session:
+    user_engine = create_engine(USERS_DATABASE_URL, connect_args={"check_same_thread": False} if "sqlite" in USERS_DATABASE_URL else {})
+    UserBase.metadata.create_all(bind=user_engine)
+    return sessionmaker(autocommit=False, autoflush=False, bind=user_engine)()
+
+def create_refresh_token(username: str) -> str:
+    """Создаёт refresh-токен (в БД хранится только хэш) и возвращает его значение."""
+    raw_token = pysecrets.token_urlsafe(48)
+    now = _utcnow()
+    db = _open_user_session()
+    try:
+        db.query(RefreshToken).filter(RefreshToken.max_expires_at < now).delete()
+        db.add(RefreshToken(
+            username=username,
+            token_hash=_hash_refresh_token(raw_token),
+            created_at=now,
+            expires_at=now + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
+            max_expires_at=now + timedelta(days=REFRESH_TOKEN_MAX_DAYS),
+        ))
+        db.commit()
+    finally:
+        db.close()
+    return raw_token
+
+def use_refresh_token(raw_token: str) -> Optional[str]:
+    """Проверяет refresh-токен, продлевает его скользящее окно и возвращает имя пользователя."""
+    if not raw_token:
+        return None
+    now = _utcnow()
+    db = _open_user_session()
+    try:
+        record = db.query(RefreshToken).filter(
+            RefreshToken.token_hash == _hash_refresh_token(raw_token)
+        ).first()
+        if not record:
+            return None
+        if (record.expires_at < now or record.max_expires_at < now
+                or not db.query(User).filter(User.username == record.username).first()):
+            db.delete(record)
+            db.commit()
+            return None
+        record.expires_at = min(now + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS), record.max_expires_at)
+        db.commit()
+        return record.username
+    finally:
+        db.close()
+
+def revoke_refresh_token(raw_token: Optional[str]):
+    if not raw_token:
+        return
+    db = _open_user_session()
+    try:
+        db.query(RefreshToken).filter(
+            RefreshToken.token_hash == _hash_refresh_token(raw_token)
+        ).delete()
+        db.commit()
+    finally:
+        db.close()
+
+def _set_access_cookie(response, access_token: str):
+    response.set_cookie(
+        key=ACCESS_COOKIE,
+        value=access_token,
+        httponly=True,
+        secure=_cookie_secure(),
+        samesite="lax",
+        max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
+
+def set_auth_cookies(response, username: str):
+    """Выставляет access- и refresh-cookie после успешного логина."""
+    _set_access_cookie(response, create_access_token(
+        data={"sub": username}, expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    ))
+    response.set_cookie(
+        key=REFRESH_COOKIE,
+        value=create_refresh_token(username),
+        httponly=True,
+        secure=_cookie_secure(),
+        samesite="lax",
+        max_age=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600,
+    )
+
+def clear_auth_cookies(response):
+    response.delete_cookie(key=ACCESS_COOKIE)
+    response.delete_cookie(key=REFRESH_COOKIE)
+
+async def refresh_access_token_middleware(request: Request, call_next):
+    """Если access-токен истёк, а refresh-токен валиден - прозрачно выдаёт новый access-токен."""
+    access = request.cookies.get(ACCESS_COOKIE)
+    refresh = request.cookies.get(REFRESH_COOKIE)
+    new_username = None
+    new_access = None
+
+    if refresh and not (access and verify_token(access)):
+        try:
+            new_username = use_refresh_token(refresh)
+        except Exception:
+            logger.error("Ошибка при обновлении токена доступа", exc_info=True)
+
+    if new_username:
+        new_access = create_access_token(
+            data={"sub": new_username}, expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        )
+        # Подменяем cookie во входящем запросе, чтобы get_current_user увидел свежий токен
+        cookies = {k: v for k, v in request.cookies.items() if k != ACCESS_COOKIE}
+        cookies[ACCESS_COOKIE] = new_access
+        cookie_header = "; ".join(f"{k}={v}" for k, v in cookies.items()).encode("latin-1")
+        request.scope["headers"] = [
+            (k, v) for k, v in request.scope["headers"] if k != b"cookie"
+        ] + [(b"cookie", cookie_header)]
+
+    response = await call_next(request)
+
+    if new_access and ACCESS_COOKIE not in response.headers.get("set-cookie", ""):
+        _set_access_cookie(response, new_access)
+    return response
 
 def verify_credentials(username: str, password: str, user_db: Session):
     user = user_db.query(User).filter(User.username == username).first()
@@ -210,5 +347,5 @@ def build_login_url_with_next(request: Request) -> str:
 # Exception handler
 async def auth_exception_handler(request: Request, exc: AuthenticationException):
     response = RedirectResponse(url=build_login_url_with_next(request), status_code=302)
-    response.delete_cookie(key="auth_token")  # Удаляем невалидный токен
+    clear_auth_cookies(response)  # Удаляем невалидные токены (access и refresh)
     return response

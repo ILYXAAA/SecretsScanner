@@ -2,19 +2,20 @@ from fastapi import APIRouter, Request, Form, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
-from datetime import timedelta
-import os
 
-from config import get_full_url, ACCESS_TOKEN_EXPIRE_MINUTES, USERS_DATABASE_URL
+from config import get_full_url, USERS_DATABASE_URL
 from models import User
 from services.auth import (
     verify_credentials, 
-    create_access_token, 
     verify_token, 
     get_user_db,
     is_admin,
     ensure_user_schema,
     get_safe_redirect_url,
+    set_auth_cookies,
+    clear_auth_cookies,
+    revoke_refresh_token,
+    REFRESH_COOKIE,
 )
 from services.templates import templates
 import logging
@@ -54,7 +55,7 @@ async def login_page(request: Request):
         else:
             user_logger.error(f"Service got an invalid or expired token")
         response = templates.TemplateResponse("login.html", _login_template_context(request))
-        response.delete_cookie(key="auth_token")
+        clear_auth_cookies(response)
         return response
     
     return templates.TemplateResponse("login.html", _login_template_context(request))
@@ -68,20 +69,9 @@ async def login(
     user_db: Session = Depends(get_user_db),
 ):
     if verify_credentials(username, password, user_db):
-        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-        access_token = create_access_token(
-            data={"sub": username}, expires_delta=access_token_expires
-        )
         redirect_url = get_safe_redirect_url(next or None)
         response = RedirectResponse(url=redirect_url, status_code=302)
-        response.set_cookie(
-            key="auth_token", 
-            value=access_token, 
-            httponly=True,
-            secure=True if os.getenv("HTTPS", "false").lower() == "true" else False,
-            samesite="lax",
-            max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60
-        )
+        set_auth_cookies(response, username)
         user_logger.info(f"User '{username}' successfully logged in")
         return response
     user_logger.error(f"Failed login attempt for username: '{username}'")
@@ -91,9 +81,10 @@ async def login(
     )
 
 @router.get("/logout")
-async def logout():
+async def logout(request: Request):
+    revoke_refresh_token(request.cookies.get(REFRESH_COOKIE))
     response = RedirectResponse(url=get_full_url(""), status_code=302)
-    response.delete_cookie(key="auth_token")
+    clear_auth_cookies(response)
     return response
 
 @router.get("/maintenance", response_class=HTMLResponse)
@@ -138,19 +129,8 @@ async def maintenance_login(request: Request, username: str = Form(...), passwor
                 })
             
             # Admin login successful
-            access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-            access_token = create_access_token(
-                data={"sub": username}, expires_delta=access_token_expires
-            )
             response = RedirectResponse(url=get_full_url("admin"), status_code=302)
-            response.set_cookie(
-                key="auth_token", 
-                value=access_token, 
-                httponly=True,
-                secure=True if os.getenv("HTTPS", "false").lower() == "true" else False,
-                samesite="lax",
-                max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60
-            )
+            set_auth_cookies(response, username)
             user_logger.info(f"Admin '{username}' successfully logged in during maintenance")
             logger.info(f"Admin '{username}' successfully logged in during maintenance, redirecting to admin panel")
             return response

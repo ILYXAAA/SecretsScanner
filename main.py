@@ -260,6 +260,11 @@ async def maintenance_mode_middleware(request: Request, call_next):
 
 app.add_middleware(BaseHTTPMiddleware, dispatch=maintenance_mode_middleware)
 
+# Прозрачное обновление access-токена по refresh-токену (добавляется последним,
+# чтобы выполняться раньше остальных middleware)
+from services.auth import refresh_access_token_middleware
+app.add_middleware(BaseHTTPMiddleware, dispatch=refresh_access_token_middleware)
+
 # Mount static files
 app.mount("/ico", StaticFiles(directory="ico"), name="ico")
 

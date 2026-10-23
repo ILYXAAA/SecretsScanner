@@ -136,6 +136,15 @@ class User(UserBase):
     role = Column(String, default="user", nullable=False)  # user, admin
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
+class RefreshToken(UserBase):
+    __tablename__ = "refresh_tokens"
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, index=True, nullable=False)
+    token_hash = Column(String, unique=True, index=True, nullable=False)  # sha256 от токена
+    created_at = Column(DateTime, nullable=False)  # UTC (naive)
+    expires_at = Column(DateTime, nullable=False)  # UTC (naive), скользящее окно
+    max_expires_at = Column(DateTime, nullable=False)  # UTC (naive), абсолютный предел
+
 # Custom exceptions
 class AuthenticationException(Exception):
     pass
