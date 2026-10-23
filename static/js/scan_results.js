@@ -1143,6 +1143,32 @@ function renderTable() {
     tableHTML += '</tbody></table>';
     tableContainer.innerHTML = tableHTML;
     initializeTableEventListeners();
+    syncSelectionWithRenderedRows(pageRows, startIndex);
+}
+
+// После перерисовки выделение должно совпадать с тем, что видно в таблице:
+// иначе скрытые id (например, уже подтверждённые) попадут в массовое действие.
+function syncSelectionWithRenderedRows(pageRows, startIndex) {
+    if (selectedSecrets.size === 0) return;
+
+    const renderedIds = new Set();
+    pageRows.forEach(row => getRowMemberIds(row).forEach(id => renderedIds.add(id)));
+    Array.from(selectedSecrets).forEach(id => {
+        if (!renderedIds.has(id)) selectedSecrets.delete(id);
+    });
+
+    if (selectedSecrets.size === 0) {
+        lastClickedIndex = -1;
+        return;
+    }
+
+    const cssClass = selectedSecrets.size > 1 ? 'multi-selected' : 'selected';
+    pageRows.forEach((row, index) => {
+        const memberIds = getRowMemberIds(row);
+        if (!memberIds.some(id => selectedSecrets.has(id))) return;
+        const rowEl = getRowElement(startIndex + index);
+        if (rowEl) rowEl.classList.add(cssClass);
+    });
 }
 
 function getStatusHTML(secret) {
