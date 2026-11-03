@@ -65,6 +65,19 @@ FALSES_GIT_SSL_VERIFY = _env_unquoted("FALSES_GIT_SSL_VERIFY", "false").lower() 
 # Full path to git binary (systemd/minimal PATH often omits /usr/bin)
 FALSES_GIT_BINARY = _env_unquoted("FALSES_GIT_BINARY")
 
+# Способ доставки файлов в репозиторий:
+#   direct — прямой push в целевую ветку (старое поведение, по умолчанию)
+#   pr     — push в ветку бота + Pull Request в целевую ветку
+# Переключается в админке (Данные → falses.txt для CI); это значение — только
+# значение по умолчанию, пока в админке ничего не выбрано
+GIT_PUSH_MODE = _env_unquoted("GIT_PUSH_MODE", "direct").lower()
+# Префикс веток бота: <prefix>/<путь-файла>, по одной ветке и одному PR на файл
+GIT_PR_BRANCH_PREFIX = _env_unquoted("GIT_PR_BRANCH_PREFIX", "bot/secrets-scanner").strip("/")
+# Автозавершение PR сразу после одобрения обязательным согласующим
+GIT_PR_AUTO_COMPLETE = _env_unquoted("GIT_PR_AUTO_COMPLETE", "true").lower() in ("1", "true", "yes", "on")
+# squash | noFastForward | rebase | rebaseMerge
+GIT_PR_MERGE_STRATEGY = _env_unquoted("GIT_PR_MERGE_STRATEGY", "squash")
+
 # LANGUAGE_SEARCH repo (forbidden falses + languages_repo_config.yml) — URL только из .env
 LANGUAGE_SEARCH_GIT_REPO_URL = _env_unquoted("LANGUAGE_SEARCH_GIT_REPO_URL")
 LANGUAGE_SEARCH_GIT_BRANCH = _env_unquoted("LANGUAGE_SEARCH_GIT_BRANCH", "main")

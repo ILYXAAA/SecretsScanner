@@ -371,6 +371,18 @@ def _git_clone_repo(repo_dir, branch_name, work_dir, options: GitPushOptions | N
     raise RuntimeError("git clone failed (check git PAT and repo URL)")
 
 
+def is_pr_mode() -> bool:
+    from services.git_push_mode_service import get_git_push_mode
+
+    return get_git_push_mode() == "pr"
+
+
+def _push_via_pull_request(content: str, repo_file_path: str, commit_message: str, options: GitPushOptions):
+    from services.ado_git_pr_service import push_content_via_pull_request
+
+    return push_content_via_pull_request(content, repo_file_path, commit_message, options)
+
+
 def push_content_via_git_cli(
     content: str,
     repo_file_path: str,
@@ -379,6 +391,9 @@ def push_content_via_git_cli(
     options: GitPushOptions | None = None,
 ):
     opts = options or default_git_push_options()
+    if is_pr_mode():
+        return _push_via_pull_request(content, repo_file_path, commit_message, opts)
+
     branch_name = (opts.branch or "script_with_Docker").strip()
     repo_rel_path = _normalize_repo_file_path(repo_file_path).lstrip("/")
 
@@ -435,6 +450,9 @@ def push_content_to_git(
     opts = options or default_git_push_options()
     if not is_git_push_configured_for(opts):
         return {"pushed": False, "skipped": True, "reason": "git push not configured"}
+
+    if is_pr_mode():
+        return _push_via_pull_request(content, repo_file_path, commit_message, opts)
 
     content_size = len(content.encode("utf-8"))
     if content_size > MAX_REST_PUSH_BYTES:

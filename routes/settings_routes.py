@@ -65,6 +65,16 @@ def _settings_action_response(
     return RedirectResponse(url=f"/secret_scanner/settings?error={encoded_error}", status_code=302)
 
 
+def _with_pr_note(message: str, git_push: dict | None) -> str:
+    if not git_push or git_push.get("method") != "pr" or not git_push.get("pushed"):
+        return message
+    return (
+        f"{message}. Изменения ушли в PR #{git_push.get('pull_request_id')}"
+        f" и попадут в {git_push.get('target_branch')} после согласования"
+        f" ({git_push.get('pull_request_url') or git_push.get('branch')})"
+    )
+
+
 def _parse_form_bool(value: str) -> bool:
     return (value or "").strip().lower() in ("1", "true", "yes", "on")
 
@@ -296,7 +306,7 @@ async def update_rules_route(
                 if git_push.get("reason") == "no changes":
                     message = f"{message}. В репозитории уже актуальная версия файла"
                 else:
-                    message = RULES_GIT_PUSH_SUCCESS_MESSAGES[rules_key]
+                    message = _with_pr_note(RULES_GIT_PUSH_SUCCESS_MESSAGES[rules_key], git_push)
             except Exception as e:
                 logger.error("Rules git push error: %s", e, exc_info=True)
                 return _settings_action_response(
@@ -348,7 +358,7 @@ async def update_fp_rules_route(
                 if git_push.get("reason") == "no changes":
                     message = f"{message}. В репозитории уже актуальная версия файла"
                 else:
-                    message = RULES_GIT_PUSH_SUCCESS_MESSAGES[rules_key]
+                    message = _with_pr_note(RULES_GIT_PUSH_SUCCESS_MESSAGES[rules_key], git_push)
             except Exception as e:
                 logger.error("FP rules git push error: %s", e, exc_info=True)
                 return _settings_action_response(
@@ -400,7 +410,7 @@ async def update_excluded_extensions_route(
                 if git_push.get("reason") == "no changes":
                     message = f"{message}. В репозитории уже актуальная версия файла"
                 else:
-                    message = RULES_GIT_PUSH_SUCCESS_MESSAGES[rules_key]
+                    message = _with_pr_note(RULES_GIT_PUSH_SUCCESS_MESSAGES[rules_key], git_push)
             except Exception as e:
                 logger.error("Excluded extensions git push error: %s", e, exc_info=True)
                 return _settings_action_response(
@@ -456,7 +466,7 @@ async def update_languages_repo_config_route(
             if git_push.get("skipped") and git_push.get("reason") == "no changes":
                 message = f"{message}. В репозитории уже актуальная версия файла"
             elif git_push.get("pushed"):
-                message = "Правила языков/расширений обновлены и запушены в LANGUAGE_SEARCH"
+                message = _with_pr_note("Правила языков/расширений обновлены и запушены в LANGUAGE_SEARCH", git_push)
             elif not git_push.get("pushed"):
                 return _settings_action_response(
                     request,

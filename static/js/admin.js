@@ -780,9 +780,59 @@ async function loadFalsesStatus() {
         const fileStatus = data.file_exists ? 'существует' : 'ещё не создан';
 
         statusEl.textContent = `Файл: ${data.file_path} (${fileStatus}). Push в Git: ${gitStatus}.`;
+        renderGitPushMode(data.git_push_mode);
     } catch (error) {
         console.error('Falses status error:', error);
         statusEl.textContent = 'Не удалось загрузить статус falses.txt';
+    }
+}
+
+function renderGitPushMode(info) {
+    const select = document.getElementById('gitPushModeSelect');
+    const infoEl = document.getElementById('gitPushModeInfo');
+    if (!select || !infoEl || !info) return;
+
+    select.value = info.mode;
+    select.dataset.current = info.mode;
+    const description = info.mode === 'pr'
+        ? 'Бот пушит в свою ветку и создаёт PR — изменения попадут в целевую ветку после согласования.'
+        : 'Бот пушит напрямую в целевую ветку (нужно право обхода политик ветки).';
+    const changed = info.source === 'admin'
+        ? ` Изменено: ${info.updated_by || '?'}, ${info.updated_at ? new Date(info.updated_at).toLocaleString() : ''}.`
+        : ' Значение по умолчанию из .env.';
+    infoEl.textContent = description + changed;
+    infoEl.style.color = '#666';
+}
+
+async function changeGitPushMode(mode) {
+    const select = document.getElementById('gitPushModeSelect');
+    const infoEl = document.getElementById('gitPushModeInfo');
+    const previous = select.dataset.current || 'direct';
+    const confirmMessage = mode === 'pr'
+        ? 'Переключить отправку в Git на Pull Request? Изменения falses.txt и правил будут попадать в ветку только после согласования.'
+        : 'Вернуть прямой push в ветку без согласования?';
+    if (!confirm(confirmMessage)) {
+        select.value = previous;
+        return;
+    }
+
+    select.disabled = true;
+    try {
+        const formData = new FormData();
+        formData.append('mode', mode);
+        const response = await fetch('/secret_scanner/admin/git-push-mode', { method: 'POST', body: formData });
+        const data = await response.json();
+        if (!response.ok || data.status !== 'success') {
+            throw new Error(data.message || 'Не удалось изменить режим');
+        }
+        renderGitPushMode(data.git_push_mode);
+    } catch (error) {
+        console.error('Git push mode error:', error);
+        select.value = previous;
+        infoEl.textContent = `Ошибка: ${error.message}`;
+        infoEl.style.color = '#721c24';
+    } finally {
+        select.disabled = false;
     }
 }
 

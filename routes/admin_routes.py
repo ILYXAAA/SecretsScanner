@@ -15,6 +15,7 @@ import re
 from services.auth import ADMIN_ROLE, USER_ROLE, VALID_ROLES, get_admin_user, get_user_db, get_password_hash
 from services.falses_export_service import refresh_falses_file, FALSES_FILE_PATH
 from services.falses_git_push_service import is_falses_git_push_configured
+from services.git_push_mode_service import GIT_PUSH_MODES, get_git_push_mode_info, set_git_push_mode
 from services.backup_service import create_database_backup, get_backup_status
 from models import User, Secret, Scan, Project, Settings
 from services.templates import templates
@@ -758,7 +759,12 @@ def _format_falses_refresh_message(result: dict) -> str:
 
     git_push = result.get("git_push")
     if git_push:
-        if git_push.get("pushed"):
+        if git_push.get("pushed") and git_push.get("method") == "pr":
+            parts.append(
+                f"PR #{git_push.get('pull_request_id')} → {git_push.get('target_branch')} ожидает согласования"
+                f" ({git_push.get('pull_request_url') or git_push.get('branch')})"
+            )
+        elif git_push.get("pushed"):
             method = git_push.get("method", "git")
             branch = git_push.get("branch")
             if branch:
@@ -783,6 +789,34 @@ async def admin_falses_status(_: str = Depends(get_admin_user)):
         "file_path": str(FALSES_FILE_PATH),
         "file_exists": FALSES_FILE_PATH.exists(),
         "git_push_configured": is_falses_git_push_configured(),
+        "git_push_mode": get_git_push_mode_info(),
+    }
+
+
+@router.post("/admin/git-push-mode")
+async def admin_set_git_push_mode(
+    mode: str = Form(...),
+    current_user: str = Depends(get_admin_user),
+):
+    """Switch delivery of falses.txt / rules to Git: direct push or Pull Request."""
+    mode = (mode or "").strip().lower()
+    if mode not in GIT_PUSH_MODES:
+        return JSONResponse(
+            status_code=400,
+            content={"status": "error", "message": f"Неизвестный режим: {mode}"},
+        )
+    try:
+        set_git_push_mode(mode, current_user)
+    except Exception as e:
+        logger.error("Error setting git push mode: %s", e, exc_info=True)
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+    logger.warning("Git push mode set to '%s' by %s", mode, current_user)
+    mode_text = "через Pull Request" if mode == "pr" else "прямым push"
+    return {
+        "status": "success",
+        "message": f"Файлы будут отправляться в репозиторий {mode_text}",
+        "git_push_mode": get_git_push_mode_info(),
     }
 
 

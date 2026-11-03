@@ -182,6 +182,23 @@ API_KEY=your_api_key
 SECRET_KEY=your_secret_key
 ```
 
+### Доставка falses.txt и правил в репозиторий (direct / PR)
+Режим переключается в админке: **Данные → falses.txt для CI → Способ отправки в Git**.
+Выбор сохраняется в БД (таблица `settings`, ключ `git_push_mode`) и применяется сразу, без перезапуска.
+Переменная `GIT_PUSH_MODE` задаёт только значение по умолчанию, пока в админке ничего не выбрано.
+```env
+GIT_PUSH_MODE=direct                      # direct (по умолчанию) | pr
+GIT_PR_BRANCH_PREFIX=bot/secrets-scanner  # ветки бота: <prefix>/<путь-файла>
+GIT_PR_AUTO_COMPLETE=true                 # слить PR сразу после одобрения
+GIT_PR_MERGE_STRATEGY=squash              # squash | noFastForward | rebase | rebaseMerge
+```
+В режиме `pr` бот пересобирает свою ветку от головы целевой ветки (`FALSES_GIT_BRANCH` / `LANGUAGE_SEARCH_GIT_BRANCH`),
+делает force push только в неё и создаёт (или обновляет уже открытый) PR — по одному PR на каждый файл.
+Владельцу PAT нужны права Contribute + Contribute to pull requests, «Bypass policies when pushing» — Deny.
+
+**Откат:** выбрать в админке «Прямой push в ветку». Смена режима пишется в лог с именем администратора.
+Прямой push снова сработает, только если у PAT есть право обходить политики ветки.
+
 ### Первый запуск
 1. Установка зависимостей: `pip install -r requirements.txt`
 2. Запуск мастера настройки: `python run.py`
