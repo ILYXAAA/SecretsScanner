@@ -1131,12 +1131,43 @@ async def bulk_secret_action(
 ):
     try:
         data = await request.json()
-        secret_ids = data.get("secret_ids", [])
+        raw_secret_ids = data.get("secret_ids", [])
         action = data.get("action")
         value = data.get("value", "")
-        comment = data.get("comment", "")
-        
+        comment = data.get("comment", "") or ""
+        scan_id = data.get("scan_id")
+
+        # Строгая валидация: массовое изменение статуса необратимо по смыслу
+        # (уходит в falses), поэтому любые сомнительные входные данные — отказ.
+        if not isinstance(raw_secret_ids, list) or not raw_secret_ids:
+            return JSONResponse(status_code=400, content={"status": "error", "message": "secret_ids must be a non-empty list"})
+        try:
+            secret_ids = list(dict.fromkeys(int(sid) for sid in raw_secret_ids))
+        except (TypeError, ValueError):
+            return JSONResponse(status_code=400, content={"status": "error", "message": "secret_ids must be integers"})
+
+        allowed_values = {
+            "status": {"Confirmed", "Refuted", "No status"},
+            "severity": {"High", "Potential"},
+        }
+        if action not in allowed_values or value not in allowed_values[action]:
+            return JSONResponse(status_code=400, content={"status": "error", "message": "Invalid action or value"})
+
         secrets = db.query(Secret).filter(Secret.id.in_(secret_ids)).all()
+
+        if len(secrets) != len(secret_ids):
+            found_ids = {s.id for s in secrets}
+            missing = [sid for sid in secret_ids if sid not in found_ids]
+            logger.warning(f"Bulk action by '{current_user}' rejected: unknown secret ids {missing[:20]}")
+            return JSONResponse(status_code=400, content={"status": "error", "message": "Some secrets were not found"})
+
+        if scan_id:
+            foreign = [s.id for s in secrets if s.scan_id != scan_id]
+            if foreign:
+                logger.warning(
+                    f"Bulk action by '{current_user}' rejected: secrets {foreign[:20]} do not belong to scan '{scan_id}'"
+                )
+                return JSONResponse(status_code=400, content={"status": "error", "message": "Secrets do not belong to this scan"})
         affected_scan_ids = set()
         changed_at = datetime.now()
         
@@ -1166,7 +1197,7 @@ async def bulk_secret_action(
         
         user_logger.info(
             f"User '{current_user}' performed bulk action '{action}' "
-            f"on {len(secret_ids)} secrets (value: '{value}')"
+            f"on {len(secret_ids)} secrets (value: '{value}', scan: '{scan_id}', ids: {secret_ids})"
         )
         return {"status": "success"}
     

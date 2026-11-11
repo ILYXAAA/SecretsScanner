@@ -1,7 +1,10 @@
 // Global variables
 let selectedSecrets = new Set();
 let currentSecret = null;
-let lastClickedIndex = -1;
+// Ключ строки (см. getRowKey), от которой считается Shift-диапазон.
+let lastClickedKey = null;
+// Защита от повторной отправки массового действия, пока предыдущее не завершилось.
+let bulkActionInFlight = false;
 let sortColumns = [];
 let allSecrets = [];
 let filteredSecrets = [];
@@ -410,46 +413,30 @@ async function confirmGroupMember(secretId) {
 }
 
 async function updateGroupStatus(status) {
+    if (bulkActionInFlight) return;
     if (!currentGroup || !currentGroup.memberIds || currentGroup.memberIds.length === 0) return;
+
+    // Снимок состава группы в момент нажатия.
+    const secretIds = currentGroup.memberIds.slice();
 
     let comment = '';
     if (status === 'Refuted') {
-        const input = prompt('Введите комментарий (опционально):');
+        const input = prompt(`Будет опровергнуто секретов: ${secretIds.length}.
+Введите комментарий (опционально):`);
         if (input === null) return;
         comment = input;
     }
 
+    bulkActionInFlight = true;
+    setBulkButtonsDisabled(true);
     try {
-        const response = await fetch('/secret_scanner/secrets/bulk-action', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                secret_ids: currentGroup.memberIds,
-                action: 'status',
-                value: status,
-                comment,
-            }),
-        });
-
+        const response = await sendBulkAction(secretIds, 'status', status, comment);
         if (!response.ok) {
             alert('Ошибка при обновлении статуса группы');
             return;
         }
 
-        currentGroup.memberIds.forEach(secretId => {
-            const secret = allSecrets.find(s => s.id === secretId);
-            if (!secret) return;
-            secret.status = status;
-            if (status === 'Refuted') {
-                secret.is_exception = true;
-                secret.exception_comment = comment;
-                secret.refuted_at = new Date().toISOString().slice(0, 16).replace('T', ' ');
-            } else {
-                secret.is_exception = false;
-                secret.exception_comment = null;
-                secret.refuted_at = null;
-            }
-        });
+        applyLocalSecretChange(secretIds, 'status', status, comment);
 
         closeSecretsDetailsModal();
         applyFiltersSync();
@@ -457,6 +444,9 @@ async function updateGroupStatus(status) {
     } catch (error) {
         console.error('Error updating group status:', error);
         alert('Ошибка при обновлении статуса группы');
+    } finally {
+        bulkActionInFlight = false;
+        setBulkButtonsDisabled(false);
     }
 }
 
@@ -939,6 +929,7 @@ function applyFiltersSync(options = {}) {
     }
     if (clearSelection) {
         selectedSecrets.clear();
+        lastClickedKey = null;
     }
     if (clearDetail) {
         showEmptyDetail();
@@ -1085,7 +1076,7 @@ function renderTable() {
             const severityClass = severityLabel.toLowerCase() === 'mixed' ? 'potential' : severityLabel.toLowerCase();
             const groupConfidenceLabel = getGroupConfidenceLabel(row.members);
             tableHTML += `
-            <tr class="secret-row group-row ${severityClass}" data-is-group="true" data-group-key="${encodeURIComponent(row.groupKey)}" data-row-index="${globalIndex}">
+            <tr class="secret-row group-row ${severityClass}" data-is-group="true" data-group-key="${encodeURIComponent(row.groupKey)}" data-row-key="${encodeURIComponent(getRowKey(row))}" data-row-index="${globalIndex}">
                 <td>
                     <div class="secret-value">${row.count} секретов в файле</div>
                 </td>
@@ -1112,7 +1103,7 @@ function renderTable() {
         `;
         } else {
             tableHTML += `
-            <tr class="secret-row ${safeHtml(row.severity).toLowerCase()}" data-secret-id="${row.id}" data-row-index="${globalIndex}">
+            <tr class="secret-row ${safeHtml(row.severity).toLowerCase()}" data-secret-id="${row.id}" data-row-key="${encodeURIComponent(getRowKey(row))}" data-row-index="${globalIndex}">
                 <td>
                     <div class="secret-value">${escapeHtml(row.secret)}</div>
                 </td>
@@ -1143,32 +1134,63 @@ function renderTable() {
     tableHTML += '</tbody></table>';
     tableContainer.innerHTML = tableHTML;
     initializeTableEventListeners();
-    syncSelectionWithRenderedRows(pageRows, startIndex);
+    syncSelectionWithRenderedRows();
+}
+
+// Стабильный ключ строки таблицы. Индекс строки в displayRows меняется при каждом
+// пересчёте (сортировка по статусу, перегруппировка path+status), поэтому
+// идентифицировать строку по индексу нельзя — только по ключу.
+function getRowKey(row) {
+    if (!row) return null;
+    return row.isGroup ? `g:${row.groupKey}` : `s:${row.id}`;
+}
+
+function findDisplayRowIndexByKey(rowKey) {
+    if (!rowKey) return -1;
+    return displayRows.findIndex(row => getRowKey(row) === rowKey);
+}
+
+function getCurrentPageRows() {
+    const startIndex = (currentPage - 1) * pageSize;
+    return displayRows.slice(startIndex, Math.min(startIndex + pageSize, displayRows.length));
+}
+
+function getCurrentPageSecretIds() {
+    const ids = new Set();
+    getCurrentPageRows().forEach(row => getRowMemberIds(row).forEach(id => ids.add(id)));
+    return ids;
+}
+
+// Единственный источник истины для подсветки — selectedSecrets.
+// Подсветка всегда вычисляется из него, чтобы то, что видит пользователь,
+// в точности совпадало с тем, что уйдёт в массовое действие.
+function applySelectionClasses() {
+    const cssClass = selectedSecrets.size > 1 ? 'multi-selected' : 'selected';
+    document.querySelectorAll('tr.secret-row').forEach(rowEl => {
+        rowEl.classList.remove('selected', 'multi-selected');
+        const row = getDisplayRowByElement(rowEl);
+        if (!row) return;
+        if (getRowMemberIds(row).some(id => selectedSecrets.has(id))) {
+            rowEl.classList.add(cssClass);
+        }
+    });
 }
 
 // После перерисовки выделение должно совпадать с тем, что видно в таблице:
 // иначе скрытые id (например, уже подтверждённые) попадут в массовое действие.
-function syncSelectionWithRenderedRows(pageRows, startIndex) {
-    if (selectedSecrets.size === 0) return;
-
-    const renderedIds = new Set();
-    pageRows.forEach(row => getRowMemberIds(row).forEach(id => renderedIds.add(id)));
-    Array.from(selectedSecrets).forEach(id => {
-        if (!renderedIds.has(id)) selectedSecrets.delete(id);
-    });
-
-    if (selectedSecrets.size === 0) {
-        lastClickedIndex = -1;
-        return;
+function syncSelectionWithRenderedRows() {
+    if (selectedSecrets.size > 0) {
+        const renderedIds = getCurrentPageSecretIds();
+        Array.from(selectedSecrets).forEach(id => {
+            if (!renderedIds.has(id)) selectedSecrets.delete(id);
+        });
     }
 
-    const cssClass = selectedSecrets.size > 1 ? 'multi-selected' : 'selected';
-    pageRows.forEach((row, index) => {
-        const memberIds = getRowMemberIds(row);
-        if (!memberIds.some(id => selectedSecrets.has(id))) return;
-        const rowEl = getRowElement(startIndex + index);
-        if (rowEl) rowEl.classList.add(cssClass);
-    });
+    if (selectedSecrets.size === 0 || findDisplayRowIndexByKey(lastClickedKey) === -1) {
+        lastClickedKey = null;
+    }
+
+    applySelectionClasses();
 }
 
 function getStatusHTML(secret) {
@@ -1180,37 +1202,6 @@ function getStatusHTML(secret) {
     return statusNoneHtml('Без статуса');
 }
 
-function highlightSelectedRow(secretId) {
-    document.querySelectorAll('.secret-row').forEach(row => {
-        row.classList.remove('selected');
-        row.classList.remove('multi-selected');
-    });
-    const row = document.querySelector(`tr.secret-row[data-secret-id="${secretId}"]`);
-    if (row) {
-        row.classList.add('selected');
-    }
-}
-
-function refreshSecretRowInTable(secretId) {
-    const secret = allSecrets.find(s => s.id === secretId);
-    if (!secret) return;
-
-    const row = document.querySelector(`tr.secret-row[data-secret-id="${secretId}"]`);
-    if (!row) return;
-
-    const statusCell = row.querySelector('.secret-status');
-    if (statusCell) {
-        statusCell.innerHTML = getStatusHTML(secret);
-    }
-
-    const severityCell = row.querySelector('.secret-severity');
-    if (severityCell) {
-        severityCell.className = `secret-severity ${safeHtml(secret.severity).toLowerCase()}`;
-        severityCell.textContent = secret.severity;
-    }
-
-    row.className = `secret-row ${safeHtml(secret.severity).toLowerCase()}${row.classList.contains('selected') ? ' selected' : ''}`;
-}
 
 function refreshSecretDetailStatus(secretId) {
     const secret = allSecrets.find(s => s.id === secretId);
@@ -1281,43 +1272,52 @@ function refreshAfterSecretChange(secretId) {
         currentPage = previousPage;
     }
 
-    const stillVisible = filteredSecrets.some(s => s.id === secretId);
-    if (!stillVisible) {
-        renderTable();
-        renderPagination();
-        refreshSecretDetailStatus(secretId);
-        refreshSecretDetailSeverity(secretId);
-        return;
+    // Изменение статуса/критичности переупорядочивает и перегруппировывает displayRows
+    // (сортировка по умолчанию — по статусу, группы — по path+status). Таблицу
+    // нужно перерисовать всегда: точечный патч строки оставлял в DOM устаревшие
+    // data-row-index, и следующий Ctrl/Shift-клик выделял чужие секреты.
+    // Выделение после одиночного изменения — только этот секрет (если он виден).
+    selectedSecrets.clear();
+    lastClickedKey = null;
+    if (isSecretOnCurrentPage(secretId)) {
+        selectedSecrets.add(secretId);
+        lastClickedKey = `s:${secretId}`;
     }
 
-    const activeSortColumn = sortColumns[0]?.column;
-    const canPatchRow = isSecretOnCurrentPage(secretId)
-        && document.querySelector(`tr.secret-row[data-secret-id="${secretId}"]`)
-        && activeSortColumn !== 'status'
-        && activeSortColumn !== 'severity';
-
-    if (canPatchRow) {
-        refreshSecretRowInTable(secretId);
-        renderPagination();
-    } else {
-        renderTable();
-        renderPagination();
-    }
+    renderTable();
+    renderPagination();
 
     refreshSecretDetailStatus(secretId);
     refreshSecretDetailSeverity(secretId);
-    highlightSelectedRow(secretId);
 }
 
 function initializeTableEventListeners() {
     const secretRows = document.querySelectorAll('.secret-row');
-    secretRows.forEach((row) => {
-        row.addEventListener('click', function(e) {
-            const rowIndex = parseInt(row.dataset.rowIndex, 10);
-            const isGroup = row.dataset.isGroup === 'true';
-            const secretId = row.dataset.secretId ? parseInt(row.dataset.secretId, 10) : null;
-            const groupKey = row.dataset.groupKey ? decodeURIComponent(row.dataset.groupKey) : null;
-            handleRowClick(e, { rowIndex, isGroup, secretId, groupKey });
+    secretRows.forEach((rowEl) => {
+        rowEl.addEventListener('click', function(e) {
+            const rowKey = rowEl.dataset.rowKey ? decodeURIComponent(rowEl.dataset.rowKey) : null;
+            const rowIndex = findDisplayRowIndexByKey(rowKey);
+            const domIndex = parseInt(rowEl.dataset.rowIndex, 10);
+
+            // Защита: DOM не соответствует данным — ничего не выделяем,
+            // перерисовываем таблицу, чтобы пользователь кликнул по актуальной строке.
+            if (rowIndex === -1 || rowIndex !== domIndex) {
+                e.preventDefault();
+                console.warn('Secrets table is out of sync with data, re-rendering', { rowKey, rowIndex, domIndex });
+                renderTable();
+                renderPagination();
+                updateSelectionView();
+                return;
+            }
+
+            const row = displayRows[rowIndex];
+            handleRowClick(e, {
+                rowIndex,
+                rowKey,
+                isGroup: !!row.isGroup,
+                secretId: row.isGroup ? null : row.id,
+                groupKey: row.isGroup ? row.groupKey : null,
+            });
         });
     });
 
@@ -1403,7 +1403,7 @@ function goToPage(page) {
     const totalPages = Math.ceil(displayRows.length / pageSize);
     if (page >= 1 && page <= totalPages) {
         currentPage = page;
-        selectedSecrets.clear();
+        clearMultiSelection();
         showEmptyDetail();
         updateURL();
         renderTable();
@@ -1415,7 +1415,7 @@ function goToPage(page) {
 function changePageSize() {
     pageSize = parseInt(document.getElementById('pageSize').value);
     currentPage = 1;
-    selectedSecrets.clear();
+    clearMultiSelection();
     showEmptyDetail();
     updateURL();
     renderTable();
@@ -1443,22 +1443,22 @@ function toggleFiltersPanel() {
     }
 }
 
-function handleRowClick(e, { rowIndex, isGroup, secretId, groupKey }) {
+function handleRowClick(e, { rowIndex, rowKey, isGroup, secretId, groupKey }) {
     e.preventDefault();
 
     const isCtrlPressed = e.ctrlKey || e.metaKey;
 
     if (isCtrlPressed) {
-        toggleMultiSelection(rowIndex, isGroup, secretId, groupKey);
+        toggleMultiSelection(rowIndex);
         return;
     }
 
-    if (e.shiftKey && lastClickedIndex !== -1 && selectedSecrets.size > 0) {
-        selectRange(lastClickedIndex, rowIndex);
+    const anchorIndex = findDisplayRowIndexByKey(lastClickedKey);
+    if (e.shiftKey && anchorIndex !== -1 && selectedSecrets.size > 0) {
+        selectRange(anchorIndex, rowIndex);
         return;
     }
 
-    clearMultiSelection();
     selectSingleRow(rowIndex, isGroup, secretId, groupKey);
 }
 
@@ -1468,30 +1468,27 @@ function getRowMemberIds(row) {
     return [row.id];
 }
 
-function getRowElement(rowIndex) {
-    return document.querySelector(`tr.secret-row[data-row-index="${rowIndex}"]`);
+function getDisplayRowByElement(rowEl) {
+    if (!rowEl || !rowEl.dataset.rowKey) return null;
+    const index = findDisplayRowIndexByKey(decodeURIComponent(rowEl.dataset.rowKey));
+    return index === -1 ? null : displayRows[index];
 }
 
-function toggleMultiSelection(rowIndex, isGroup, secretId, groupKey) {
+function toggleMultiSelection(rowIndex) {
     const row = getDisplayRowByIndex(rowIndex);
     if (!row) return;
 
     const memberIds = getRowMemberIds(row);
-    const rowEl = getRowElement(rowIndex);
     const allSelected = memberIds.every(id => selectedSecrets.has(id));
 
     if (allSelected) {
         memberIds.forEach(id => selectedSecrets.delete(id));
-        if (rowEl) rowEl.classList.remove('multi-selected', 'selected');
     } else {
         memberIds.forEach(id => selectedSecrets.add(id));
-        if (rowEl) {
-            rowEl.classList.remove('selected');
-            rowEl.classList.add('multi-selected');
-        }
     }
 
-    lastClickedIndex = rowIndex;
+    lastClickedKey = getRowKey(row);
+    applySelectionClasses();
     updateSelectionView();
 }
 
@@ -1501,18 +1498,15 @@ function selectSingleRow(rowIndex, isGroup, secretId, groupKey) {
     const row = getDisplayRowByIndex(rowIndex);
     if (!row) return;
 
-    const rowEl = getRowElement(rowIndex);
+    getRowMemberIds(row).forEach(id => selectedSecrets.add(id));
+    currentSecret = row.isGroup ? null : row.id;
+    lastClickedKey = getRowKey(row);
+    applySelectionClasses();
 
-    if (rowEl) {
-        rowEl.classList.add('selected');
-        getRowMemberIds(row).forEach(id => selectedSecrets.add(id));
-        currentSecret = isGroup ? null : secretId;
-        lastClickedIndex = rowIndex;
-        if (isGroup) {
-            loadGroupDetails(row);
-        } else {
-            loadSecretDetails(secretId);
-        }
+    if (row.isGroup) {
+        loadGroupDetails(row);
+    } else {
+        loadSecretDetails(row.id);
     }
 }
 
@@ -1527,23 +1521,22 @@ function selectRange(startIndex, endIndex) {
         const row = displayRows[i];
         if (!row) continue;
         getRowMemberIds(row).forEach(id => selectedSecrets.add(id));
-        const rowEl = getRowElement(i);
-        if (rowEl) {
-            rowEl.classList.add('multi-selected');
-            rowEl.classList.remove('selected');
-        }
     }
 
-    lastClickedIndex = endIndex;
+    lastClickedKey = getRowKey(displayRows[endIndex]);
+    applySelectionClasses();
     updateSelectionView();
 }
 
-function selectSingleSecret(secretId, index) {
-    selectSingleRow(index, false, secretId, null);
+function selectSingleSecret(secretId) {
+    const rowIndex = findDisplayRowIndexByKey(`s:${secretId}`);
+    if (rowIndex === -1) return;
+    selectSingleRow(rowIndex, false, secretId, null);
 }
 
 function clearMultiSelection() {
     selectedSecrets.clear();
+    lastClickedKey = null;
     document.querySelectorAll('.secret-row').forEach(row => {
         row.classList.remove('selected', 'multi-selected');
     });
@@ -1617,18 +1610,11 @@ function showEmptyDetail() {
 }
 
 function selectAllVisibleSecrets() {
-    const visibleRows = document.querySelectorAll('.secret-row');
     selectedSecrets.clear();
-
-    visibleRows.forEach(rowEl => {
-        const rowIndex = parseInt(rowEl.dataset.rowIndex, 10);
-        const row = getDisplayRowByIndex(rowIndex);
-        if (!row) return;
+    getCurrentPageRows().forEach(row => {
         getRowMemberIds(row).forEach(id => selectedSecrets.add(id));
-        rowEl.classList.add('multi-selected');
-        rowEl.classList.remove('selected');
     });
-
+    applySelectionClasses();
     showBulkDetail();
 }
 
@@ -2184,15 +2170,7 @@ async function updateSecretStatus(secretId, status) {
 
 async function updateSecretSeverity(secretId, severity) {
     try {
-        const response = await fetch('/secret_scanner/secrets/bulk-action', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                secret_ids: [secretId],
-                action: 'severity',
-                value: severity
-            })
-        });
+        const response = await sendBulkAction([secretId], 'severity', severity, '');
         
         if (response.ok) {
             // Update local data
@@ -2209,74 +2187,106 @@ async function updateSecretSeverity(secretId, severity) {
     }
 }
 
+function applyLocalSecretChange(secretIds, action, value, comment) {
+    const idSet = new Set(secretIds);
+    const refutedAt = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    allSecrets.forEach(secret => {
+        if (!idSet.has(secret.id)) return;
+        if (action === 'status') {
+            secret.status = value;
+            if (value === 'Refuted') {
+                secret.is_exception = true;
+                secret.exception_comment = comment;
+                secret.refuted_at = refutedAt;
+            } else {
+                secret.is_exception = false;
+                secret.exception_comment = null;
+                secret.refuted_at = null;
+            }
+        } else if (action === 'severity') {
+            secret.severity = value;
+        }
+    });
+}
+
+function setBulkButtonsDisabled(disabled) {
+    document.querySelectorAll('#detailPanel .bulk-btn, #detailPanel .status-btn').forEach(btn => {
+        btn.disabled = disabled;
+    });
+}
+
+async function sendBulkAction(secretIds, action, value, comment) {
+    return fetch('/secret_scanner/secrets/bulk-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            scan_id: getScanIdFromUrl() || null,
+            secret_ids: secretIds,
+            action: action,
+            value: value,
+            comment: comment
+        })
+    });
+}
+
 async function performBulkAction(action, value) {
-    if (selectedSecrets.size === 0) {
+    if (bulkActionInFlight) return;
+
+    // Снимок выделения в момент нажатия: дальнейшие клики по таблице во время
+    // prompt/запроса не должны менять набор секретов, к которым применяется действие.
+    const secretIds = Array.from(selectedSecrets);
+    if (secretIds.length === 0) {
         alert('Пожалуйста выберите хотя бы один секрет');
         return;
     }
 
+    // Отправлять можно только то, что реально отображено на текущей странице.
+    const visibleIds = getCurrentPageSecretIds();
+    const hiddenIds = secretIds.filter(id => !visibleIds.has(id));
+    if (hiddenIds.length > 0) {
+        console.error('Bulk action aborted: selection contains secrets not shown on page', hiddenIds);
+        alert('Выделение рассинхронизировано с таблицей. Действие отменено, выделите секреты заново.');
+        clearMultiSelection();
+        showEmptyDetail();
+        renderTable();
+        renderPagination();
+        return;
+    }
+
     let comment = '';
-    // Если действие "Refuted", запросим комментарий
     if (action === 'status' && value === 'Refuted') {
-        const input = prompt('Введите комментарий (опционально):');
-        if (input === null) {
-            // Пользователь нажал "Отмена" — прекращаем действие
-            return;
-        }
+        const input = prompt(`Будет опровергнуто секретов: ${secretIds.length}.
+Введите комментарий (опционально):`);
+        if (input === null) return;
         comment = input;
     }
 
+    bulkActionInFlight = true;
+    setBulkButtonsDisabled(true);
     try {
-        const response = await fetch('/secret_scanner/secrets/bulk-action', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                secret_ids: Array.from(selectedSecrets),
-                action: action,
-                value: value,
-                comment: comment
-            })
-        });
-
+        const response = await sendBulkAction(secretIds, action, value, comment);
         if (!response.ok) {
             alert('Ошибка при выполнении массового действия');
             return;
         }
 
-        // Обновление локальных данных
-        selectedSecrets.forEach(secretId => {
-            const secret = allSecrets.find(s => s.id === secretId);
-            if (!secret) return;
+        applyLocalSecretChange(secretIds, action, value, comment);
 
-            if (action === 'status') {
-                secret.status = value;
-
-                if (value === 'Refuted') {
-                    secret.is_exception = true;
-                    secret.exception_comment = comment;
-                    secret.refuted_at = new Date().toISOString().slice(0, 16).replace('T', ' ');
-                } else {
-                    secret.is_exception = false;
-                    secret.exception_comment = null;
-                    secret.refuted_at = null;
-                }
-            } else if (action === 'severity') {
-                secret.severity = value;
-            }
-        });
-
-        // Очистка выделенных секретов и обновление UI
         selectedSecrets.clear();
         showEmptyDetail();
         applyFiltersSync();
-
     } catch (error) {
         console.error('Ошибка при выполнении массового действия:', error);
         alert('Ошибка при выполнении массового действия');
+    } finally {
+        bulkActionInFlight = false;
+        setBulkButtonsDisabled(false);
     }
 }
 
 function getScanIdFromUrl() {
+    const match = window.location.pathname.match(/\/scan\/([^/]+)\/results\/?$/);
+    if (match) return decodeURIComponent(match[1]);
     const pathParts = window.location.pathname.split('/');
     return pathParts[pathParts.length - 2];
 }
