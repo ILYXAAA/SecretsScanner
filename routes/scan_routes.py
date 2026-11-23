@@ -18,7 +18,7 @@ import base64
 from config import get_full_url, MICROSERVICE_URL, APP_HOST, APP_PORT, HUB_TYPE, get_auth_headers
 from models import Project, Scan, Secret, ForbiddenViolation
 from services.auth import get_current_user
-from services.database import get_db, sanitize_string
+from services.database import get_db, sanitize_string, SessionLocal
 from services.microservice_client import check_microservice_health
 from utils.ci_hash import build_hash_from_ci, normalize_path_for_ci_hash
 from utils.html_report_generator import generate_html_report, attachment_content_disposition
@@ -946,6 +946,17 @@ def propagate_secret_status_to_newer_scans(
 
     return affected_scan_ids
 
+async def run_results_background(handler, scan_id: str, data: dict):
+    """Запускает фоновую обработку со своей сессией БД (сессия запроса к этому моменту уже закрыта)"""
+    db = SessionLocal()
+    try:
+        await handler(scan_id, data, db)
+    except Exception:
+        db.rollback()
+        logger.exception(f"❌ Ошибка фоновой обработки результатов scan '{scan_id}'")
+    finally:
+        db.close()
+
 @router.post("/get_results/{project_name}/{scan_id}")
 async def receive_scan_results(project_name: str, scan_id: str, request: Request, 
                               background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
@@ -992,9 +1003,9 @@ async def receive_scan_results(project_name: str, scan_id: str, request: Request
     # Запускаем обработку в фоне
     try:
         if is_forbidden_callback(data, scan):
-            background_tasks.add_task(process_forbidden_results_background, scan_id, data, db)
+            background_tasks.add_task(run_results_background, process_forbidden_results_background, scan_id, data)
         else:
-            background_tasks.add_task(process_scan_results_background, scan_id, data, db)
+            background_tasks.add_task(run_results_background, process_scan_results_background, scan_id, data)
         
         processing_time = (datetime.now() - start_time).total_seconds()
         logger.info(f"⚡ Callback для scan '{scan_id}' принят и отправлен в фоновую обработку за {processing_time:.2f} секунд")
