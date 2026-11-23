@@ -3,7 +3,20 @@ import re
 import urllib.parse
 from datetime import datetime
 
-from utils.html_report_generator import sanitize_input, sanitize_js_string, sanitize_url
+from utils.html_report_generator import sanitize_input, sanitize_js_string, sanitize_url  # noqa: F401 (re-exported)
+from utils.report_ui import (
+    esc,
+    format_dt,
+    format_duration,
+    display_path,
+    split_path,
+    safe_href,
+    meta_item,
+    kpi,
+    verdict_block,
+    render_page,
+    copy_value_html,
+)
 
 
 def _parse_violation_reasons(raw_value) -> list:
@@ -49,306 +62,215 @@ def _build_file_url(project_repo_url: str, repo_commit: str, hub_type: str, path
         return "#"
 
 
-def generate_forbidden_html_report(scan, project, violations, hub_type):
-    project_name = sanitize_input(project.name)
-    project_repo_url = sanitize_url(project.repo_url)
-    repo_commit = sanitize_input(scan.repo_commit or "Unknown")
-    hub_type_safe = sanitize_input(hub_type)
+def _status_value(status) -> str:
+    if not status or status == "null":
+        return "No status"
+    return str(status)
 
-    total_violations = len(violations)
-    scan_date = sanitize_input(
-        scan.completed_at.strftime("%d.%m.%Y %H:%M") if scan.completed_at else "Unknown"
-    )
-    files_scanned = sanitize_input(scan.files_scanned or "Unknown")
-    blocking_count = sum(1 for v in violations if v.is_blocking)
 
-    violations_by_category = {}
-    for violation in violations:
-        category = sanitize_input(violation.category or "other")
-        violations_by_category.setdefault(category, []).append(violation)
+def resolve_forbidden_report_passed(scan, violations) -> bool:
+    """Итоговый статус: решение сканера (scan.forbidden_passed), иначе — отсутствие blocking-нарушений."""
+    if scan.forbidden_passed is not None:
+        return bool(scan.forbidden_passed)
+    return not any(v.is_blocking for v in violations)
 
-    html_content = f"""
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
-    <title>Отчет {project_name} Forbidden Check</title>
-    <style>
-        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            background: #f8f9fa;
-            padding: 2rem;
-        }}
-        .container {{
-            max-width: 1200px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-            overflow: hidden;
-        }}
-        .header {{
-            background: linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%);
-            color: white;
-            padding: 2rem;
-            text-align: center;
-        }}
-        .header h1 {{ font-size: 2.5rem; margin-bottom: 0.5rem; font-weight: 700; }}
-        .header p {{ font-size: 1.1rem; opacity: 0.9; }}
-        .meta-info {{ background: #f8f9fa; padding: 1.5rem 2rem; border-bottom: 1px solid #e9ecef; }}
-        .meta-item {{ display: flex; margin-bottom: 0.75rem; }}
-        .meta-item:last-child {{ margin-bottom: 0; }}
-        .meta-label {{ font-weight: 600; color: #6c757d; min-width: 180px; flex-shrink: 0; }}
-        .meta-value {{
-            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-            background: #e9ecef;
-            padding: 0.25rem 0.5rem;
-            border-radius: 4px;
-            font-size: 0.9rem;
-            word-break: break-all;
-        }}
-        .stats-grid {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 0.75rem;
-            margin-top: 1.5rem;
-        }}
-        .stat-card {{
-            background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
-            border: 1px solid #dee2e6;
-            border-radius: 8px;
-            padding: 1rem;
-            text-align: center;
-        }}
-        .stat-number {{ font-size: 1.5rem; font-weight: 600; color: #495057; margin-bottom: 0.5rem; }}
-        .stat-label {{
-            font-size: 0.9rem;
-            color: #6c757d;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }}
-        .violations-section {{ padding: 2rem; }}
-        .type-group {{ margin-bottom: 2rem; }}
-        .type-header {{
-            background: #f8f9fa;
-            padding: 1rem 1.5rem;
-            border-left: 4px solid #7c3aed;
-            border-radius: 0 8px 8px 0;
-            cursor: pointer;
-            user-select: none;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }}
-        .type-header:hover {{ background: #ede9fe; }}
-        .type-title {{ font-size: 1.3rem; font-weight: 600; margin-bottom: 0.25rem; }}
-        .type-count {{ color: #6c757d; font-size: 0.9rem; }}
-        .collapse-indicator {{ font-size: 1.2rem; color: #6c757d; }}
-        .type-content {{ overflow: hidden; transition: max-height 0.3s ease; }}
-        .type-content.collapsed {{ max-height: 0; }}
-        .type-content.expanded {{ max-height: none; }}
-        .violations-table {{
-            width: 100%;
-            border-collapse: collapse;
-            background: white;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            margin-top: 1rem;
-        }}
-        .violations-table th {{
-            background: #5b21b6;
-            color: white;
-            padding: 1rem;
-            text-align: left;
-            font-weight: 600;
-            font-size: 0.9rem;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }}
-        .violations-table td {{
-            padding: 1rem;
-            border-bottom: 1px solid #e9ecef;
-            vertical-align: top;
-        }}
-        .violations-table tr:hover {{ background: #f8f9fa; }}
-        .file-link {{
-            color: #0066cc;
-            text-decoration: none;
-            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-            font-size: 0.85rem;
-            word-break: break-all;
-            border-bottom: 1px dotted #0066cc;
-        }}
-        .badge {{
-            display: inline-block;
-            background: #f3f4f6;
-            padding: 0.25rem 0.5rem;
-            border-radius: 4px;
-            font-size: 0.8rem;
-            font-weight: 600;
-        }}
-        .badge.blocking {{ background: #fee2e2; color: #991b1b; }}
-        .badge.non-blocking {{ background: #f3f4f6; color: #374151; }}
-        .reasons {{ font-size: 0.85rem; color: #4b5563; }}
-        .footer {{
-            background: #f8f9fa;
-            padding: 1.5rem 2rem;
-            text-align: center;
-            color: #6c757d;
-            font-size: 0.9rem;
-            border-top: 1px solid #e9ecef;
-        }}
-        .no-violations {{ text-align: center; padding: 3rem; color: #6c757d; }}
-        .no-violations h3 {{ margin-bottom: 0.5rem; color: #059669; }}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>📁 Forbidden Check Report</h1>
-            <p>Результаты проверки расширений и языков файлов в репозитории</p>
-        </div>
-        <div class="meta-info">
-            <div class="meta-basic">
-                <div class="meta-item">
-                    <span class="meta-label">📁 Проект:</span>
-                    <span class="meta-value">{project_name}</span>
-                </div>
-                <div class="meta-item">
-                    <span class="meta-label">🔗 Репозиторий:</span>
-                    <span class="meta-value">{project_repo_url}</span>
-                </div>
-                <div class="meta-item">
-                    <span class="meta-label">⚙️ Коммит:</span>
-                    <span class="meta-value">{repo_commit}</span>
-                </div>
-            </div>
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-number">{scan_date}</div>
-                    <div class="stat-label">🕒 Дата сканирования</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-number">{files_scanned}</div>
-                    <div class="stat-label">📂 Файлов просканировано</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-number">{total_violations}</div>
-                    <div class="stat-label">⚠️ Нарушений найдено</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-number">{blocking_count}</div>
-                    <div class="stat-label">🛑 Blocking</div>
-                </div>
-            </div>
-        </div>
-        <div class="violations-section">
-            <h2>🔍 Обнаруженные нарушения</h2>
+
+_FORBIDDEN_SCHEMA_JS = r"""
+window.ReportSchema = (function () {
+  var LEVEL_ORDER = ['Blocking', 'Non-blocking'];
+  var LEVEL_CLASS = { 'Blocking': 'sev-crit', 'Non-blocking': 'sev-none' };
+  var ST_ORDER = ['Confirmed', 'No status', 'Refuted'];
+  var ST_LABEL = { 'Confirmed': 'Подтверждено', 'No status': 'Без статуса', 'Refuted': 'Опровергнуто' };
+  var ST_CLASS = { 'Confirmed': 'st-confirmed', 'No status': 'st-open', 'Refuted': 'st-refuted' };
+  function rank(order, v) { var i = order.indexOf(v); return i === -1 ? order.length : i; }
+  function byPath(a, b) { return a.path.localeCompare(b.path); }
+  function byLevel(a, b) { return rank(LEVEL_ORDER, a.level) - rank(LEVEL_ORDER, b.level); }
+  function levelBadge(h, v) { return h('span', { class: 'sev ' + (LEVEL_CLASS[v] || 'sev-none'), text: v }); }
+  function statusBadge(h, it) {
+    var wrap = h('span', null, h('span', { class: 'st ' + (ST_CLASS[it.status] || 'st-open'), text: ST_LABEL[it.status] || it.status }));
+    if (it.status === 'Refuted' && it.refutedAt) wrap.appendChild(h('span', { class: 'st-date', text: it.refutedAt }));
+    return wrap;
+  }
+  function kv(h, rows) {
+    var dl = h('dl', { class: 'kv' });
+    rows.forEach(function (r) { if (r && r[1] !== '' && r[1] !== null && r[1] !== undefined) { dl.appendChild(h('dt', { text: r[0] })); dl.appendChild(h('dd', null, r[1])); } });
+    return dl;
+  }
+
+  return {
+    noun: ['нарушения', 'нарушений', 'нарушений'],
+    searchPlaceholder: 'Поиск по пути, категории, причине…',
+    emptyTitle: 'Нарушения не обнаружены',
+    emptyText: 'Сканирование не выявило запрещённых файлов.',
+    facets: [
+      { key: 'level', label: 'Уровень', get: function (i) { return i.level; }, order: LEVEL_ORDER },
+      { key: 'status', label: 'Статус', get: function (i) { return i.status; }, order: ST_ORDER, labels: ST_LABEL, hiddenByDefault: ['Refuted'] },
+      { key: 'category', label: 'Категория', get: function (i) { return i.category; } },
+      { key: 'component', label: 'Компонент', get: function (i) { return i.component; } },
+      { key: 'lang', label: 'Язык', get: function (i) { return i.lang; } },
+      { key: 'ext', label: 'Расширение', get: function (i) { return i.ext; } }
+    ],
+    searchText: function (i) { return [i.path, i.category, i.lang, i.ext, i.reasons.join(' '), i.binaryReason, i.hash].join(' '); },
+    sorts: [
+      { key: 'level', label: 'Сначала blocking', cmp: function (a, b) { return byLevel(a, b) || a.category.localeCompare(b.category) || byPath(a, b); } },
+      { key: 'path', label: 'По пути к файлу', cmp: byPath },
+      { key: 'category', label: 'По категории', cmp: function (a, b) { return a.category.localeCompare(b.category) || byLevel(a, b) || byPath(a, b); } },
+      { key: 'size', label: 'По размеру', cmp: function (a, b) { return (b.size || 0) - (a.size || 0) || byPath(a, b); } }
+    ],
+    columns: [
+      { label: 'Уровень' },
+      { label: 'Файл' },
+      { label: 'Категория' },
+      { label: 'Размер', className: 'col-hide-sm' },
+      { label: 'Статус' }
+    ],
+    isMuted: function (i) { return i.status === 'Refuted'; },
+    renderCells: function (i, H) {
+      var h = H.h;
+      return [
+        levelBadge(h, i.level),
+        h('div', null, h('div', { class: 'loc-file', text: i.file }), i.dir ? h('div', { class: 'loc-dir', text: i.dir + '/' }) : null),
+        h('div', null, h('div', { text: i.category }), h('div', { class: 'sub-text', text: [i.lang, i.ext].filter(Boolean).join(' · ') })),
+        h('span', { class: 'sub-text', text: i.sizeText }),
+        statusBadge(h, i)
+      ];
+    },
+    renderDetail: function (i, H) {
+      var h = H.h;
+      var reasonsBox = h('div', { class: 'detail-box' }, h('h4', { text: 'Причины нарушения' }));
+      if (i.reasons.length) {
+        var ul = h('ul', { class: 'reasons' });
+        i.reasons.forEach(function (r) { ul.appendChild(h('li', { text: r })); });
+        reasonsBox.appendChild(ul);
+      } else reasonsBox.appendChild(h('div', { class: 'code-empty', text: 'Причины не указаны.' }));
+      var actions = h('div', { class: 'detail-actions' });
+      if (i.url) actions.appendChild(h('a', { class: 'btn btn-sm', href: i.url, target: '_blank', rel: 'noopener noreferrer', icon: 'ext' }, 'Открыть в репозитории'));
+      actions.appendChild(h('span', null, 'Путь', H.copyBtn(i.path, 'Копировать путь')));
+      reasonsBox.appendChild(actions);
+      var info = h('div', { class: 'detail-box' }, h('h4', { text: 'Сведения' }));
+      info.appendChild(kv(h, [
+        ['Уровень', levelBadge(h, i.level)],
+        ['Статус', statusBadge(h, i)],
+        ['Подтвердил', i.confirmedBy],
+        ['Категория', i.category],
+        ['Компонент', i.component],
+        ['Файл', h('span', { class: 'mono', text: i.path })],
+        ['Язык', i.lang],
+        ['Расширение', i.ext],
+        ['Размер', i.sizeText],
+        ['Бинарный', i.binary ? ('да' + (i.binaryReason ? ' — ' + i.binaryReason : '')) : ''],
+        ['ID находки', i.hash ? H.copyValue(i.hash, 'Копировать ID') : '']
+      ]));
+      return h('div', { class: 'detail-grid' }, reasonsBox, info);
+    },
+    hiddenNotice: function (state, facets, H, rerender) {
+      var f = facets.status;
+      if (!f || !f.total.Refuted || state.sel.status.has('Refuted')) return null;
+      return H.h('span', { class: 'notice no-print' }, 'Опровергнутые (' + f.total.Refuted + ') скрыты.',
+        H.h('button', { type: 'button', class: 'link-btn', text: 'Показать', onclick: function () { state.sel.status.add('Refuted'); rerender(); } }));
+    }
+  };
+})();
 """
 
-    if not violations:
-        html_content += """
-            <div class="no-violations">
-                <h3>✅ Нарушения не обнаружены</h3>
-                <p>Сканирование не выявило запрещённых файлов.</p>
-            </div>
-        """
+
+def generate_forbidden_html_report(scan, project, violations, hub_type):
+    repo_url_raw = (project.repo_url or "").strip()
+    violations = list(violations or [])
+
+    items = []
+    for v in violations:
+        path = display_path(v.path or "")
+        directory, filename, component, guessed_ext = split_path(path)
+        status = _status_value(v.status)
+        items.append({
+            "id": v.id,
+            "level": "Blocking" if v.is_blocking else "Non-blocking",
+            "status": status,
+            "path": path or "(не указан)",
+            "dir": directory,
+            "file": filename or path or "(не указан)",
+            "component": component,
+            "category": v.category or "other",
+            "lang": v.language or "—",
+            "ext": v.extension or guessed_ext,
+            "size": v.size if isinstance(v.size, int) else None,
+            "sizeText": _format_file_size(v.size),
+            "binary": bool(v.is_binary),
+            "binaryReason": v.binary_reason or "",
+            "reasons": _parse_violation_reasons(v.violation_reasons),
+            "hash": v.hash_from_ci or "",
+            "url": safe_href(_build_file_url(repo_url_raw, scan.repo_commit or "", hub_type, v.path or "")),
+            "refutedAt": format_dt(v.refuted_at) if status == "Refuted" else "",
+            "confirmedBy": (v.confirmed_by or "") if status == "Confirmed" else "",
+        })
+
+    active = [i for i in items if i["status"] != "Refuted"]
+    blocking = sum(1 for i in active if i["level"] == "Blocking")
+    non_blocking = len(active) - blocking
+    binary = sum(1 for i in active if i["binary"])
+    categories = len({i["category"] for i in active})
+
+    passed = resolve_forbidden_report_passed(scan, violations)
+    if passed:
+        tone, title = "success", "Пройдено"
+        text = ("Блокирующих нарушений нет." if not active
+                else f"Блокирующих нарушений нет; {len(active)} неблокирующих нарушений для сведения.")
     else:
-        for category, category_violations in sorted(violations_by_category.items()):
-            type_id = re.sub(r"[^a-zA-Z0-9_]", "_", category)
-            type_id_js = sanitize_js_string(type_id)
-            html_content += f"""
-            <div class="type-group">
-                <div class="type-header" onclick="toggleTypeGroup('{type_id_js}')">
-                    <div class="type-header-content">
-                        <div class="type-title">🏷️ {category}</div>
-                        <div class="type-count">{len(category_violations)} нарушений</div>
-                    </div>
-                    <div class="collapse-indicator" id="indicator_{type_id}">Свернуть 🔽</div>
-                </div>
-                <div class="type-content expanded" id="content_{type_id}">
-                    <table class="violations-table">
-                        <thead>
-                            <tr>
-                                <th>📁 Path</th>
-                                <th>📎 Extension</th>
-                                <th>🌐 Language</th>
-                                <th>📦 Size</th>
-                                <th>⚠️ Level</th>
-                                <th>📝 Reasons</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-            """
+        tone, title = "danger", "Не пройдено"
+        text = (f"Обнаружено блокирующих нарушений: {blocking}. Удалите запрещённые файлы из репозитория."
+                if blocking else "Проверка не пройдена по решению сканера.")
 
-            for violation in category_violations:
-                path = sanitize_input((violation.path or "").replace("/devzone_repository/", ""))
-                extension = sanitize_input(violation.extension or "—")
-                language = sanitize_input(violation.language or "—")
-                size_text = sanitize_input(_format_file_size(violation.size))
-                level_class = "blocking" if violation.is_blocking else "non-blocking"
-                level_text = "Blocking" if violation.is_blocking else "Non-blocking"
-                reasons = _parse_violation_reasons(violation.violation_reasons)
-                reasons_html = "<br>".join(f"• {sanitize_input(reason)}" for reason in reasons) or "—"
-                file_url = sanitize_url(
-                    _build_file_url(project.repo_url or "", scan.repo_commit or "", hub_type, violation.path or "")
-                )
+    repo_href = safe_href(repo_url_raw)
+    repo_html = (
+        f'<a href="{esc(repo_href)}" target="_blank" rel="noopener noreferrer">{esc(repo_url_raw)}</a>'
+        if repo_href else esc(repo_url_raw or "—")
+    )
+    ref_html = ""
+    if scan.ref:
+        ref_label = {"branch": "ветка", "tag": "тег", "commit": "коммит"}.get((scan.ref_type or "").lower(), scan.ref_type or "")
+        ref_html = esc(scan.ref) + (f' <span class="sub-text">({esc(ref_label)})</span>' if ref_label else "")
+    commit_html = ""
+    if scan.repo_commit:
+        commit_html = copy_value_html(scan.repo_commit, "Копировать коммит", scan.repo_commit[:12])
+    files_html = ""
+    if scan.files_scanned is not None:
+        files_html = esc(f"{scan.files_scanned:,}".replace(",", " "))
 
-                html_content += f"""
-                            <tr>
-                                <td>
-                                    <a href="{file_url}" target="_blank" rel="noopener noreferrer" class="file-link">{path}</a>
-                                </td>
-                                <td><span class="badge">{extension}</span></td>
-                                <td>{language}</td>
-                                <td>{size_text}</td>
-                                <td><span class="badge {level_class}">{level_text}</span></td>
-                                <td class="reasons">{reasons_html}</td>
-                            </tr>
-                """
+    meta_html = "".join([
+        meta_item("Ветка / тег", ref_html),
+        meta_item("Коммит", commit_html, mono=True),
+        meta_item("Дата сканирования", esc(format_dt(scan.completed_at) or "—")),
+        meta_item("Длительность", esc(format_duration(scan.started_at, scan.completed_at))),
+        meta_item("Файлов просканировано", files_html),
+        meta_item("ID сканирования", copy_value_html(scan.id, "Копировать ID"), mono=True),
+    ])
 
-            html_content += """
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-            """
+    overview_html = (
+        '<div class="card scan-card">'
+        '<div class="eyebrow">Отчёт о проверке запрещённых файлов</div>'
+        f'<h1 class="scan-title">{esc(project.name)}</h1>'
+        f'<div class="scan-repo">{repo_html}</div>'
+        f'<dl class="meta">{meta_html}</dl>'
+        '</div>'
+        f'<div class="overview-side">{verdict_block(tone, title, text)}</div>'
+    )
 
-    current_time = sanitize_input(datetime.now().strftime("%d.%m.%Y %H:%M"))
-    html_content += f"""
-        </div>
-        <div class="footer">
-            <p>📋 Отчет сгенерирован с помощью Secrets Scanner (Forbidden Check)</p>
-            <p class="time-left">🕒 {current_time}</p>
-        </div>
-    </div>
-    <script>
-        function toggleTypeGroup(typeId) {{
-            if (!typeId || typeof typeId !== 'string') return;
-            typeId = typeId.replace(/[^a-zA-Z0-9_]/g, '_');
-            const content = document.getElementById('content_' + typeId);
-            const indicator = document.getElementById('indicator_' + typeId);
-            if (!content || !indicator) return;
-            if (content.classList.contains('expanded')) {{
-                content.classList.remove('expanded');
-                content.classList.add('collapsed');
-                indicator.textContent = 'Развернуть ▶️';
-            }} else {{
-                content.classList.remove('collapsed');
-                content.classList.add('expanded');
-                indicator.textContent = 'Свернуть 🔽';
-            }}
-        }}
-    </script>
-</body>
-</html>
-    """
+    kpis_html = "".join([
+        kpi("Нарушения", len(active), "всего в отчёте", "", "*"),
+        kpi("Blocking", blocking, "блокируют проверку", "crit" if blocking else "", "level:Blocking"),
+        kpi("Non-blocking", non_blocking, "для сведения", "", "level:Non-blocking"),
+        kpi("Бинарные файлы", binary, "среди нарушений", "", ""),
+        kpi("Категорий", categories, "типов нарушений", "", ""),
+    ])
 
-    return html_content
+    return render_page(
+        title=f"{project.name} — отчёт Forbidden Check",
+        kind_label="Запрещённые файлы",
+        overview_html=overview_html,
+        kpis_html=kpis_html,
+        findings_title="Нарушения",
+        findings_sub="Нажмите на строку, чтобы увидеть причины и детали",
+        data={"items": items},
+        schema_js=_FORBIDDEN_SCHEMA_JS,
+    )

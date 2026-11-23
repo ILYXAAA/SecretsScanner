@@ -188,6 +188,91 @@ def get_secrets_for_export(
     ]
 
 
+HTML_REPORT_MAX_ITEMS = 15000  # max findings in one HTML report (secrets or violations)
+REPORT_REFUTED_LIMIT = HTML_REPORT_MAX_ITEMS
+_ORIGIN_LOOKUP_CHUNK = 500
+
+
+def get_refuted_secrets_for_report(
+    db,
+    scan_id: str,
+    status_filters=None,
+    severity_filters=None,
+    type_filters=None,
+    search: str = "",
+):
+    """Refuted findings that are always added to the HTML report (hidden there by default).
+
+    The status filter is ignored on purpose: refuted findings are included even when
+    "Refuted" was not selected on the page. Severity/type/search filters still apply,
+    with the same semantics as get_secrets_for_export.
+    Returns (secrets, total_refuted_count).
+    """
+    status_filters = status_filters or []
+    severity_filters = severity_filters or []
+    type_filters = type_filters or []
+    search = search or ""
+
+    secrets = db.query(Secret).filter(
+        Secret.scan_id == scan_id,
+        Secret.status == "Refuted",
+    ).order_by(Secret.refuted_at.desc(), Secret.path, Secret.line).all()
+
+    if has_export_filters(status_filters, severity_filters, type_filters, search):
+        if not severity_filters or not type_filters:
+            return [], 0
+        secrets = [
+            secret for secret in secrets
+            if secret_matches_export_filters(secret, [], severity_filters, type_filters, search)
+        ]
+
+    return secrets[:REPORT_REFUTED_LIMIT], len(secrets)
+
+
+def get_refutation_origins(db, scan, secrets) -> dict:
+    """Find the scan (commit) in which each refuted secret was refuted.
+
+    A refutation is propagated to newer scans by hash_from_ci together with the
+    original refuted_at, so the origin is the earliest scan of the project holding
+    the same hash with the same refuted_at. Secrets without hash_from_ci or
+    refuted_at are skipped (origin unknown).
+    Returns {secret_id: {"scan_id", "commit", "date"}}.
+    """
+    refuted = [
+        secret for secret in secrets
+        if normalize_export_status(secret.status) == "Refuted" and secret.hash_from_ci and secret.refuted_at
+    ]
+    if not refuted or not scan:
+        return {}
+
+    hashes = list({secret.hash_from_ci for secret in refuted})
+    earliest = {}
+    for start in range(0, len(hashes), _ORIGIN_LOOKUP_CHUNK):
+        chunk = hashes[start:start + _ORIGIN_LOOKUP_CHUNK]
+        rows = db.query(
+            Secret.hash_from_ci, Secret.refuted_at, Scan.id, Scan.repo_commit, Scan.completed_at, Scan.started_at
+        ).join(Scan, Secret.scan_id == Scan.id).filter(
+            Scan.project_name == scan.project_name,
+            Secret.status == "Refuted",
+            Secret.hash_from_ci.in_(chunk),
+            Secret.refuted_at.is_not(None),
+        ).all()
+        for hash_value, refuted_at, origin_scan_id, commit, completed_at, started_at in rows:
+            scan_date = completed_at or started_at
+            if scan_date is None:
+                continue
+            key = (hash_value, refuted_at)
+            current = earliest.get(key)
+            if current is None or scan_date < current["date"]:
+                earliest[key] = {"scan_id": origin_scan_id, "commit": commit or "", "date": scan_date}
+
+    return {
+        secret.id: earliest[(secret.hash_from_ci, secret.refuted_at)]
+        for secret in refuted
+        if (secret.hash_from_ci, secret.refuted_at) in earliest
+    }
+
+
 def build_secret_export_item(secret, project_name: str = "") -> dict:
     """Serialize a Secret for JSON file export."""
     path = secret.path or ""
@@ -1661,12 +1746,12 @@ async def export_scan_results_html(
                 ForbiddenViolation.is_exception == False,
             ).scalar() or 0
 
-            if violations_count > 3000:
+            if violations_count > HTML_REPORT_MAX_ITEMS:
                 raise HTTPException(
                     status_code=400,
                     detail=(
                         f"Cannot generate HTML report: too many violations ({violations_count}). "
-                        f"Maximum allowed: 3000. Please use JSON export instead."
+                        f"Maximum allowed: {HTML_REPORT_MAX_ITEMS}. Please use JSON export instead."
                     ),
                 )
 
@@ -1697,16 +1782,26 @@ async def export_scan_results_html(
         secrets_count = len(secrets)
         
         # Проверить лимит
-        if secrets_count > 3000:
+        if secrets_count > HTML_REPORT_MAX_ITEMS:
             raise HTTPException(
                 status_code=400, 
                 detail=f"Cannot generate HTML report: too many secrets ({secrets_count}). "
-                       f"Maximum allowed: 3000. Please use JSON export instead."
+                       f"Maximum allowed: {HTML_REPORT_MAX_ITEMS}. Please use JSON export instead."
             )
         
         # Выполнить генерацию отчета в отдельном потоке
+        refuted_secrets, refuted_total = get_refuted_secrets_for_report(
+            db,
+            scan_id,
+            status_filters=status_filter,
+            severity_filters=severity_filter,
+            type_filters=type_filter,
+            search=search,
+        )
+
         html_content = await asyncio.to_thread(
-            generate_html_report, scan, project, secrets, HUB_TYPE
+            generate_html_report, scan, project, secrets, HUB_TYPE, refuted_secrets, refuted_total,
+            get_refutation_origins(db, scan, list(secrets) + list(refuted_secrets)),
         )
         
         filename = f"{scan.project_name}_{commit_short}.html"

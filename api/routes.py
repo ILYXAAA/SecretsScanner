@@ -27,7 +27,12 @@ from utils.project_name import generate_project_name_from_repo_url
 from services.microservice_client import check_microservice_health
 from utils.html_report_generator import generate_html_report, attachment_content_disposition
 from utils.forbidden_html_report_generator import generate_forbidden_html_report
-from routes.scan_routes import get_secrets_for_export
+from routes.scan_routes import (
+    get_secrets_for_export,
+    get_refuted_secrets_for_report,
+    get_refutation_origins,
+    HTML_REPORT_MAX_ITEMS,
+)
 
 logger = logging.getLogger("main")
 user_logger = logging.getLogger("user_actions")
@@ -1330,10 +1335,10 @@ async def api_forbidden_check(
     **Prerequisites:**
     - Scan must exist
     - Scan must be completed (status: "completed")
-    - Maximum 3000 items allowed (secrets or violations, for performance reasons)
+    - Maximum 15000 items allowed (secrets or violations, for performance reasons)
     
     **Limitations:**
-    - HTML reports are limited to 3000 items maximum
+    - HTML reports are limited to 15000 items maximum
     - For secrets scans with more results, use `/scan/{scan_id}/results`
     - For forbidden scans with more results, use `/scan/{scan_id}/forbidden-results`
     
@@ -1393,14 +1398,14 @@ async def api_scan_export_html(
                 ForbiddenViolation.is_exception == False,
             ).scalar() or 0
 
-            if violations_count > 3000:
+            if violations_count > HTML_REPORT_MAX_ITEMS:
                 return JSONResponse(
                     status_code=400,
                     content={
                         "success": False,
                         "message": (
                             f"Cannot generate HTML report: too many violations ({violations_count}). "
-                            f"Maximum allowed: 3000. Please use /scan/{scan_id}/forbidden-results instead."
+                            f"Maximum allowed: {HTML_REPORT_MAX_ITEMS}. Please use /scan/{scan_id}/forbidden-results instead."
                         ),
                     },
                 )
@@ -1439,18 +1444,28 @@ async def api_scan_export_html(
         secrets_count = len(secrets)
         
         # Check limit
-        if secrets_count > 3000:
+        if secrets_count > HTML_REPORT_MAX_ITEMS:
             return JSONResponse(
                 status_code=400,
                 content={
                     "success": False,
-                    "message": f"Cannot generate HTML report: too many secrets ({secrets_count}). Maximum allowed: 3000. Please use JSON export instead."
+                    "message": f"Cannot generate HTML report: too many secrets ({secrets_count}). Maximum allowed: {HTML_REPORT_MAX_ITEMS}. Please use JSON export instead."
                 }
             )
         
+        refuted_secrets, refuted_total = get_refuted_secrets_for_report(
+            db,
+            scan_id,
+            status_filters=status_filter,
+            severity_filters=severity_filter,
+            type_filters=type_filter,
+            search=search,
+        )
+
         # Generate HTML report in separate thread
         html_content = await asyncio.to_thread(
-            generate_html_report, scan, project, secrets, HUB_TYPE
+            generate_html_report, scan, project, secrets, HUB_TYPE, refuted_secrets, refuted_total,
+            get_refutation_origins(db, scan, list(secrets) + list(refuted_secrets)),
         )
         
         # Generate filename
