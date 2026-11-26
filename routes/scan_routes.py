@@ -21,6 +21,7 @@ from services.auth import get_current_user
 from services.database import get_db, sanitize_string, SessionLocal
 from services.microservice_client import check_microservice_health
 from utils.ci_hash import build_hash_from_ci, normalize_path_for_ci_hash
+from utils.project_name import ci_project_name
 from utils.html_report_generator import generate_html_report, attachment_content_disposition
 from utils.forbidden_html_report_generator import generate_forbidden_html_report
 from services.templates import templates
@@ -38,6 +39,28 @@ logger = logging.getLogger("main")
 user_logger = logging.getLogger("user_actions")
 
 router = APIRouter()
+
+AUTO_REFUTED_PREFIX = "auto: refuted in "
+
+
+def get_ci_project_name(db: Session, project_name: str) -> str:
+    """Project name for hash_from_ci: derived from the entity's repo URL, not from its name."""
+    project = db.query(Project).filter(Project.name == project_name).first()
+    if project and project.repo_url:
+        try:
+            return ci_project_name(project.repo_url)
+        except ValueError:
+            pass
+    return project_name or ""
+
+
+def build_auto_refuted_comment(origin_project: str, origin_scan_id: str, original_comment) -> str:
+    """Comment for a Refuted decision inherited from another entity."""
+    original_comment = original_comment or ""
+    if original_comment.startswith(AUTO_REFUTED_PREFIX):
+        return original_comment  # already points to the original source
+    label = f"{AUTO_REFUTED_PREFIX}{origin_project} / scan {origin_scan_id}"
+    return f"{label}. {original_comment}" if original_comment else label
 
 
 def decompress_callback_data(payload: dict) -> dict:
@@ -320,6 +343,8 @@ def build_secret_dict(secret, previous_status=None, previous_scan_date=None, pro
 
 def build_secrets_data_list(db, scan_id, include_previous_status=False, scan=None, project_name=None):
     """Build secrets_data list for a scan."""
+    entity_name = project_name
+    project_name = get_ci_project_name(db, entity_name) if entity_name else None
     all_secrets_query = db.query(Secret).filter(Secret.scan_id == scan_id).order_by(
         Secret.severity == 'Potential',
         Secret.path,
@@ -341,11 +366,11 @@ def build_secrets_data_list(db, scan_id, include_previous_status=False, scan=Non
                 for secret in all_secrets_query
             }
             previous_decisions_by_hash = load_latest_secret_decisions_by_hash(
-                db, project_name, scan_id, hash_values
+                db, entity_name, scan_id, hash_values
             )
 
         previous_scans = db.query(Scan.id, Scan.completed_at).filter(
-            Scan.project_name == project_name,
+            Scan.project_name == entity_name,
             Scan.id != scan_id,
             Scan.completed_at < scan.completed_at
         ).order_by(Scan.completed_at.desc()).all()
@@ -622,7 +647,13 @@ def load_latest_secret_decisions_by_hash(
     exclude_scan_id: str,
     hash_values: set,
 ) -> dict:
-    """Latest Refuted/Confirmed secret per hash_from_ci across all completed project scans."""
+    """Latest decision per hash_from_ci.
+
+    Priority: the latest Refuted/Confirmed decision within the entity's own scans;
+    if there is none, the latest Refuted decision from any other entity (the
+    hash already includes the CI project name, so it is repo-specific). Foreign
+    decisions carry `_origin = (entity_name, scan_id)`.
+    """
     if not hash_values:
         return {}
 
@@ -650,6 +681,29 @@ def load_latest_secret_decisions_by_hash(
             if secret.hash_from_ci and secret.hash_from_ci not in decisions:
                 decisions[secret.hash_from_ci] = secret
 
+        missing = [h for h in chunk if h not in decisions]
+        if not missing:
+            continue
+
+        foreign_rows = (
+            db_session.query(Secret, Scan.project_name, Scan.id)
+            .join(Scan, Secret.scan_id == Scan.id)
+            .filter(
+                Scan.project_name != project_name,
+                Scan.status == "completed",
+                Scan.completed_at.isnot(None),
+                Secret.hash_from_ci.in_(missing),
+                Secret.status == "Refuted",
+            )
+            .order_by(Scan.completed_at.desc())
+            .all()
+        )
+
+        for secret, origin_project, origin_scan_id in foreign_rows:
+            if secret.hash_from_ci and secret.hash_from_ci not in decisions:
+                secret._origin = (origin_project, origin_scan_id)
+                decisions[secret.hash_from_ci] = secret
+
     return decisions
 
 
@@ -665,6 +719,7 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
             return
         
         project_name = scan.project_name
+        ci_project = get_ci_project_name(db_session, project_name)
         logger.info(f"🔍 Текущий статус скана '{scan_id}': {scan.status}")
 
         # Check if scan completed with error
@@ -770,7 +825,7 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
                 for result in batch:
                     batch_hash_values.add(
                         build_hash_from_ci(
-                            project_name,
+                            ci_project,
                             sanitize_string(result.get("path", "")),
                             sanitize_string(result.get("secret", "")),
                             result.get("line", 0),
@@ -793,7 +848,7 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
                         path = sanitize_string(result.get("path", ""))
                         line = result.get("line", 0)
                         secret_value = sanitize_string(result.get("secret", ""))
-                        secret_hash = build_hash_from_ci(project_name, path, secret_value, line)
+                        secret_hash = build_hash_from_ci(ci_project, path, secret_value, line)
                         most_recent_secret = previous_decisions_by_hash.get(secret_hash)
 
                         # Apply the most recent decision
@@ -802,6 +857,11 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
                                 is_exception = True
                                 status = "Refuted"
                                 exception_comment = most_recent_secret.exception_comment
+                                origin = getattr(most_recent_secret, "_origin", None)
+                                if origin:
+                                    exception_comment = build_auto_refuted_comment(
+                                        origin[0], origin[1], exception_comment
+                                    )
                                 refuted_at = most_recent_secret.refuted_at
                                 statuses_applied["Refuted"] += 1
                             elif most_recent_secret.status == "Confirmed":
@@ -889,7 +949,7 @@ async def process_scan_results_background(scan_id: str, data: dict, db_session: 
                         line=manual_secret.line,
                         secret=manual_secret.secret,
                         hash_from_ci=build_hash_from_ci(
-                            project_name,
+                            ci_project,
                             manual_secret.path or "",
                             manual_secret.secret or "",
                             manual_secret.line or 0,
@@ -1028,6 +1088,67 @@ def propagate_secret_status_to_newer_scans(
     for matching_secret in matching_secrets_query.all():
         apply_secret_status(matching_secret, status, comment, current_user, changed_at)
         affected_scan_ids.add(matching_secret.scan_id)
+
+    affected_scan_ids |= propagate_refuted_to_other_entities(
+        db, source_secret, source_scan, status, comment, current_user, changed_at
+    )
+
+    return affected_scan_ids
+
+
+def propagate_refuted_to_other_entities(
+    db: Session,
+    source_secret: Secret,
+    source_scan: Scan,
+    status: str,
+    comment: str,
+    current_user: str,
+    changed_at: datetime,
+) -> set:
+    """Make Refuted global: apply it to the same hash in the latest scan of every other entity.
+
+    - Refuted: only secrets still without a decision ("No status") are updated;
+      Confirmed/own Refuted decisions of other entities are left untouched.
+    - Reset to "No status": only auto-refuted secrets pointing to this entity are reverted.
+    - Confirmed is never propagated across entities.
+    """
+    if not source_secret.hash_from_ci or status not in ("Refuted", "No status"):
+        return set()
+
+    rows = (
+        db.query(Secret, Scan.project_name, Scan.completed_at)
+        .join(Scan, Secret.scan_id == Scan.id)
+        .filter(
+            Scan.project_name != source_scan.project_name,
+            Scan.status == "completed",
+            Scan.completed_at.isnot(None),
+            Secret.hash_from_ci == source_secret.hash_from_ci,
+        )
+        .all()
+    )
+
+    latest_scan_by_entity = {}
+    for secret, entity, completed_at in rows:
+        current = latest_scan_by_entity.get(entity)
+        if current is None or completed_at > current[0]:
+            latest_scan_by_entity[entity] = (completed_at, secret.scan_id)
+
+    auto_comment = build_auto_refuted_comment(source_scan.project_name, source_scan.id, comment)
+    revert_prefix = f"{AUTO_REFUTED_PREFIX}{source_scan.project_name} / "
+
+    affected_scan_ids = set()
+    for secret, entity, _ in rows:
+        if secret.scan_id != latest_scan_by_entity[entity][1]:
+            continue
+        if status == "Refuted":
+            if secret.status not in (None, "No status"):
+                continue
+            apply_secret_status(secret, "Refuted", auto_comment, current_user, changed_at)
+        else:
+            if secret.status != "Refuted" or not (secret.exception_comment or "").startswith(revert_prefix):
+                continue
+            apply_secret_status(secret, "No status", "", current_user, changed_at)
+        affected_scan_ids.add(secret.scan_id)
 
     return affected_scan_ids
 
@@ -1350,7 +1471,7 @@ async def add_custom_secret(request: Request, scan_id: str = Form(...), secret_v
             line=line,
             secret=modified_secret_value,
             hash_from_ci=build_hash_from_ci(
-                scan.project_name or "",
+                get_ci_project_name(db, scan.project_name),
                 normalized_path or "",
                 modified_secret_value or "",
                 line or 0,
@@ -1696,9 +1817,8 @@ async def export_scan_results(
             search=search,
         )
 
-        export_data = [
-            build_secret_export_item(secret, scan.project_name or "") for secret in secrets
-        ]
+        ci_project = get_ci_project_name(db, scan.project_name)
+        export_data = [build_secret_export_item(secret, ci_project) for secret in secrets]
 
         # Generate filename
         filename = f"{scan.project_name}_{commit_short}.json"

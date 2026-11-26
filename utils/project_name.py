@@ -23,6 +23,16 @@ def derive_project_name_from_repo_url(repo_url: str) -> str:
     return segment.replace("-", "_").replace(".", "_")
 
 
+def ci_project_name(repo_url: str) -> str:
+    """
+    Project name used in hash_from_ci and by the external CI container.
+
+    Always derived from the repository URL (never from the entity name and
+    without uniqueness suffixes), so it matches the container's own rule.
+    """
+    return derive_project_name_from_repo_url(repo_url)
+
+
 def allocate_unique_project_name_from_set(base_name: str, used_names: set) -> str:
     """Return a unique project name using an in-memory set (for migrations/batch renames)."""
     project_name = base_name
